@@ -1,6 +1,4 @@
 DOMAIN = "ev_smart_charger"
-PLATFORMS = ["sensor", "select"]
-MODES = ["off", "cheap", "pv_hybrid"]
 DEFAULT_NAME = "EV Smart Charger"
 
 # Configuration keys
@@ -19,3 +17,14 @@ CHARGER_AMP_LEVELS = [6, 8, 10, 13, 16, 20, 24, 32]
 CHARGER_STATUS_CHARGING = "charger_charging"
 CHARGER_STATUS_FREE = "charger_free"
 CHARGER_STATUS_END = "charger_end"
+
+# Helper entity IDs (auto-created by integration)
+HELPER_FORZA_RICARICA = "input_boolean.evsc_forza_ricarica"
+HELPER_SMART_BLOCKER_ENABLED = "input_boolean.evsc_smart_charger_blocker_enabled"
+HELPER_SOLAR_THRESHOLD = "input_number.evsc_solar_production_threshold"
+
+# Automation IDs
+AUTOMATION_SMART_BLOCKER = "automation.evsc_smart_charger_blocker"
+
+# Default values
+DEFAULT_SOLAR_THRESHOLD = 50  # Watts

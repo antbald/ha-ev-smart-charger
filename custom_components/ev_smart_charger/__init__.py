@@ -2,10 +2,8 @@ from __future__ import annotations
 import logging
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
 from .const import (
     DOMAIN,
-    PLATFORMS,
     CONF_EV_CHARGER_SWITCH,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
@@ -14,6 +12,8 @@ from .const import (
     CONF_FV_PRODUCTION,
     CONF_HOME_CONSUMPTION,
 )
+from .helpers import async_create_helpers, async_remove_helpers
+from .automations import async_setup_automations, async_remove_automations
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,27 +22,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up EV Smart Charger from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Store configuration data
-    hass.data[DOMAIN][entry.entry_id] = {
-        "config": entry.data,
-        "mode": "off",  # Default mode
-    }
-
     # Log the configured entities
     _LOGGER.info("EV Smart Charger configured with entities:")
     _LOGGER.info(f"  - Charger Switch: {entry.data.get(CONF_EV_CHARGER_SWITCH)}")
-    _LOGGER.info(f"  - Charger Current: {entry.data.get(CONF_EV_CHARGER_CURRENT, 'Not configured')}")
+    _LOGGER.info(f"  - Charger Current: {entry.data.get(CONF_EV_CHARGER_CURRENT)}")
     _LOGGER.info(f"  - Charger Status: {entry.data.get(CONF_EV_CHARGER_STATUS)}")
-    _LOGGER.info(f"  - Car SOC: {entry.data.get(CONF_SOC_CAR, 'Not configured')}")
-    _LOGGER.info(f"  - Home SOC: {entry.data.get(CONF_SOC_HOME, 'Not configured')}")
-    _LOGGER.info(f"  - FV Production: {entry.data.get(CONF_FV_PRODUCTION, 'Not configured')}")
-    _LOGGER.info(f"  - Home Consumption: {entry.data.get(CONF_HOME_CONSUMPTION, 'Not configured')}")
+    _LOGGER.info(f"  - Car SOC: {entry.data.get(CONF_SOC_CAR)}")
+    _LOGGER.info(f"  - Home SOC: {entry.data.get(CONF_SOC_HOME)}")
+    _LOGGER.info(f"  - FV Production: {entry.data.get(CONF_FV_PRODUCTION)}")
+    _LOGGER.info(f"  - Home Consumption: {entry.data.get(CONF_HOME_CONSUMPTION)}")
 
-    # Set up platforms
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Create helper entities
+    try:
+        await async_create_helpers(hass)
+    except Exception as e:
+        _LOGGER.error(f"Failed to create helpers: {e}")
+        return False
+
+    # Set up automations
+    try:
+        automations = await async_setup_automations(hass, entry.entry_id, entry.data)
+    except Exception as e:
+        _LOGGER.error(f"Failed to set up automations: {e}")
+        return False
+
+    # Store configuration data and automations
+    hass.data[DOMAIN][entry.entry_id] = {
+        "config": entry.data,
+        "automations": automations,
+    }
 
     # Register update listener
     entry.async_on_unload(entry.add_update_listener(_reload_on_update))
+
+    _LOGGER.info("✅ EV Smart Charger setup completed successfully")
 
     return True
 
@@ -54,9 +67,20 @@ async def _reload_on_update(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    # Remove automations
+    entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
+    automations = entry_data.get("automations", {})
 
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
+    if automations:
+        await async_remove_automations(automations)
 
-    return unload_ok
+    # Remove helpers (only on final unload, not on reload)
+    # Note: We keep helpers so users don't lose their settings
+    # Uncomment the line below if you want to remove helpers on unload
+    # await async_remove_helpers(hass)
+
+    hass.data[DOMAIN].pop(entry.entry_id, None)
+
+    _LOGGER.info("EV Smart Charger unloaded successfully")
+
+    return True
