@@ -13,9 +13,6 @@ from .const import (
     CONF_EV_CHARGER_STATUS,
     CONF_FV_PRODUCTION,
     CHARGER_STATUS_CHARGING,
-    HELPER_FORZA_RICARICA,
-    HELPER_SMART_BLOCKER_ENABLED,
-    HELPER_SOLAR_THRESHOLD,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,6 +27,20 @@ class SmartChargerBlocker:
         self.entry_id = entry_id
         self.config = config
         self._unsub = None
+
+        # Find helper entities dynamically
+        self._forza_ricarica_entity = self._find_entity_by_suffix("evsc_forza_ricarica")
+        self._blocker_enabled_entity = self._find_entity_by_suffix("evsc_smart_charger_blocker_enabled")
+        self._solar_threshold_entity = self._find_entity_by_suffix("evsc_solar_production_threshold")
+
+    def _find_entity_by_suffix(self, suffix: str) -> str | None:
+        """Find entity ID by suffix."""
+        for entity_id in self.hass.states.async_entity_ids():
+            if entity_id.endswith(suffix):
+                _LOGGER.debug(f"Found helper entity: {entity_id}")
+                return entity_id
+        _LOGGER.warning(f"Helper entity with suffix '{suffix}' not found")
+        return None
 
     async def async_setup(self) -> None:
         """Set up the Smart Charger Blocker automation."""
@@ -69,15 +80,20 @@ class SmartChargerBlocker:
         _LOGGER.debug("Charger started charging, checking if should block...")
 
         # Check Forza Ricarica (global kill switch)
-        forza_ricarica_state = self.hass.states.get(HELPER_FORZA_RICARICA)
-        if forza_ricarica_state and forza_ricarica_state.state == STATE_ON:
-            _LOGGER.info("Forza Ricarica is ON - Smart Charger Blocker disabled")
-            return
+        if self._forza_ricarica_entity:
+            forza_ricarica_state = self.hass.states.get(self._forza_ricarica_entity)
+            if forza_ricarica_state and forza_ricarica_state.state == STATE_ON:
+                _LOGGER.info("Forza Ricarica is ON - Smart Charger Blocker disabled")
+                return
 
         # Check if Smart Charger Blocker is enabled
-        blocker_enabled_state = self.hass.states.get(HELPER_SMART_BLOCKER_ENABLED)
-        if not blocker_enabled_state or blocker_enabled_state.state != STATE_ON:
-            _LOGGER.debug("Smart Charger Blocker is disabled")
+        if self._blocker_enabled_entity:
+            blocker_enabled_state = self.hass.states.get(self._blocker_enabled_entity)
+            if not blocker_enabled_state or blocker_enabled_state.state != STATE_ON:
+                _LOGGER.debug("Smart Charger Blocker is disabled")
+                return
+        else:
+            _LOGGER.warning("Smart Charger Blocker helper not found")
             return
 
         # Check if we should block charging
@@ -131,7 +147,12 @@ class SmartChargerBlocker:
     async def _is_solar_below_threshold(self) -> bool:
         """Check if solar production is below threshold."""
         fv_production_entity = self.config.get(CONF_FV_PRODUCTION)
-        solar_threshold_state = self.hass.states.get(HELPER_SOLAR_THRESHOLD)
+
+        if not self._solar_threshold_entity:
+            _LOGGER.warning("Solar threshold helper not found")
+            return True
+
+        solar_threshold_state = self.hass.states.get(self._solar_threshold_entity)
 
         if not fv_production_entity or not solar_threshold_state:
             _LOGGER.warning("Solar production entity or threshold not configured")

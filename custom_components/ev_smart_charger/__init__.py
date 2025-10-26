@@ -4,6 +4,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from .const import (
     DOMAIN,
+    PLATFORMS,
     CONF_EV_CHARGER_SWITCH,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
@@ -12,7 +13,6 @@ from .const import (
     CONF_FV_PRODUCTION,
     CONF_HOME_CONSUMPTION,
 )
-from .helpers import async_create_helpers, async_remove_helpers
 from .automations import async_setup_automations, async_remove_automations
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,12 +32,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info(f"  - FV Production: {entry.data.get(CONF_FV_PRODUCTION)}")
     _LOGGER.info(f"  - Home Consumption: {entry.data.get(CONF_HOME_CONSUMPTION)}")
 
-    # Create helper entities (don't fail if they can't be created)
-    try:
-        await async_create_helpers(hass)
-    except Exception as e:
-        _LOGGER.warning(f"Helper creation had issues: {e}")
-        _LOGGER.warning("Integration will continue, but you may need to create helpers manually")
+    # Set up platforms (creates helper entities automatically)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Set up automations
     try:
@@ -75,13 +71,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if automations:
         await async_remove_automations(automations)
 
-    # Remove helpers (only on final unload, not on reload)
-    # Note: We keep helpers so users don't lose their settings
-    # Uncomment the line below if you want to remove helpers on unload
-    # await async_remove_helpers(hass)
+    # Unload platforms
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    hass.data[DOMAIN].pop(entry.entry_id, None)
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id, None)
 
     _LOGGER.info("EV Smart Charger unloaded successfully")
 
-    return True
+    return unload_ok

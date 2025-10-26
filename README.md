@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.4.2
+## Current Version: 0.5.0
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -71,40 +71,28 @@ During setup, you'll map your existing Home Assistant entities to these roles:
 - **Solar Production** - Current PV production (W)
 - **Home Consumption** - Current home power usage (W)
 
-### Helper Entities Setup
+### Helper Entities (Auto-Created)
 
-After initial configuration, **create these 3 helper entities manually**:
+The integration **automatically creates 3 helper entities** when you add it:
 
-1. Go to **Settings → Devices & Services → Helpers**
-2. Click **"+ CREATE HELPER"**
-3. Create these helpers:
-
-#### Helper 1: EVSC Forza Ricarica
-- **Type:** Toggle
-- **Name:** `EVSC Forza Ricarica`
-- **Entity ID:** `input_boolean.evsc_forza_ricarica`
-- **Icon:** `mdi:power`
+#### Switch 1: EVSC Forza Ricarica
+- **Entity ID:** `switch.ev_smart_charger_<entry_id>_evsc_forza_ricarica`
 - **Purpose:** Global kill switch - When ON, all smart features are disabled
+- **Icon:** `mdi:power`
 
-#### Helper 2: EVSC Smart Charger Blocker
-- **Type:** Toggle
-- **Name:** `EVSC Smart Charger Blocker`
-- **Entity ID:** `input_boolean.evsc_smart_charger_blocker_enabled`
-- **Icon:** `mdi:solar-power`
+#### Switch 2: EVSC Smart Charger Blocker
+- **Entity ID:** `switch.ev_smart_charger_<entry_id>_evsc_smart_charger_blocker_enabled`
 - **Purpose:** Enable/disable the Smart Charger Blocker feature
+- **Icon:** `mdi:solar-power`
 
-#### Helper 3: EVSC Solar Production Threshold
-- **Type:** Number
-- **Name:** `EVSC Solar Production Threshold`
-- **Entity ID:** `input_number.evsc_solar_production_threshold`
-- **Minimum:** `0`
-- **Maximum:** `1000`
-- **Step:** `10`
-- **Unit:** `W`
+#### Number 1: EVSC Solar Production Threshold
+- **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_solar_production_threshold`
+- **Purpose:** Minimum solar production (W) required to allow charging
+- **Default:** 50W
+- **Range:** 0-1000W (step: 10W)
 - **Icon:** `mdi:solar-power-variant`
-- **Purpose:** Minimum solar production required to allow charging
 
-4. **Restart Home Assistant** after creating helpers
+**Note:** These entities are created automatically - no manual setup required!
 
 ---
 
@@ -118,13 +106,15 @@ Add these entities to your Lovelace dashboard for easy control:
 type: entities
 title: EV Smart Charger
 entities:
-  - entity: input_boolean.evsc_forza_ricarica
+  - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_forza_ricarica
     name: 🔴 Forza Ricarica (Override All)
-  - entity: input_boolean.evsc_smart_charger_blocker_enabled
+  - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_smart_charger_blocker_enabled
     name: 🚫 Smart Charger Blocker
-  - entity: input_number.evsc_solar_production_threshold
+  - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_solar_production_threshold
     name: ☀️ Solar Threshold (W)
 ```
+
+**Tip:** Find your actual entity IDs by searching for "evsc" in Developer Tools → States.
 
 ### How Smart Charger Blocker Works
 
@@ -214,7 +204,15 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.4.2 (2025-01-XX) - Current
+### v0.5.0 (2025-01-XX) - Current
+- **Major Feature:** Automatic helper entity creation
+- Helper entities (switches/numbers) now created automatically by the integration
+- No more manual helper creation required
+- Entities persist across restarts and retain their state
+- Dynamic entity discovery in automations
+- Simplified setup process
+
+### v0.4.2 (2025-01-XX)
 - **Fixed:** Critical integration loading issue
 - Simplified helper creation to manual process
 - Added prominent log messages with setup instructions
