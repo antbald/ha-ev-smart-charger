@@ -3,11 +3,47 @@
     "step": {
       "user": {
         "title": "EV Smart Charger",
-        "description": "Crea l'integrazione.",
+        "description": "Set up the EV Smart Charger integration. First, provide a name for this integration.",
         "data": {
-          "name": "Nome"
+          "name": "Name"
+        }
+      },
+      "entities": {
+        "title": "Entity Selection",
+        "description": "Select the entities that will be used to control and monitor your EV charger. Required fields are marked with *",
+        "data": {
+          "ev_charger_switch": "EV Charger Switch *",
+          "ev_charger_current": "EV Charger Current Amp (optional)",
+          "ev_charger_status": "EV Charger Status *",
+          "soc_car": "Car Battery SOC (optional)",
+          "soc_home": "Home Battery SOC (optional)",
+          "fv_production": "Solar Panel Production (optional)",
+          "home_consumption": "Home Consumption (optional)"
         }
       }
+    },
+    "error": {
+      "required": "This field is required"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Entities",
+        "description": "Update the entities used by the EV Smart Charger. Required fields are marked with *",
+        "data": {
+          "ev_charger_switch": "EV Charger Switch *",
+          "ev_charger_current": "EV Charger Current Amp (optional)",
+          "ev_charger_status": "EV Charger Status *",
+          "soc_car": "Car Battery SOC (optional)",
+          "soc_home": "Home Battery SOC (optional)",
+          "fv_production": "Solar Panel Production (optional)",
+          "home_consumption": "Home Consumption (optional)"
+        }
+      }
+    },
+    "error": {
+      "required": "This field is required"
     }
   }
 }
