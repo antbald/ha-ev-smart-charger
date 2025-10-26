@@ -35,47 +35,54 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
     async def async_step_entities(self, user_input: dict[str, Any] | None = None):
-        """Handle entity selection step."""
+        """Handle charger entity selection step."""
         errors = {}
 
         if user_input is not None:
-            # Validate that all required entities are selected
-            if not user_input.get(CONF_EV_CHARGER_SWITCH):
-                errors[CONF_EV_CHARGER_SWITCH] = "required"
-            if not user_input.get(CONF_EV_CHARGER_STATUS):
-                errors[CONF_EV_CHARGER_STATUS] = "required"
-
-            if not errors:
-                # Merge name and entity data
-                data = {**self.init_info, **user_input}
-                title = self.init_info.get(CONF_NAME, DEFAULT_NAME)
-                return self.async_create_entry(title=title, data=data)
+            # Store charger entities and move to next step
+            self.charger_info = user_input
+            return await self.async_step_sensors()
 
         schema = vol.Schema({
             vol.Required(CONF_EV_CHARGER_SWITCH): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")
             ),
-            vol.Optional(CONF_EV_CHARGER_CURRENT): selector.EntitySelector(
+            vol.Required(CONF_EV_CHARGER_CURRENT): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["number", "select", "input_number", "input_select"])
             ),
             vol.Required(CONF_EV_CHARGER_STATUS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Optional(CONF_SOC_CAR): selector.EntitySelector(
+        })
+
+        return self.async_show_form(step_id="entities", data_schema=schema, errors=errors)
+
+    async def async_step_sensors(self, user_input: dict[str, Any] | None = None):
+        """Handle sensor entity selection step."""
+        errors = {}
+
+        if user_input is not None:
+            # Merge all data and create entry
+            data = {**self.init_info, **self.charger_info, **user_input}
+            title = self.init_info.get(CONF_NAME, DEFAULT_NAME)
+            return self.async_create_entry(title=title, data=data)
+
+        schema = vol.Schema({
+            vol.Required(CONF_SOC_CAR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Optional(CONF_SOC_HOME): selector.EntitySelector(
+            vol.Required(CONF_SOC_HOME): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Optional(CONF_FV_PRODUCTION): selector.EntitySelector(
+            vol.Required(CONF_FV_PRODUCTION): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Optional(CONF_HOME_CONSUMPTION): selector.EntitySelector(
+            vol.Required(CONF_HOME_CONSUMPTION): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
         })
 
-        return self.async_show_form(step_id="entities", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="sensors", data_schema=schema, errors=errors)
 
     @staticmethod
     @callback
@@ -92,22 +99,11 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
         self.config_entry = config_entry
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
-        """Manage the options."""
-        errors = {}
-
+        """Manage charger entities options."""
         if user_input is not None:
-            # Validate required fields
-            if not user_input.get(CONF_EV_CHARGER_SWITCH):
-                errors[CONF_EV_CHARGER_SWITCH] = "required"
-            if not user_input.get(CONF_EV_CHARGER_STATUS):
-                errors[CONF_EV_CHARGER_STATUS] = "required"
-
-            if not errors:
-                # Update config entry with new data
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, data={**self.config_entry.data, **user_input}
-                )
-                return self.async_create_entry(title="", data={})
+            # Store charger entities and move to sensors
+            self.charger_info = user_input
+            return await self.async_step_sensors()
 
         # Get current values
         current_data = self.config_entry.data
@@ -119,7 +115,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch")
             ),
-            vol.Optional(
+            vol.Required(
                 CONF_EV_CHARGER_CURRENT,
                 default=current_data.get(CONF_EV_CHARGER_CURRENT)
             ): selector.EntitySelector(
@@ -131,25 +127,43 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Optional(
+        })
+
+        return self.async_show_form(step_id="init", data_schema=schema)
+
+    async def async_step_sensors(self, user_input: dict[str, Any] | None = None):
+        """Manage sensor entities options."""
+        if user_input is not None:
+            # Merge all data and update entry
+            data = {**self.config_entry.data, **self.charger_info, **user_input}
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data=data
+            )
+            return self.async_create_entry(title="", data={})
+
+        # Get current values
+        current_data = self.config_entry.data
+
+        schema = vol.Schema({
+            vol.Required(
                 CONF_SOC_CAR,
                 default=current_data.get(CONF_SOC_CAR)
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Optional(
+            vol.Required(
                 CONF_SOC_HOME,
                 default=current_data.get(CONF_SOC_HOME)
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Optional(
+            vol.Required(
                 CONF_FV_PRODUCTION,
                 default=current_data.get(CONF_FV_PRODUCTION)
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Optional(
+            vol.Required(
                 CONF_HOME_CONSUMPTION,
                 default=current_data.get(CONF_HOME_CONSUMPTION)
             ): selector.EntitySelector(
@@ -157,4 +171,4 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             ),
         })
 
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="sensors", data_schema=schema)

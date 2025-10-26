@@ -2,23 +2,43 @@
   "config": {
     "step": {
       "user": {
-        "title": "EV Smart Charger",
-        "description": "Set up the EV Smart Charger integration. First, provide a name for this integration.",
+        "title": "EV Smart Charger Setup",
+        "description": "Welcome to EV Smart Charger! This integration will help you optimize your EV charging based on solar production, battery levels, and energy costs.\n\nFirst, give this integration a name.",
         "data": {
-          "name": "Name"
+          "name": "Integration Name"
+        },
+        "data_description": {
+          "name": "A friendly name to identify this EV Smart Charger instance (e.g., 'Garage Charger', 'Main EV')"
         }
       },
       "entities": {
-        "title": "Entity Selection",
-        "description": "Select the entities that will be used to control and monitor your EV charger. Required fields are marked with *",
+        "title": "EV Charger Configuration",
+        "description": "Select the entities that control your EV charger.\n\n**All fields are required** to ensure proper operation.",
         "data": {
-          "ev_charger_switch": "EV Charger Switch *",
-          "ev_charger_current": "EV Charger Current Amp (optional)",
-          "ev_charger_status": "EV Charger Status *",
-          "soc_car": "Car Battery SOC (optional)",
-          "soc_home": "Home Battery SOC (optional)",
-          "fv_production": "Solar Panel Production (optional)",
-          "home_consumption": "Home Consumption (optional)"
+          "ev_charger_switch": "Charger Switch",
+          "ev_charger_current": "Charger Current/Amperage",
+          "ev_charger_status": "Charger Status Sensor"
+        },
+        "data_description": {
+          "ev_charger_switch": "The switch entity that turns your EV charger on/off (domain: switch)",
+          "ev_charger_current": "The entity that controls charging current/amperage. Supports levels: 6A, 8A, 10A, 13A, 16A, 20A, 24A, 32A (domain: number, select, input_number, input_select)",
+          "ev_charger_status": "Sensor showing charger status. Must report: 'charger_charging' (actively charging), 'charger_free' (not connected), 'charger_end' (plugged but not charging)"
+        }
+      },
+      "sensors": {
+        "title": "Energy Monitoring Sensors",
+        "description": "Select the sensors that monitor your energy system.\n\n**All fields are required** for smart charging decisions.",
+        "data": {
+          "soc_car": "Car Battery Level (SOC)",
+          "soc_home": "Home Battery Level (SOC)",
+          "fv_production": "Solar Panel Production",
+          "home_consumption": "Home Consumption"
+        },
+        "data_description": {
+          "soc_car": "Sensor showing your EV's battery state of charge in percentage (0-100%)",
+          "soc_home": "Sensor showing your home battery state of charge in percentage (0-100%)",
+          "fv_production": "Sensor showing current solar panel production in Watts (W)",
+          "home_consumption": "Sensor showing current home power consumption in Watts (W), excluding EV charger"
         }
       }
     },
@@ -29,16 +49,33 @@
   "options": {
     "step": {
       "init": {
-        "title": "Configure Entities",
-        "description": "Update the entities used by the EV Smart Charger. Required fields are marked with *",
+        "title": "Update Charger Configuration",
+        "description": "Modify the entities that control your EV charger.\n\n**All fields are required**.",
         "data": {
-          "ev_charger_switch": "EV Charger Switch *",
-          "ev_charger_current": "EV Charger Current Amp (optional)",
-          "ev_charger_status": "EV Charger Status *",
-          "soc_car": "Car Battery SOC (optional)",
-          "soc_home": "Home Battery SOC (optional)",
-          "fv_production": "Solar Panel Production (optional)",
-          "home_consumption": "Home Consumption (optional)"
+          "ev_charger_switch": "Charger Switch",
+          "ev_charger_current": "Charger Current/Amperage",
+          "ev_charger_status": "Charger Status Sensor"
+        },
+        "data_description": {
+          "ev_charger_switch": "The switch entity that turns your EV charger on/off",
+          "ev_charger_current": "The entity that controls charging current (6-32A)",
+          "ev_charger_status": "Sensor showing charger status (charging/free/end)"
+        }
+      },
+      "sensors": {
+        "title": "Update Energy Sensors",
+        "description": "Modify the sensors that monitor your energy system.\n\n**All fields are required**.",
+        "data": {
+          "soc_car": "Car Battery Level (SOC)",
+          "soc_home": "Home Battery Level (SOC)",
+          "fv_production": "Solar Panel Production",
+          "home_consumption": "Home Consumption"
+        },
+        "data_description": {
+          "soc_car": "EV battery state of charge (0-100%)",
+          "soc_home": "Home battery state of charge (0-100%)",
+          "fv_production": "Solar production in Watts (W)",
+          "home_consumption": "Home consumption in Watts (W)"
         }
       }
     },
