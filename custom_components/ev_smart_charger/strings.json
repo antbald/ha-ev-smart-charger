@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EV Smart Charger",
+        "description": "Crea l'integrazione.",
+        "data": {
+          "name": "Nome"
+        }
+      }
+    }
+  }
+}

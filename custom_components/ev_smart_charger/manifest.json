@@ -1,0 +1,13 @@
+{
+  "domain": "ev_smart_charger",
+  "name": "EV Smart Charger",
+  "version": "0.1.0",
+  "documentation": "https://github.com/antbald/ha-ev-smart-charger",
+  "issue_tracker": "https://github.com/antbald/ha-ev-smart-charger/issues",
+  "codeowners": ["@antbald"],
+  "config_flow": true,
+  "iot_class": "local_push",
+  "integration_type": "hub",
+  "requirements": [],
+  "dependencies": []
+}
