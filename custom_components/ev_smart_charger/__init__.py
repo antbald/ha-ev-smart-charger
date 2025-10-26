@@ -32,18 +32,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info(f"  - FV Production: {entry.data.get(CONF_FV_PRODUCTION)}")
     _LOGGER.info(f"  - Home Consumption: {entry.data.get(CONF_HOME_CONSUMPTION)}")
 
-    # Create helper entities
+    # Create helper entities (don't fail if they can't be created)
     try:
         await async_create_helpers(hass)
     except Exception as e:
-        _LOGGER.error(f"Failed to create helpers: {e}")
-        return False
+        _LOGGER.warning(f"Helper creation had issues: {e}")
+        _LOGGER.warning("Integration will continue, but you may need to create helpers manually")
 
     # Set up automations
     try:
         automations = await async_setup_automations(hass, entry.entry_id, entry.data)
     except Exception as e:
         _LOGGER.error(f"Failed to set up automations: {e}")
+        _LOGGER.exception("Automation setup error details:")
         return False
 
     # Store configuration data and automations
