@@ -13,6 +13,11 @@ from .const import (
     DEFAULT_SOLAR_THRESHOLD,
     DEFAULT_CHECK_INTERVAL,
     DEFAULT_GRID_IMPORT_THRESHOLD,
+    DEFAULT_GRID_IMPORT_DELAY,
+    DEFAULT_SURPLUS_DROP_DELAY,
+    DEFAULT_HOME_BATTERY_MIN_SOC,
+    DEFAULT_EV_MIN_SOC_WEEKDAY,
+    DEFAULT_EV_MIN_SOC_WEEKEND,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -69,6 +74,157 @@ async def async_setup_entry(
             step=10,
             default_value=DEFAULT_GRID_IMPORT_THRESHOLD,
             unit="W",
+        )
+    )
+
+    # Create Grid Import Delay
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_grid_import_delay",
+            "EVSC Grid Import Delay",
+            "mdi:timer-sand",
+            min_value=0,
+            max_value=120,
+            step=5,
+            default_value=DEFAULT_GRID_IMPORT_DELAY,
+            unit="s",
+        )
+    )
+
+    # Create Surplus Drop Delay
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_surplus_drop_delay",
+            "EVSC Surplus Drop Delay",
+            "mdi:timer-sand",
+            min_value=0,
+            max_value=120,
+            step=5,
+            default_value=DEFAULT_SURPLUS_DROP_DELAY,
+            unit="s",
+        )
+    )
+
+    # Create Home Battery Minimum SOC
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_home_battery_min_soc",
+            "EVSC Home Battery Min SOC",
+            "mdi:battery-50",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=DEFAULT_HOME_BATTERY_MIN_SOC,
+            unit="%",
+        )
+    )
+
+    # Create EV Minimum SOC for each day of the week
+    # Monday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_ev_min_soc_monday",
+            "EVSC EV Min SOC Monday",
+            "mdi:calendar-monday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=DEFAULT_EV_MIN_SOC_WEEKDAY,
+            unit="%",
+        )
+    )
+
+    # Tuesday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_ev_min_soc_tuesday",
+            "EVSC EV Min SOC Tuesday",
+            "mdi:calendar-tuesday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=DEFAULT_EV_MIN_SOC_WEEKDAY,
+            unit="%",
+        )
+    )
+
+    # Wednesday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_ev_min_soc_wednesday",
+            "EVSC EV Min SOC Wednesday",
+            "mdi:calendar-wednesday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=DEFAULT_EV_MIN_SOC_WEEKDAY,
+            unit="%",
+        )
+    )
+
+    # Thursday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_ev_min_soc_thursday",
+            "EVSC EV Min SOC Thursday",
+            "mdi:calendar-thursday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=DEFAULT_EV_MIN_SOC_WEEKDAY,
+            unit="%",
+        )
+    )
+
+    # Friday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_ev_min_soc_friday",
+            "EVSC EV Min SOC Friday",
+            "mdi:calendar-friday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=DEFAULT_EV_MIN_SOC_WEEKDAY,
+            unit="%",
+        )
+    )
+
+    # Saturday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_ev_min_soc_saturday",
+            "EVSC EV Min SOC Saturday",
+            "mdi:calendar-saturday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=DEFAULT_EV_MIN_SOC_WEEKEND,
+            unit="%",
+        )
+    )
+
+    # Sunday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_ev_min_soc_sunday",
+            "EVSC EV Min SOC Sunday",
+            "mdi:calendar-sunday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=DEFAULT_EV_MIN_SOC_WEEKEND,
+            unit="%",
         )
     )
 

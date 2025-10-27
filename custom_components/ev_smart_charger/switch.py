@@ -44,6 +44,26 @@ async def async_setup_entry(
         )
     )
 
+    # Create Use Home Battery switch
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_use_home_battery",
+            "EVSC Use Home Battery",
+            "mdi:home-battery",
+        )
+    )
+
+    # Create Priority Balancer switch
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_priority_balancer_enabled",
+            "EVSC Priority Balancer",
+            "mdi:scale-balance",
+        )
+    )
+
     async_add_entities(entities)
     _LOGGER.info(f"✅ Created {len(entities)} EVSC switch entities")
 

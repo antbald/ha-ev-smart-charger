@@ -28,10 +28,10 @@ class SmartChargerBlocker:
         self.config = config
         self._unsub = None
 
-        # Find helper entities dynamically
-        self._forza_ricarica_entity = self._find_entity_by_suffix("evsc_forza_ricarica")
-        self._blocker_enabled_entity = self._find_entity_by_suffix("evsc_smart_charger_blocker_enabled")
-        self._solar_threshold_entity = self._find_entity_by_suffix("evsc_solar_production_threshold")
+        # Helper entities - will be found in async_setup
+        self._forza_ricarica_entity = None
+        self._blocker_enabled_entity = None
+        self._solar_threshold_entity = None
 
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
         """Find entity ID by suffix."""

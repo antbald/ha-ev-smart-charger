@@ -33,8 +33,18 @@ async def async_setup_entry(
         )
     )
 
+    # Create Priority State Sensor
+    entities.append(
+        EVSCPriorityStateSensor(
+            entry.entry_id,
+            "evsc_priority_daily_state",
+            "EVSC Priority Daily State",
+            "mdi:priority-high",
+        )
+    )
+
     async_add_entities(entities)
-    _LOGGER.info(f"✅ Created {len(entities)} EVSC diagnostic sensors")
+    _LOGGER.info(f"✅ Created {len(entities)} EVSC sensors")
 
 
 class EVSCDiagnosticSensor(SensorEntity, RestoreEntity):
@@ -67,3 +77,37 @@ class EVSCDiagnosticSensor(SensorEntity, RestoreEntity):
 
         if (last_state := await self.async_get_last_state()) is not None:
             self._attr_native_value = last_state.state
+
+
+class EVSCPriorityStateSensor(SensorEntity, RestoreEntity):
+    """EVSC Priority State Sensor showing current charging priority."""
+
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        entry_id: str,
+        unique_id: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        """Initialize the priority sensor."""
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{unique_id}"
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_native_value = "EV_Free"
+        self._attr_extra_state_attributes = {}
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        return self._attr_extra_state_attributes
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+
+        if (last_state := await self.async_get_last_state()) is not None:
+            self._attr_native_value = last_state.state
+            if last_state.attributes:
+                self._attr_extra_state_attributes = dict(last_state.attributes)

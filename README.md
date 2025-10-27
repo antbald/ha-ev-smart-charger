@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.6.1
+## Current Version: 0.8.0
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -18,7 +18,7 @@ Choose from multiple intelligent charging modes via the **Charging Profile** sel
 #### 1. Manual Mode
 Standard charging without automation - full manual control.
 
-#### 2. Solar Surplus Mode ☀️ (v0.6.0+)
+#### 2. Solar Surplus Mode ☀️ (v0.6.0+, Enhanced in v0.7.0)
 **Charge your EV using only excess solar energy - never import from the grid!**
 
 **How it works:**
@@ -29,14 +29,36 @@ Standard charging without automation - full manual control.
 - **Grid Import Protection:** Monitors grid import and reduces charging if importing power
 - Always starts with minimum 6A when surplus is available
 
+**🆕 v0.7.0 Enhancements:**
+
+**1. Smooth Charge-Speed Reduction**
+- Gradual step-down instead of instant drops (e.g., 20A → 16A → 13A → 10A)
+- Reduces stress on charger and solar inverter
+- Prevents oscillations in the charging cycle
+- Each step follows safe sequence: stop → wait 5s → set → wait 1s → start
+- Next check interval determines if further reduction is needed
+
+**2. Fluctuation Management (Solar Swing Protection)**
+- **Grid Import Delay:** Only reacts to grid import after it stays above threshold for configured delay (default: 30s)
+- **Surplus Drop Delay:** Waits for configured delay (default: 30s) before reducing speed when surplus drops
+- Both delays are user-configurable (0-120 seconds in 5s steps)
+- Prevents overreaction to temporary cloud cover or brief consumption spikes
+- Reduces unnecessary charge speed changes and system stress
+
+**3. Home Battery Support**
+- **NEW:** Optional feature to use home battery energy when surplus drops
+- Enable via `switch.evsc_use_home_battery`
+- Configure minimum battery SoC threshold (default: 20%)
+- When enabled and battery SoC > minimum:
+  - Sets fixed 16A charging speed
+  - Allows home battery to bridge the gap and support EV charging
+  - Prevents charging speed reduction during temporary surplus drops
+- Example: Charging at 20A but surplus drops → if battery available, charge at 16A instead of stopping
+
 **Smart Amperage Adjustment:**
 - **Increasing:** Instant adjustment when more surplus is available
-- **Decreasing:** Safe sequence to prevent charger issues:
-  1. Stop charger
-  2. Wait 5 seconds
-  3. Set new amperage
-  4. Wait 1 second
-  5. Restart charger
+- **Decreasing:** Gradual one-step-at-a-time reduction with delays (v0.7.0)
+- **Battery Mode:** Fixed 16A when home battery can help (v0.7.0)
 
 **Available Amperage Steps:** 6A, 8A, 10A, 13A, 16A, 20A, 24A, 32A
 
@@ -44,10 +66,88 @@ Standard charging without automation - full manual control.
 - `select.evsc_charging_profile` - Choose charging mode
 - `number.evsc_check_interval` - How often to recalculate (1-60 minutes)
 - `number.evsc_grid_import_threshold` - Max grid import before reducing charge (W)
+- `number.evsc_grid_import_delay` - *(v0.7.0)* Delay before reacting to grid import (0-120s)
+- `number.evsc_surplus_drop_delay` - *(v0.7.0)* Delay before reducing on surplus drop (0-120s)
+- `switch.evsc_use_home_battery` - *(v0.7.0)* Enable home battery support mode
+- `number.evsc_home_battery_min_soc` - *(v0.7.0)* Minimum home battery SoC to allow support (0-100%)
 
 **Requirements:**
 - Charger must be in status: `charger_charging`, `charger_end`, or `charger_wait`
 - Does NOT activate when charger status is `charger_free` (not connected)
+
+**4. Priority Daily Charging Balancer** *(v0.8.0+)*
+- **NEW:** Intelligent prioritization between EV and home battery charging
+- Decides which device charges first based on daily minimum SOC targets
+- Enable via `switch.evsc_priority_balancer_enabled`
+- Configure daily EV SOC targets for each day of week (Monday-Sunday)
+- Uses existing home battery minimum SOC as daily target for all days
+- Only active when Solar Surplus mode is enabled
+
+**How Priority Balancer Works:**
+
+The system calculates priority at every check interval:
+
+1. **Priority = EV**: EV charges first until reaching today's target SOC
+   - All solar surplus goes to EV
+   - Home battery charging is deferred
+   - Normal solar surplus algorithm applies to EV
+
+2. **Priority = Home**: Home battery charges first until reaching target SOC
+   - EV charging is **STOPPED** completely
+   - All solar surplus goes to home battery
+   - EV resumes automatically when home battery target is met
+
+3. **Priority = EV_Free**: Both devices have met their daily targets
+   - Opportunistic EV charging from surplus
+   - Home battery already satisfied
+   - Normal solar surplus algorithm applies
+
+**Fallback Safety Mechanisms:**
+- If EV SOC sensor unavailable/invalid → defaults to Priority = EV
+- If Home SOC sensor unavailable/invalid → defaults to Priority = EV
+- If SOC values out of range (< 0 or > 100) → defaults to Priority = EV
+- Ensures charging never gets blocked due to sensor issues
+- When in doubt, system always prioritizes EV charging
+
+**Configuration:**
+- 7 number helpers for EV daily targets: `number.evsc_ev_min_soc_[monday...sunday]`
+- Reuses existing: `number.evsc_home_battery_min_soc` (applies to all days)
+- Priority state visible in: `sensor.evsc_priority_daily_state`
+- Sensor attributes include current/target SOCs, reason, and day of week
+
+**Interaction with Battery Support (v0.7.0):**
+- Both features can work together independently
+- Battery Support only activates when Priority = EV or EV_Free
+- When Priority = Home, Battery Support is ignored
+- Allows battery to help EV charging at 16A when appropriate priority
+
+**Example Scenarios:**
+- **Monday, EV 40%, Target 50%** → Priority = EV (EV charges first)
+- **Tuesday, EV 60%, Home 15%, Targets 50%/20%** → Priority = Home (EV stops, home charges)
+- **Wednesday, EV 55%, Home 25%, Targets 50%/20%** → Priority = EV_Free (both met, opportunistic EV charging)
+- **Thursday, EV SOC unavailable** → Priority = EV (safe fallback, charging continues)
+
+**Controls:**
+- `select.evsc_charging_profile` - Choose charging mode
+- `number.evsc_check_interval` - How often to recalculate (1-60 minutes)
+- `number.evsc_grid_import_threshold` - Max grid import before reducing charge (W)
+- `number.evsc_grid_import_delay` - *(v0.7.0)* Delay before reacting to grid import (0-120s)
+- `number.evsc_surplus_drop_delay` - *(v0.7.0)* Delay before reducing on surplus drop (0-120s)
+- `switch.evsc_use_home_battery` - *(v0.7.0)* Enable home battery support mode
+- `number.evsc_home_battery_min_soc` - *(v0.7.0)* Minimum home battery SoC to allow support (0-100%)
+- `switch.evsc_priority_balancer_enabled` - *(v0.8.0)* Enable priority-based charging balancer
+- `number.evsc_ev_min_soc_[day]` - *(v0.8.0)* Daily EV SOC targets (7 helpers, Monday-Sunday)
+- `sensor.evsc_priority_daily_state` - *(v0.8.0)* Current priority state (EV/Home/EV_Free)
+
+**Requirements:**
+- Charger must be in status: `charger_charging`, `charger_end`, or `charger_wait`
+- Does NOT activate when charger status is `charger_free` (not connected)
+
+**Enhanced Logging (v0.7.0/v0.8.0):**
+- Every decision is logged with reasoning
+- Comprehensive state information at each check
+- Priority balancer decisions fully traced
+- Easy debugging and understanding of algorithm behavior
 
 #### 3. Charge Target Mode (Coming Soon)
 Charge to a specific battery percentage by a target time.
@@ -120,9 +220,9 @@ During setup, you'll map your existing Home Assistant entities to these roles:
 
 ### Helper Entities (Auto-Created)
 
-The integration **automatically creates 7 helper entities** when you add it:
+The integration **automatically creates 19 helper entities** when you add it:
 
-#### Switches (2)
+#### Switches (4)
 
 **1. EVSC Forza Ricarica**
 - **Entity ID:** `switch.ev_smart_charger_<entry_id>_evsc_forza_ricarica`
@@ -134,7 +234,17 @@ The integration **automatically creates 7 helper entities** when you add it:
 - **Purpose:** Enable/disable the Smart Charger Blocker feature
 - **Icon:** `mdi:solar-power`
 
-#### Numbers (3)
+**3. EVSC Use Home Battery** *(v0.7.0+)*
+- **Entity ID:** `switch.ev_smart_charger_<entry_id>_evsc_use_home_battery`
+- **Purpose:** Enable home battery support in Solar Surplus mode
+- **Icon:** `mdi:home-battery`
+
+**4. EVSC Priority Balancer** *(v0.8.0+)*
+- **Entity ID:** `switch.ev_smart_charger_<entry_id>_evsc_priority_balancer_enabled`
+- **Purpose:** Enable intelligent priority-based charging between EV and home battery
+- **Icon:** `mdi:scale-balance`
+
+#### Numbers (13)
 
 **1. EVSC Solar Production Threshold**
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_solar_production_threshold`
@@ -154,6 +264,42 @@ The integration **automatically creates 7 helper entities** when you add it:
 - **Default:** 50W | **Range:** 0-1000W (step: 10W)
 - **Icon:** `mdi:transmission-tower`
 
+**4. EVSC Grid Import Delay** *(v0.7.0+)*
+- **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_grid_import_delay`
+- **Purpose:** Delay (seconds) before reacting to grid import exceeding threshold
+- **Default:** 30s | **Range:** 0-120s (step: 5s)
+- **Icon:** `mdi:timer-sand`
+- **Use:** Prevents overreaction to brief grid import spikes
+
+**5. EVSC Surplus Drop Delay** *(v0.7.0+)*
+- **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_surplus_drop_delay`
+- **Purpose:** Delay (seconds) before reducing charging when surplus drops
+- **Default:** 30s | **Range:** 0-120s (step: 5s)
+- **Icon:** `mdi:timer-sand`
+- **Use:** Prevents overreaction to temporary cloud cover or consumption spikes
+
+**6. EVSC Home Battery Min SOC** *(v0.7.0+)*
+- **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_home_battery_min_soc`
+- **Purpose:** Minimum home battery charge level (%) to enable battery support / daily target for Priority Balancer
+- **Default:** 20% | **Range:** 0-100% (step: 5%)
+- **Icon:** `mdi:battery-50`
+- **Use:** Protects home battery from over-discharge while supporting EV charging / Used as home battery target for Priority Balancer
+
+**7-13. EVSC EV Min SOC [Day]** *(v0.8.0+)*
+- **Entity IDs:**
+  - `number.ev_smart_charger_<entry_id>_evsc_ev_min_soc_monday`
+  - `number.ev_smart_charger_<entry_id>_evsc_ev_min_soc_tuesday`
+  - `number.ev_smart_charger_<entry_id>_evsc_ev_min_soc_wednesday`
+  - `number.ev_smart_charger_<entry_id>_evsc_ev_min_soc_thursday`
+  - `number.ev_smart_charger_<entry_id>_evsc_ev_min_soc_friday`
+  - `number.ev_smart_charger_<entry_id>_evsc_ev_min_soc_saturday`
+  - `number.ev_smart_charger_<entry_id>_evsc_ev_min_soc_sunday`
+- **Purpose:** Daily minimum EV SOC targets for Priority Balancer
+- **Default:** 50% (weekdays), 80% (weekends)
+- **Range:** 0-100% (step: 5%)
+- **Icons:** `mdi:calendar-monday` through `mdi:calendar-sunday`
+- **Use:** System compares current EV SOC against today's target to determine charging priority
+
 #### Selects (1)
 
 **1. EVSC Charging Profile** *(v0.6.0+)*
@@ -161,6 +307,27 @@ The integration **automatically creates 7 helper entities** when you add it:
 - **Purpose:** Choose charging mode (manual, solar_surplus, charge_target, cheapest)
 - **Default:** manual
 - **Icon:** `mdi:ev-station`
+
+#### Sensors (2)
+
+**1. EVSC Diagnostic Status**
+- **Entity ID:** `sensor.ev_smart_charger_<entry_id>_evsc_diagnostic`
+- **Purpose:** Real-time automation status and diagnostic information
+- **Icon:** `mdi:information-outline`
+
+**2. EVSC Priority Daily State** *(v0.8.0+)*
+- **Entity ID:** `sensor.ev_smart_charger_<entry_id>_evsc_priority_daily_state`
+- **Purpose:** Current charging priority state
+- **Values:** `"EV"`, `"Home"`, `"EV_Free"`
+- **Icon:** `mdi:priority-high`
+- **Attributes:**
+  - `current_ev_soc`: Current EV battery level
+  - `current_home_soc`: Current home battery level
+  - `target_ev_soc`: Today's EV target
+  - `target_home_soc`: Home battery target
+  - `reason`: Explanation of priority decision
+  - `balancer_enabled`: Whether feature is active
+  - `today`: Current day of week
 
 **Note:** These entities are created automatically - no manual setup required!
 
@@ -287,7 +454,55 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.6.1 (2025-01-XX) - Current
+### v0.8.0 (2025-01-XX) - Current
+- **Major Feature:** Priority Daily Charging Balancer
+- Intelligent EV vs. Home Battery charging prioritization based on daily SOC targets
+- Configure daily EV SOC targets for each day of week (Monday-Sunday)
+- Reuses existing home battery minimum SOC as daily target for all days
+- Three priority states:
+  - **Priority = EV**: EV charges first until reaching daily target
+  - **Priority = Home**: EV stops completely, home battery charges first
+  - **Priority = EV_Free**: Both targets met, opportunistic EV charging
+- Comprehensive fallback mechanisms for sensor failures
+  - Missing/invalid EV SOC → defaults to Priority = EV
+  - Missing/invalid Home SOC → defaults to Priority = EV
+  - Out of range values → defaults to Priority = EV
+- Integration with existing Battery Support feature
+  - Battery Support only activates when Priority = EV or EV_Free
+  - When Priority = Home, Battery Support is ignored
+- New priority state sensor with detailed attributes
+  - Current/target SOCs for both devices
+  - Decision reason and day of week
+  - Real-time priority tracking
+- Enhanced logging for priority decisions
+- Added 1 new switch: Priority Balancer Enable
+- Added 7 new numbers: EV Min SOC for each day (Monday-Sunday)
+- Added 1 new sensor: Priority Daily State
+- Total integration entities: 19 (4 switches, 13 numbers, 1 select, 2 sensors)
+
+### v0.7.0 (2025-01-XX)
+- **Major Enhancement:** Solar Surplus algorithm v2 with three major improvements
+- **Smooth Charge-Speed Reduction:** Gradual step-down instead of instant drops (20A → 16A → 13A...)
+  - Reduces stress on charger and solar inverter
+  - Prevents oscillations in charging cycle
+  - Next check interval determines if further reduction needed
+- **Fluctuation Management:** Solar swing protection with configurable delays
+  - Grid Import Delay (0-120s, default 30s): Only react after sustained grid import
+  - Surplus Drop Delay (0-120s, default 30s): Wait before reducing on surplus drop
+  - Prevents overreaction to clouds/consumption spikes
+- **Home Battery Support:** Optional use of home battery energy
+  - New switch: "Use Home Battery" to enable feature
+  - New number: "Home Battery Min SOC" (0-100%, default 20%)
+  - Fixed 16A fallback when battery available and surplus drops
+  - Allows battery to bridge gap during temporary surplus reductions
+- **Enhanced Logging:** Every decision logged with comprehensive reasoning
+  - Current measurements displayed at each check
+  - Configuration values shown
+  - Decision explanations for debugging
+- Added 3 new number helpers: Grid Import Delay, Surplus Drop Delay, Home Battery Min SOC
+- Added 1 new switch helper: Use Home Battery
+
+### v0.6.1 (2025-01-XX)
 - **UI Enhancement:** Dramatically improved configuration flow experience
 - Added progress indicators to all setup steps (Step X/Y)
 - Rich, detailed descriptions for every entity selector
