@@ -33,7 +33,15 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema({
             vol.Optional(CONF_NAME, default=DEFAULT_NAME): str
         })
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "step": "1",
+                "total_steps": "3"
+            }
+        )
 
     async def async_step_entities(self, user_input: dict[str, Any] | None = None):
         """Handle charger entity selection step."""
@@ -56,7 +64,15 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         })
 
-        return self.async_show_form(step_id="entities", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="entities",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "step": "2",
+                "total_steps": "3"
+            }
+        )
 
     async def async_step_sensors(self, user_input: dict[str, Any] | None = None):
         """Handle sensor entity selection step."""
@@ -86,7 +102,15 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         })
 
-        return self.async_show_form(step_id="sensors", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="sensors",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "step": "3",
+                "total_steps": "3"
+            }
+        )
 
     @staticmethod
     @callback
@@ -133,7 +157,14 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             ),
         })
 
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            description_placeholders={
+                "step": "1",
+                "total_steps": "2"
+            }
+        )
 
     async def async_step_sensors(self, user_input: dict[str, Any] | None = None):
         """Manage sensor entities options."""
@@ -181,4 +212,11 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             ),
         })
 
-        return self.async_show_form(step_id="sensors", data_schema=schema)
+        return self.async_show_form(
+            step_id="sensors",
+            data_schema=schema,
+            description_placeholders={
+                "step": "2",
+                "total_steps": "2"
+            }
+        )

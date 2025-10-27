@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.6.0
+## Current Version: 0.6.1
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -287,7 +287,17 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.6.0 (2025-01-XX) - Current
+### v0.6.1 (2025-01-XX) - Current
+- **UI Enhancement:** Dramatically improved configuration flow experience
+- Added progress indicators to all setup steps (Step X/Y)
+- Rich, detailed descriptions for every entity selector
+- Visual improvements with emojis and better formatting
+- Comprehensive help text explaining what each sensor does
+- Added usage examples for common entity naming patterns
+- Better error messaging and field validation feedback
+- Enhanced reconfiguration (options) flow with same improvements
+
+### v0.6.0 (2025-01-XX)
 - **Major Feature:** Solar Surplus Charging Profile
 - Smart charging using only excess solar energy
 - Automatic amperage adjustment based on available surplus
