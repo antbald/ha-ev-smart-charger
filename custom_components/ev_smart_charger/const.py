@@ -1,6 +1,6 @@
 DOMAIN = "ev_smart_charger"
 DEFAULT_NAME = "EV Smart Charger"
-PLATFORMS = ["switch", "number", "select"]
+PLATFORMS = ["switch", "number", "select", "sensor"]
 
 # Configuration keys
 CONF_EV_CHARGER_SWITCH = "ev_charger_switch"

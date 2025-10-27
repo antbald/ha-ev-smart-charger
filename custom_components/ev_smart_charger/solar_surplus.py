@@ -115,27 +115,45 @@ class SolarSurplusAutomation:
     @callback
     async def _async_periodic_check(self, now=None) -> None:
         """Periodic check for solar surplus charging."""
+        _LOGGER.info("🔄 Solar Surplus: Starting periodic check")
+
+        # Update diagnostic sensor state
+                }
+            )
+
         # Check if Forza Ricarica is ON (kill switch)
         forza_state = self.hass.states.get(self._forza_ricarica_entity)
-        if forza_state and forza_state.state == "on":
-            _LOGGER.debug("Solar Surplus: Forza Ricarica is ON, skipping check")
+        forza_on = forza_state and forza_state.state == "on"
+
+
+        if forza_on:
+            _LOGGER.info("🛑 Solar Surplus: Forza Ricarica is ON, skipping check")
             return
 
         # Check if Solar Surplus profile is selected
         profile_state = self.hass.states.get(self._charging_profile_entity)
-        if not profile_state or profile_state.state != "solar_surplus":
-            _LOGGER.debug("Solar Surplus: Profile not selected, skipping check")
+        current_profile = profile_state.state if profile_state else "unknown"
+
+
+        if not profile_state or current_profile != "solar_surplus":
+            _LOGGER.info(f"⏭️ Solar Surplus: Profile not selected (current: {current_profile}), skipping check")
             return
 
         # Check charger status - only skip if charger_free
         charger_status_state = self.hass.states.get(self._charger_status)
         if not charger_status_state:
-            _LOGGER.warning("Solar Surplus: Charger status unavailable")
+            _LOGGER.warning("⚠️ Solar Surplus: Charger status unavailable")
+                self.diagnostic_sensor.update_status("Error - No Charger Status")
             return
 
-        if charger_status_state.state == CHARGER_STATUS_FREE:
-            _LOGGER.debug("Solar Surplus: Charger is free (not connected), skipping")
+        charger_status = charger_status_state.state
+
+
+        if charger_status == CHARGER_STATUS_FREE:
+            _LOGGER.info("🔌 Solar Surplus: Charger is free (not connected), skipping")
             return
+
+        _LOGGER.info(f"✅ Solar Surplus: Charger status '{charger_status}' - proceeding with check")
 
         # Get sensor values
         fv_state = self.hass.states.get(self._fv_production)
@@ -144,7 +162,15 @@ class SolarSurplusAutomation:
         grid_threshold_state = self.hass.states.get(self._grid_import_threshold_entity)
 
         if not all([fv_state, consumption_state, grid_import_state, grid_threshold_state]):
-            _LOGGER.warning("Solar Surplus: One or more sensors unavailable")
+            missing = []
+            if not fv_state: missing.append("Solar Production")
+            if not consumption_state: missing.append("Home Consumption")
+            if not grid_import_state: missing.append("Grid Import")
+            if not grid_threshold_state: missing.append("Grid Threshold")
+
+            error_msg = f"Sensors unavailable: {', '.join(missing)}"
+            _LOGGER.warning(f"⚠️ Solar Surplus: {error_msg}")
+                self.diagnostic_sensor.update_status("Error - Missing Sensors")
             return
 
         try:
@@ -152,29 +178,34 @@ class SolarSurplusAutomation:
             home_consumption = float(consumption_state.state)
             grid_import = float(grid_import_state.state)
             grid_threshold = float(grid_threshold_state.state)
-        except (ValueError, TypeError):
-            _LOGGER.warning("Solar Surplus: Invalid sensor values")
+        except (ValueError, TypeError) as e:
+            error_msg = f"Invalid sensor values: {e}"
+            _LOGGER.warning(f"⚠️ Solar Surplus: {error_msg}")
+                self.diagnostic_sensor.update_status("Error - Invalid Sensor Data")
             return
 
         # Calculate surplus
         surplus_watts = fv_production - home_consumption
+        surplus_amps = surplus_watts / VOLTAGE_EU
 
-        _LOGGER.debug(
-            f"Solar Surplus: FV={fv_production}W, Consumption={home_consumption}W, "
-            f"Surplus={surplus_watts}W, Grid Import={grid_import}W"
+        _LOGGER.info(
+            f"📊 Solar Surplus: FV={fv_production}W, Consumption={home_consumption}W, "
+            f"Surplus={surplus_watts}W ({surplus_amps:.2f}A), Grid Import={grid_import}W"
         )
+
+        # Update diagnostic sensor with calculations
+                grid_import=grid_import,
+            )
 
         # Check grid import guard rail
         if grid_import > grid_threshold:
-            _LOGGER.info(
-                f"Solar Surplus: Grid import ({grid_import}W) exceeds threshold ({grid_threshold}W), "
-                "reducing charging"
+            _LOGGER.warning(
+                f"⚠️ Solar Surplus: Grid import ({grid_import}W) exceeds threshold ({grid_threshold}W) - "
+                "REDUCING charging to avoid grid import"
             )
+                self.diagnostic_sensor.log_action("Reducing amperage - grid import too high")
             await self._adjust_amperage_down()
             return
-
-        # Convert surplus to amperes (European 230V)
-        surplus_amps = surplus_watts / VOLTAGE_EU
 
         # Find the appropriate amperage level
         target_amps = self._find_target_amperage(surplus_amps)
@@ -189,17 +220,23 @@ class SolarSurplusAutomation:
         else:
             current_amps = 6
 
-        _LOGGER.debug(
-            f"Solar Surplus: Surplus={surplus_amps:.2f}A, Current={current_amps}A, Target={target_amps}A"
+        _LOGGER.info(
+            f"🎯 Solar Surplus: Surplus={surplus_amps:.2f}A, Current={current_amps}A, Target={target_amps}A"
         )
+
 
         # Adjust amperage if needed
         if target_amps > current_amps:
             # Increase: instant
+            _LOGGER.info(f"⬆️ Solar Surplus: INCREASING amperage from {current_amps}A to {target_amps}A")
             await self._set_amperage(target_amps)
         elif target_amps < current_amps:
             # Decrease: stop → wait 5s → set → wait 1s → start
+            _LOGGER.info(f"⬇️ Solar Surplus: DECREASING amperage from {current_amps}A to {target_amps}A")
             await self._adjust_amperage_down(target_amps)
+        else:
+            _LOGGER.info(f"✅ Solar Surplus: Amperage optimal at {current_amps}A - no change needed")
+                self.diagnostic_sensor.log_action(f"No change needed - optimal at {current_amps}A")
 
     def _find_target_amperage(self, surplus_amps: float) -> int:
         """Find the appropriate amperage level from available steps."""
