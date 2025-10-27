@@ -51,6 +51,7 @@ class EVSCDiagnosticSensor(SensorEntity, RestoreEntity):
     """EVSC Diagnostic Sensor showing real-time automation status."""
 
     _attr_should_poll = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -64,8 +65,6 @@ class EVSCDiagnosticSensor(SensorEntity, RestoreEntity):
         self._attr_name = name
         self._attr_icon = icon
         self._attr_native_value = "Initializing"
-        # Explicitly set entity_id for proper registration
-        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{unique_id}"
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -76,6 +75,7 @@ class EVSCDiagnosticSensor(SensorEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
+        _LOGGER.info(f"✅ Diagnostic sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
 
         if (last_state := await self.async_get_last_state()) is not None:
             self._attr_native_value = last_state.state
@@ -85,6 +85,7 @@ class EVSCPriorityStateSensor(SensorEntity, RestoreEntity):
     """EVSC Priority State Sensor showing current charging priority."""
 
     _attr_should_poll = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -99,8 +100,6 @@ class EVSCPriorityStateSensor(SensorEntity, RestoreEntity):
         self._attr_icon = icon
         self._attr_native_value = "EV_Free"
         self._attr_extra_state_attributes = {}
-        # Explicitly set entity_id for proper registration
-        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{unique_id}"
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -110,6 +109,7 @@ class EVSCPriorityStateSensor(SensorEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
+        _LOGGER.info(f"✅ Priority sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
 
         if (last_state := await self.async_get_last_state()) is not None:
             self._attr_native_value = last_state.state

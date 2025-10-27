@@ -72,6 +72,7 @@ class EVSCSwitch(SwitchEntity, RestoreEntity):
     """EVSC Switch Entity (behaves like input_boolean)."""
 
     _attr_should_poll = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -85,8 +86,6 @@ class EVSCSwitch(SwitchEntity, RestoreEntity):
         self._attr_name = name
         self._attr_icon = icon
         self._is_on = False
-        # Explicitly set entity_id for proper registration
-        self.entity_id = f"switch.{DOMAIN}_{entry_id}_{unique_id}"
 
     @property
     def is_on(self) -> bool:
@@ -106,6 +105,7 @@ class EVSCSwitch(SwitchEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
+        _LOGGER.info(f"✅ Switch entity registered: {self.entity_id} (unique_id: {self.unique_id})")
 
         if (last_state := await self.async_get_last_state()) is not None:
             self._is_on = last_state.state == STATE_ON

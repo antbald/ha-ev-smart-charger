@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.8.1
+## Current Version: 0.8.2
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -454,7 +454,26 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.8.1 (2025-10-27) - Current - Critical Hotfix
+### v0.8.2 (2025-10-27) - Current - Entity Registration Fix
+- **Critical Fix:** Corrected entity registration pattern for Home Assistant compatibility
+  - Removed incorrect `self.entity_id` assignments that conflicted with HA's entity registry
+  - Added `_attr_has_entity_name = True` to all entity classes (modern HA pattern)
+  - Allows Home Assistant to generate entity_id automatically from unique_id
+  - Fixes "NO ENTITIES CREATED" error that persisted in v0.8.1
+- **Enhanced Entity Detection:**
+  - Now checks both Entity Registry and State Machine for comprehensive verification
+  - Improved logging shows registration status in both systems
+  - Better diagnostics when entities are registered but not yet in state machine
+  - Reduced wait time from 3s to 2s (sufficient with proper registry checks)
+- **Lifecycle Logging:**
+  - Added `async_added_to_hass()` logging for all entity types
+  - Shows entity_id and unique_id when each entity successfully registers
+  - Helps debug entity creation issues in real-time
+- **Root Cause:** v0.8.1's approach of setting `entity_id` directly conflicted with HA's entity registry system
+- **Impact:** Users on v0.8.0 and v0.8.1 experienced non-functional integration due to entity creation failure
+- **Resolution:** Users must upgrade to v0.8.2 and restart Home Assistant
+
+### v0.8.1 (2025-10-27) - Broken - Do Not Use
 - **Critical Fix:** Entity registration issue causing "NO ENTITIES CREATED" error
   - Added explicit `entity_id` property to all entity classes (switch, number, select, sensor)
   - Ensures proper registration in Home Assistant state machine

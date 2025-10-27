@@ -41,6 +41,7 @@ class EVSCSelect(SelectEntity, RestoreEntity):
     """EVSC Select Entity (behaves like input_select)."""
 
     _attr_should_poll = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -56,8 +57,6 @@ class EVSCSelect(SelectEntity, RestoreEntity):
         self._attr_icon = icon
         self._attr_options = options
         self._current_option = PROFILE_MANUAL  # Default to manual
-        # Explicitly set entity_id for proper registration
-        self.entity_id = f"select.{DOMAIN}_{entry_id}_{unique_id}"
 
     @property
     def current_option(self) -> str:
@@ -73,6 +72,7 @@ class EVSCSelect(SelectEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last selected option."""
         await super().async_added_to_hass()
+        _LOGGER.info(f"✅ Select entity registered: {self.entity_id} (unique_id: {self.unique_id})")
 
         if (last_state := await self.async_get_last_state()) is not None:
             if last_state.state in self.options:

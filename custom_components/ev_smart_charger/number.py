@@ -237,6 +237,7 @@ class EVSCNumber(NumberEntity, RestoreEntity):
 
     _attr_should_poll = False
     _attr_mode = NumberMode.BOX
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -259,8 +260,6 @@ class EVSCNumber(NumberEntity, RestoreEntity):
         self._attr_native_step = step
         self._attr_native_unit_of_measurement = unit
         self._value = default_value
-        # Explicitly set entity_id for proper registration
-        self.entity_id = f"number.{DOMAIN}_{entry_id}_{unique_id}"
 
     @property
     def native_value(self) -> float:
@@ -276,6 +275,7 @@ class EVSCNumber(NumberEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last value."""
         await super().async_added_to_hass()
+        _LOGGER.info(f"✅ Number entity registered: {self.entity_id} (unique_id: {self.unique_id})")
 
         if (last_state := await self.async_get_last_state()) is not None:
             try:

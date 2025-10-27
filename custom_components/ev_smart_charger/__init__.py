@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers import entity_registry as er
 from .const import (
     DOMAIN,
     PLATFORMS,
@@ -40,19 +41,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _LOGGER.info("✅ async_forward_entry_setups completed")
 
-    # Wait a moment for entities to be registered
+    # Give entities a moment to register and write initial state
     import asyncio
-    await asyncio.sleep(3)
+    await asyncio.sleep(2)
 
-    # Debug: List all entities with our entry_id
+    # Check entity registry for proper verification
+    entity_registry = er.async_get(hass)
+    registry_entities = [
+        entity.entity_id for entity in entity_registry.entities.values()
+        if entity.config_entry_id == entry.entry_id
+    ]
+
+    # Also check state machine
     all_entities = hass.states.async_entity_ids()
-    our_entities = [e for e in all_entities if f"ev_smart_charger_{entry.entry_id}" in e]
-    _LOGGER.info(f"🔍 Found {len(our_entities)} entities for this integration:")
-    for entity_id in our_entities:
-        _LOGGER.info(f"  - {entity_id}")
+    state_entities = [e for e in all_entities if f"ev_smart_charger_{entry.entry_id}" in e]
 
-    if len(our_entities) == 0:
-        _LOGGER.error("❌ NO ENTITIES CREATED! This is the problem.")
+    _LOGGER.info(f"🔍 Entity Registry: Found {len(registry_entities)} entities")
+    _LOGGER.info(f"🔍 State Machine: Found {len(state_entities)} entities")
+
+    if registry_entities:
+        _LOGGER.info("✅ Entities registered in Entity Registry:")
+        for entity_id in registry_entities:
+            state = hass.states.get(entity_id)
+            status = "✓ has state" if state else "⚠ no state yet"
+            _LOGGER.info(f"  - {entity_id} ({status})")
+    else:
+        _LOGGER.error("❌ NO ENTITIES IN REGISTRY! Entity registration failed.")
+
+    if not state_entities and registry_entities:
+        _LOGGER.warning("⚠️ Entities in registry but not in state machine yet - this may resolve shortly")
 
     _LOGGER.info("✅ Platforms setup complete, proceeding with automations")
 
