@@ -64,6 +64,8 @@ class EVSCDiagnosticSensor(SensorEntity, RestoreEntity):
         self._attr_name = name
         self._attr_icon = icon
         self._attr_native_value = "Initializing"
+        # Explicitly set entity_id for proper registration
+        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{unique_id}"
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -97,6 +99,8 @@ class EVSCPriorityStateSensor(SensorEntity, RestoreEntity):
         self._attr_icon = icon
         self._attr_native_value = "EV_Free"
         self._attr_extra_state_attributes = {}
+        # Explicitly set entity_id for proper registration
+        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{unique_id}"
 
     @property
     def extra_state_attributes(self) -> dict:

@@ -259,6 +259,8 @@ class EVSCNumber(NumberEntity, RestoreEntity):
         self._attr_native_step = step
         self._attr_native_unit_of_measurement = unit
         self._value = default_value
+        # Explicitly set entity_id for proper registration
+        self.entity_id = f"number.{DOMAIN}_{entry_id}_{unique_id}"
 
     @property
     def native_value(self) -> float:

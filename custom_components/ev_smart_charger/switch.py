@@ -85,6 +85,8 @@ class EVSCSwitch(SwitchEntity, RestoreEntity):
         self._attr_name = name
         self._attr_icon = icon
         self._is_on = False
+        # Explicitly set entity_id for proper registration
+        self.entity_id = f"switch.{DOMAIN}_{entry_id}_{unique_id}"
 
     @property
     def is_on(self) -> bool:

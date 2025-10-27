@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.8.0
+## Current Version: 0.8.1
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -454,7 +454,26 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.8.0 (2025-01-XX) - Current
+### v0.8.1 (2025-10-27) - Current - Critical Hotfix
+- **Critical Fix:** Entity registration issue causing "NO ENTITIES CREATED" error
+  - Added explicit `entity_id` property to all entity classes (switch, number, select, sensor)
+  - Ensures proper registration in Home Assistant state machine
+  - Fixes Priority Balancer and all other features not working
+- **Enhancement:** Reinforced Priority Balancer engine
+  - Added explicit logging when reading helper values (home battery min SOC, EV daily targets)
+  - Confirms fresh values are read from state machine at every check
+  - Added debug logging to trace priority decision-making
+  - Verifies that helper value changes (like home battery min SOC) are detected immediately at next check
+- **Logging Improvements:**
+  - Added `_LOGGER.debug()` for detailed value reading traces
+  - Added `_LOGGER.info()` for priority decisions
+  - Added `_LOGGER.warning()` for missing or invalid helper values
+  - All priority calculations now fully traceable in logs
+- **Issue:** v0.8.0 entities were not being created due to missing entity_id registration
+- **Impact:** All users upgrading from v0.7.0 to v0.8.0 experienced broken integration
+- **Resolution:** Users must upgrade to v0.8.1 and restart Home Assistant
+
+### v0.8.0 (2025-10-27) - Broken - Do Not Use
 - **Major Feature:** Priority Daily Charging Balancer
 - Intelligent EV vs. Home Battery charging prioritization based on daily SOC targets
 - Configure daily EV SOC targets for each day of week (Monday-Sunday)

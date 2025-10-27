@@ -207,28 +207,34 @@ class SolarSurplusAutomation:
             attributes["reason"] = "Priority Balancer disabled"
             return PRIORITY_EV_FREE, attributes
 
-        # Get today's EV target SOC
+        # Get today's EV target SOC (ALWAYS reads fresh value from state machine)
         ev_target_state = self.hass.states.get(day_entities[today_idx])
         if not ev_target_state:
-            attributes["reason"] = "EV target SOC helper not found"
+            attributes["reason"] = f"EV target SOC helper not found for {day_name}"
+            _LOGGER.warning(f"⚠️ Priority Balancer: EV target SOC entity not found for {day_name}: {day_entities[today_idx]}")
             return PRIORITY_EV, attributes
 
         try:
             target_ev_soc = float(ev_target_state.state)
+            _LOGGER.debug(f"🔄 Priority Balancer: Read fresh EV target SOC for {day_name}: {target_ev_soc}% from {day_entities[today_idx]}")
         except (ValueError, TypeError):
-            attributes["reason"] = "Invalid EV target SOC value"
+            attributes["reason"] = f"Invalid EV target SOC value for {day_name}"
+            _LOGGER.warning(f"⚠️ Priority Balancer: Invalid EV target SOC value for {day_name}: {ev_target_state.state}")
             return PRIORITY_EV, attributes
 
-        # Get home battery target SOC
+        # Get home battery target SOC (ALWAYS reads fresh value from state machine)
         home_target_state = self.hass.states.get(self._home_battery_min_soc_entity)
         if not home_target_state:
             attributes["reason"] = "Home battery target SOC helper not found"
+            _LOGGER.warning(f"⚠️ Priority Balancer: Home battery target SOC entity not found: {self._home_battery_min_soc_entity}")
             return PRIORITY_EV, attributes
 
         try:
             target_home_soc = float(home_target_state.state)
+            _LOGGER.debug(f"🔄 Priority Balancer: Read fresh home battery target SOC: {target_home_soc}% from {self._home_battery_min_soc_entity}")
         except (ValueError, TypeError):
             attributes["reason"] = "Invalid home battery target SOC value"
+            _LOGGER.warning(f"⚠️ Priority Balancer: Invalid home battery target SOC value: {home_target_state.state}")
             return PRIORITY_EV, attributes
 
         # Get current EV SOC
@@ -288,15 +294,20 @@ class SolarSurplusAutomation:
         attributes["target_ev_soc"] = target_ev_soc
         attributes["target_home_soc"] = target_home_soc
 
-        # Decision logic
+        # Decision logic (uses FRESH values read from state machine this cycle)
+        _LOGGER.debug(f"🔄 Priority Balancer: Making decision with fresh values - EV: {current_ev_soc}% vs {target_ev_soc}%, Home: {current_home_soc}% vs {target_home_soc}%")
+
         if current_ev_soc < target_ev_soc:
             attributes["reason"] = f"EV below target ({current_ev_soc:.1f}% < {target_ev_soc}%)"
+            _LOGGER.info(f"✅ Priority Balancer: Decision = PRIORITY_EV (EV {current_ev_soc:.1f}% < target {target_ev_soc}%)")
             return PRIORITY_EV, attributes
         elif current_home_soc < target_home_soc:
             attributes["reason"] = f"Home battery below target ({current_home_soc:.1f}% < {target_home_soc}%)"
+            _LOGGER.info(f"✅ Priority Balancer: Decision = PRIORITY_HOME (Home {current_home_soc:.1f}% < target {target_home_soc}%)")
             return PRIORITY_HOME, attributes
         else:
             attributes["reason"] = f"Both targets met (EV: {current_ev_soc:.1f}% >= {target_ev_soc}%, Home: {current_home_soc:.1f}% >= {target_home_soc}%)"
+            _LOGGER.info(f"✅ Priority Balancer: Decision = PRIORITY_EV_FREE (Both targets met)")
             return PRIORITY_EV_FREE, attributes
 
     async def _update_priority_sensor(self, priority: str, attributes: dict) -> None:

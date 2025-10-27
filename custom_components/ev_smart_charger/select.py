@@ -56,6 +56,8 @@ class EVSCSelect(SelectEntity, RestoreEntity):
         self._attr_icon = icon
         self._attr_options = options
         self._current_option = PROFILE_MANUAL  # Default to manual
+        # Explicitly set entity_id for proper registration
+        self.entity_id = f"select.{DOMAIN}_{entry_id}_{unique_id}"
 
     @property
     def current_option(self) -> str:
