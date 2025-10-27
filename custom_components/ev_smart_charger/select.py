@@ -41,7 +41,6 @@ class EVSCSelect(SelectEntity, RestoreEntity):
     """EVSC Select Entity (behaves like input_select)."""
 
     _attr_should_poll = False
-    _attr_has_entity_name = True
 
     def __init__(
         self,

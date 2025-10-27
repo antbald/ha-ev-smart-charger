@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.8.4
+## Current Version: 0.8.5
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -454,7 +454,27 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.8.4 (2025-10-27) - Current - Helper Entity Lookup Fix
+### v0.8.5 (2025-10-27) - Current - Complete Entity Registration Fix
+- **Critical Fix:** Removed `_attr_has_entity_name = True` that was causing entity ID mismatch
+  - **Root Cause:** With `_attr_has_entity_name = True`, HA generated entity IDs as `switch.evsc_forza_ricarica` (no entry_id)
+  - **Root Cause:** `_find_entity_by_suffix()` searched ALL entities in registry, not just our integration's entities
+  - **Impact:** Helper entities not found even though they existed in registry
+- **Solution 1:** Removed `_attr_has_entity_name = True` from all entity classes
+  - Entities now have standard IDs: `switch.ev_smart_charger_{entry_id}_evsc_forza_ricarica`
+  - Entity IDs are unique per integration instance
+  - Compatible with Home Assistant's default entity_id generation
+- **Solution 2:** Updated `_find_entity_by_suffix()` to filter by `config_entry_id`
+  - Searches only entities belonging to THIS integration instance
+  - Checks `unique_id` instead of `entity_id` (more reliable)
+  - Prevents finding entities from other integrations or multiple instances
+- **Files Modified:**
+  - `switch.py`, `number.py`, `select.py`, `sensor.py` - Removed `_attr_has_entity_name = True`
+  - `automations.py` - Updated entity search to filter by config_entry_id and check unique_id
+  - `solar_surplus.py` - Updated entity search to filter by config_entry_id and check unique_id
+- **Impact:** Users on v0.8.2, v0.8.3, v0.8.4 experienced entity lookup failures
+- **Resolution:** Users must upgrade to v0.8.5 and restart Home Assistant
+
+### v0.8.4 (2025-10-27) - Broken - Helper Entity Lookup Fix
 - **Critical Fix:** Helper entities not found during startup (v0.8.3 regression)
   - **Root Cause:** `_find_entity_by_suffix()` searched state machine before entities wrote initial state
   - **Impact:** Both Smart Charger Blocker and Solar Surplus failed to initialize

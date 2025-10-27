@@ -237,7 +237,6 @@ class EVSCNumber(NumberEntity, RestoreEntity):
 
     _attr_should_poll = False
     _attr_mode = NumberMode.BOX
-    _attr_has_entity_name = True
 
     def __init__(
         self,

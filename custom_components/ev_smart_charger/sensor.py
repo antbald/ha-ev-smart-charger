@@ -51,7 +51,6 @@ class EVSCDiagnosticSensor(SensorEntity, RestoreEntity):
     """EVSC Diagnostic Sensor showing real-time automation status."""
 
     _attr_should_poll = False
-    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -85,7 +84,6 @@ class EVSCPriorityStateSensor(SensorEntity, RestoreEntity):
     """EVSC Priority State Sensor showing current charging priority."""
 
     _attr_should_poll = False
-    _attr_has_entity_name = True
 
     def __init__(
         self,

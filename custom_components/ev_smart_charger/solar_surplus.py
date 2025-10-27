@@ -87,23 +87,20 @@ class SolarSurplusAutomation:
         self._current_priority = PRIORITY_EV_FREE  # Current charging priority
 
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
-        """Find an entity by its suffix using entity registry."""
-        # Use entity registry instead of state machine for reliability
+        """Find an entity by its suffix, filtering by this integration's config_entry_id."""
+        # Use entity registry and filter by our config entry
         entity_registry = er.async_get(self.hass)
 
-        # Search through all entities in the registry
+        # Search only through entities belonging to this integration instance
         for entity in entity_registry.entities.values():
-            if entity.entity_id.endswith(suffix):
-                _LOGGER.debug(f"Found helper entity in registry: {entity.entity_id}")
-                return entity.entity_id
+            # Filter by config_entry_id to get only OUR entities
+            if entity.config_entry_id == self.entry_id:
+                # Check if unique_id ends with the suffix
+                if entity.unique_id and entity.unique_id.endswith(suffix):
+                    _LOGGER.debug(f"Found helper entity: {entity.entity_id} (unique_id: {entity.unique_id})")
+                    return entity.entity_id
 
-        # Fallback: try state machine if not in registry yet
-        for entity_id in self.hass.states.async_entity_ids():
-            if entity_id.endswith(suffix):
-                _LOGGER.debug(f"Found helper entity in state machine: {entity_id}")
-                return entity_id
-
-        _LOGGER.warning(f"Helper entity with suffix '{suffix}' not found: {suffix}")
+        _LOGGER.warning(f"Helper entity with suffix '{suffix}' not found for config_entry {self.entry_id}")
         return None
 
     async def async_setup(self) -> None:

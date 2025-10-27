@@ -72,7 +72,6 @@ class EVSCSwitch(SwitchEntity, RestoreEntity):
     """EVSC Switch Entity (behaves like input_boolean)."""
 
     _attr_should_poll = False
-    _attr_has_entity_name = True
 
     def __init__(
         self,
