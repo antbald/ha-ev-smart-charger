@@ -245,3 +245,4 @@ If helper entities don't appear:
 4. Check entity registry: Developer Tools → States (search for "evsc")
 5. Entity IDs contain entry_id, find via: `hass.states.async_entity_ids()`
 - update CLAUDE.md when features are added or removed
+- Refer to this documentation @ha-doc.md when implementing an home assistant plugin
