@@ -20,6 +20,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up EVSC switch entities."""
+    _LOGGER.info(f"🔄 switch.py async_setup_entry called for entry {entry.entry_id}")
 
     entities = []
 

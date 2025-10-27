@@ -36,12 +36,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info(f"  - Grid Import: {entry.data.get(CONF_GRID_IMPORT)}")
 
     # Set up platforms (creates helper entities automatically)
+    _LOGGER.info(f"🔄 Setting up platforms: {PLATFORMS}")
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _LOGGER.info("✅ async_forward_entry_setups completed")
 
     # Wait a moment for entities to be registered
     import asyncio
-    await asyncio.sleep(2)
-    _LOGGER.info("✅ Platforms setup complete, entities should be available")
+    await asyncio.sleep(3)
+
+    # Debug: List all entities with our entry_id
+    all_entities = hass.states.async_entity_ids()
+    our_entities = [e for e in all_entities if f"ev_smart_charger_{entry.entry_id}" in e]
+    _LOGGER.info(f"🔍 Found {len(our_entities)} entities for this integration:")
+    for entity_id in our_entities:
+        _LOGGER.info(f"  - {entity_id}")
+
+    if len(our_entities) == 0:
+        _LOGGER.error("❌ NO ENTITIES CREATED! This is the problem.")
+
+    _LOGGER.info("✅ Platforms setup complete, proceeding with automations")
 
     # Set up automations
     try:
