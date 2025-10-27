@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.8.2
+## Current Version: 0.8.3
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -454,7 +454,28 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.8.2 (2025-10-27) - Current - Entity Registration Fix
+### v0.8.3 (2025-10-27) - Current - Smart Charger Blocker Robustness Fix
+- **Critical Fix:** Smart Charger Blocker was not working - now fully functional
+  - **Root Cause:** Helper entities were never initialized (defined but not set in async_setup)
+  - **Root Cause:** Only listened to status changes, not charger switch changes
+  - **Root Cause:** No immediate check when blocker was enabled with charger already on
+- **New Event Listeners:**
+  - Now monitors charger **switch state** changes (off → on)
+  - Now monitors charger **status** changes (any → charger_charging)
+  - Now monitors **blocker enable switch** (checks immediately if charger already on)
+- **Immediate Blocking:** Blocker now triggers in all these scenarios:
+  - ✅ Charger switch turns ON while blocker is enabled
+  - ✅ Charger status changes to "charging" while blocker is enabled
+  - ✅ Blocker is enabled while charger is already ON
+- **Enhanced Logging:**
+  - Shows which trigger activated the blocker (switch ON, status change, blocker enabled)
+  - Logs helper entity discovery on startup
+  - Detailed blocking condition checks with reasons
+- **Unified Logic:** Created `_check_and_block_if_needed()` method to avoid code duplication
+- **Impact:** Users on v0.8.0-v0.8.2 experienced non-functional Smart Charger Blocker
+- **Resolution:** Users must upgrade to v0.8.3 and restart Home Assistant
+
+### v0.8.2 (2025-10-27) - Entity Registration Fix
 - **Critical Fix:** Corrected entity registration pattern for Home Assistant compatibility
   - Removed incorrect `self.entity_id` assignments that conflicted with HA's entity registry
   - Added `_attr_has_entity_name = True` to all entity classes (modern HA pattern)

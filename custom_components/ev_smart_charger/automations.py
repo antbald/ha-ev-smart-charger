@@ -26,7 +26,9 @@ class SmartChargerBlocker:
         self.hass = hass
         self.entry_id = entry_id
         self.config = config
-        self._unsub = None
+        self._unsub_status = None
+        self._unsub_switch = None
+        self._unsub_blocker = None
 
         # Helper entities - will be found in async_setup
         self._forza_ricarica_entity = None
@@ -45,20 +47,51 @@ class SmartChargerBlocker:
     async def async_setup(self) -> None:
         """Set up the Smart Charger Blocker automation."""
         charger_status_entity = self.config.get(CONF_EV_CHARGER_STATUS)
+        charger_switch_entity = self.config.get(CONF_EV_CHARGER_SWITCH)
 
-        # Listen for charger status changes
-        self._unsub = async_track_state_change_event(
+        # Find helper entities
+        self._forza_ricarica_entity = self._find_entity_by_suffix(f"evsc_forza_ricarica")
+        self._blocker_enabled_entity = self._find_entity_by_suffix(f"evsc_smart_charger_blocker_enabled")
+        self._solar_threshold_entity = self._find_entity_by_suffix(f"evsc_solar_production_threshold")
+
+        if not self._blocker_enabled_entity:
+            _LOGGER.error("Cannot set up Smart Charger Blocker - helper entities not found")
+            return
+
+        # Listen for charger status changes (charger_free -> charger_charging)
+        self._unsub_status = async_track_state_change_event(
             self.hass,
             charger_status_entity,
             self._async_charger_status_changed
         )
 
-        _LOGGER.info("Smart Charger Blocker automation set up successfully")
+        # Listen for charger switch turning ON (off -> on)
+        self._unsub_switch = async_track_state_change_event(
+            self.hass,
+            charger_switch_entity,
+            self._async_charger_switch_changed
+        )
+
+        # Listen for blocker being enabled (check immediately if charger is already on)
+        self._unsub_blocker = async_track_state_change_event(
+            self.hass,
+            self._blocker_enabled_entity,
+            self._async_blocker_enabled_changed
+        )
+
+        _LOGGER.info("✅ Smart Charger Blocker automation set up successfully")
+        _LOGGER.info(f"  - Monitoring charger status: {charger_status_entity}")
+        _LOGGER.info(f"  - Monitoring charger switch: {charger_switch_entity}")
+        _LOGGER.info(f"  - Monitoring blocker switch: {self._blocker_enabled_entity}")
 
     async def async_remove(self) -> None:
         """Remove the automation."""
-        if self._unsub:
-            self._unsub()
+        if self._unsub_status:
+            self._unsub_status()
+        if self._unsub_switch:
+            self._unsub_switch()
+        if self._unsub_blocker:
+            self._unsub_blocker()
         _LOGGER.info("Smart Charger Blocker automation removed")
 
     @callback
@@ -77,13 +110,62 @@ class SmartChargerBlocker:
         if old_state.state == CHARGER_STATUS_CHARGING:
             return  # Already charging, ignore
 
-        _LOGGER.debug("Charger started charging, checking if should block...")
+        _LOGGER.info(f"🔌 Charger status changed to charging (was: {old_state.state})")
+        await self._check_and_block_if_needed("Status changed to charging")
+
+    @callback
+    async def _async_charger_switch_changed(self, event) -> None:
+        """Handle charger switch state change events."""
+        new_state: State = event.data.get("new_state")
+        old_state: State = event.data.get("old_state")
+
+        if not new_state or not old_state:
+            return
+
+        # Check if charger switch just turned ON
+        if new_state.state != STATE_ON:
+            return
+
+        if old_state.state == STATE_ON:
+            return  # Already on, ignore
+
+        _LOGGER.info(f"🔌 Charger switch turned ON (was: {old_state.state})")
+        await self._check_and_block_if_needed("Charger switch turned ON")
+
+    @callback
+    async def _async_blocker_enabled_changed(self, event) -> None:
+        """Handle blocker enable switch state change events."""
+        new_state: State = event.data.get("new_state")
+        old_state: State = event.data.get("old_state")
+
+        if not new_state or not old_state:
+            return
+
+        # Check if blocker just got enabled
+        if new_state.state != STATE_ON:
+            return
+
+        if old_state.state == STATE_ON:
+            return  # Already enabled, ignore
+
+        _LOGGER.info("🔌 Smart Charger Blocker enabled - checking current charger state")
+
+        # Check if charger is currently ON
+        charger_switch = self.config.get(CONF_EV_CHARGER_SWITCH)
+        if charger_switch:
+            charger_state = self.hass.states.get(charger_switch)
+            if charger_state and charger_state.state == STATE_ON:
+                await self._check_and_block_if_needed("Blocker enabled while charger was ON")
+
+    async def _check_and_block_if_needed(self, trigger_reason: str) -> None:
+        """Common logic to check conditions and block if needed."""
+        _LOGGER.debug(f"Checking blocking conditions - Trigger: {trigger_reason}")
 
         # Check Forza Ricarica (global kill switch)
         if self._forza_ricarica_entity:
             forza_ricarica_state = self.hass.states.get(self._forza_ricarica_entity)
             if forza_ricarica_state and forza_ricarica_state.state == STATE_ON:
-                _LOGGER.info("Forza Ricarica is ON - Smart Charger Blocker disabled")
+                _LOGGER.info("✅ Forza Ricarica is ON - Smart Charger Blocker disabled")
                 return
 
         # Check if Smart Charger Blocker is enabled
@@ -100,7 +182,7 @@ class SmartChargerBlocker:
         should_block, reason = await self._should_block_charging()
 
         if should_block:
-            await self._block_charging(reason)
+            await self._block_charging(f"{trigger_reason} - {reason}")
 
     async def _should_block_charging(self) -> tuple[bool, str]:
         """Determine if charging should be blocked."""
