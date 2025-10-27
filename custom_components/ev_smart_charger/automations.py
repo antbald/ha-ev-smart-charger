@@ -6,6 +6,7 @@ from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.const import STATE_ON, STATE_OFF
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.sun import get_astral_event_date
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from .const import (
     DOMAIN,
@@ -36,12 +37,23 @@ class SmartChargerBlocker:
         self._solar_threshold_entity = None
 
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
-        """Find entity ID by suffix."""
+        """Find entity ID by suffix using entity registry."""
+        # Use entity registry instead of state machine for reliability
+        entity_registry = er.async_get(self.hass)
+
+        # Search through all entities in the registry
+        for entity in entity_registry.entities.values():
+            if entity.entity_id.endswith(suffix):
+                _LOGGER.debug(f"Found helper entity in registry: {entity.entity_id}")
+                return entity.entity_id
+
+        # Fallback: try state machine if not in registry yet
         for entity_id in self.hass.states.async_entity_ids():
             if entity_id.endswith(suffix):
-                _LOGGER.debug(f"Found helper entity: {entity_id}")
+                _LOGGER.debug(f"Found helper entity in state machine: {entity_id}")
                 return entity_id
-        _LOGGER.warning(f"Helper entity with suffix '{suffix}' not found")
+
+        _LOGGER.warning(f"Helper entity with suffix '{suffix}' not found in registry or state machine")
         return None
 
     async def async_setup(self) -> None:

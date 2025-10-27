@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.8.3
+## Current Version: 0.8.4
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -454,7 +454,25 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.8.3 (2025-10-27) - Current - Smart Charger Blocker Robustness Fix
+### v0.8.4 (2025-10-27) - Current - Helper Entity Lookup Fix
+- **Critical Fix:** Helper entities not found during startup (v0.8.3 regression)
+  - **Root Cause:** `_find_entity_by_suffix()` searched state machine before entities wrote initial state
+  - **Impact:** Both Smart Charger Blocker and Solar Surplus failed to initialize
+  - Errors: "Helper entity with suffix '...' not found" and "Cannot set up Smart Charger Blocker"
+- **Solution:** Use Entity Registry instead of State Machine for entity lookup
+  - Entity Registry contains entities immediately after registration
+  - State Machine only gets entities after they write their first state
+  - Added fallback to state machine if registry lookup fails
+  - Works reliably regardless of timing
+- **Files Modified:**
+  - `automations.py` - Updated `_find_entity_by_suffix()` to use entity registry
+  - `solar_surplus.py` - Updated `_find_entity_by_suffix()` to use entity registry
+  - Added import for `entity_registry as er` in both files
+- **Enhanced Logging:** Shows whether entity was found in registry or state machine
+- **Impact:** Users on v0.8.3 experienced failed initialization
+- **Resolution:** Users must upgrade to v0.8.4 and restart Home Assistant
+
+### v0.8.3 (2025-10-27) - Broken - Smart Charger Blocker Attempted Fix
 - **Critical Fix:** Smart Charger Blocker was not working - now fully functional
   - **Root Cause:** Helper entities were never initialized (defined but not set in async_setup)
   - **Root Cause:** Only listened to status changes, not charger switch changes

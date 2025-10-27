@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CHARGER_AMP_LEVELS,
@@ -86,10 +87,23 @@ class SolarSurplusAutomation:
         self._current_priority = PRIORITY_EV_FREE  # Current charging priority
 
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
-        """Find an entity by its suffix."""
+        """Find an entity by its suffix using entity registry."""
+        # Use entity registry instead of state machine for reliability
+        entity_registry = er.async_get(self.hass)
+
+        # Search through all entities in the registry
+        for entity in entity_registry.entities.values():
+            if entity.entity_id.endswith(suffix):
+                _LOGGER.debug(f"Found helper entity in registry: {entity.entity_id}")
+                return entity.entity_id
+
+        # Fallback: try state machine if not in registry yet
         for entity_id in self.hass.states.async_entity_ids():
             if entity_id.endswith(suffix):
+                _LOGGER.debug(f"Found helper entity in state machine: {entity_id}")
                 return entity_id
+
+        _LOGGER.warning(f"Helper entity with suffix '{suffix}' not found: {suffix}")
         return None
 
     async def async_setup(self) -> None:
