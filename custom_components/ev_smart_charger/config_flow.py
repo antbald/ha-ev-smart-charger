@@ -15,6 +15,7 @@ from .const import (
     CONF_SOC_HOME,
     CONF_FV_PRODUCTION,
     CONF_HOME_CONSUMPTION,
+    CONF_GRID_IMPORT,
 )
 
 class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -78,6 +79,9 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 selector.EntitySelectorConfig(domain="sensor")
             ),
             vol.Required(CONF_HOME_CONSUMPTION): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Required(CONF_GRID_IMPORT): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
         })
@@ -166,6 +170,12 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             vol.Required(
                 CONF_HOME_CONSUMPTION,
                 default=current_data.get(CONF_HOME_CONSUMPTION)
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Required(
+                CONF_GRID_IMPORT,
+                default=current_data.get(CONF_GRID_IMPORT)
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),

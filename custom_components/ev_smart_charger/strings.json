@@ -32,13 +32,15 @@
           "soc_car": "Car Battery Level (SOC)",
           "soc_home": "Home Battery Level (SOC)",
           "fv_production": "Solar Panel Production",
-          "home_consumption": "Home Consumption"
+          "home_consumption": "Home Consumption",
+          "grid_import": "Grid Import Power"
         },
         "data_description": {
           "soc_car": "Sensor showing your EV's battery state of charge in percentage (0-100%)",
           "soc_home": "Sensor showing your home battery state of charge in percentage (0-100%)",
           "fv_production": "Sensor showing current solar panel production in Watts (W)",
-          "home_consumption": "Sensor showing current home power consumption in Watts (W), excluding EV charger"
+          "home_consumption": "Sensor showing current home power consumption in Watts (W), excluding EV charger",
+          "grid_import": "Sensor showing power being imported from grid in Watts (W). Positive value = importing, zero/negative = not importing"
         }
       }
     },
@@ -69,13 +71,15 @@
           "soc_car": "Car Battery Level (SOC)",
           "soc_home": "Home Battery Level (SOC)",
           "fv_production": "Solar Panel Production",
-          "home_consumption": "Home Consumption"
+          "home_consumption": "Home Consumption",
+          "grid_import": "Grid Import Power"
         },
         "data_description": {
           "soc_car": "EV battery state of charge (0-100%)",
           "soc_home": "Home battery state of charge (0-100%)",
           "fv_production": "Solar production in Watts (W)",
-          "home_consumption": "Home consumption in Watts (W)"
+          "home_consumption": "Home consumption in Watts (W)",
+          "grid_import": "Grid import power in Watts (W)"
         }
       }
     },
