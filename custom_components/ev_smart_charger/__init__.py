@@ -12,8 +12,10 @@ from .const import (
     CONF_SOC_HOME,
     CONF_FV_PRODUCTION,
     CONF_HOME_CONSUMPTION,
+    CONF_GRID_IMPORT,
 )
 from .automations import async_setup_automations, async_remove_automations
+from .solar_surplus import SolarSurplusAutomation
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info(f"  - Home SOC: {entry.data.get(CONF_SOC_HOME)}")
     _LOGGER.info(f"  - FV Production: {entry.data.get(CONF_FV_PRODUCTION)}")
     _LOGGER.info(f"  - Home Consumption: {entry.data.get(CONF_HOME_CONSUMPTION)}")
+    _LOGGER.info(f"  - Grid Import: {entry.data.get(CONF_GRID_IMPORT)}")
 
     # Set up platforms (creates helper entities automatically)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -43,10 +46,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.exception("Automation setup error details:")
         return False
 
+    # Set up Solar Surplus automation
+    try:
+        solar_surplus = SolarSurplusAutomation(hass, entry.entry_id, entry.data)
+        await solar_surplus.async_setup()
+    except Exception as e:
+        _LOGGER.error(f"Failed to set up Solar Surplus automation: {e}")
+        _LOGGER.exception("Solar Surplus setup error details:")
+        solar_surplus = None
+
     # Store configuration data and automations
     hass.data[DOMAIN][entry.entry_id] = {
         "config": entry.data,
         "automations": automations,
+        "solar_surplus": solar_surplus,
     }
 
     # Register update listener
@@ -67,9 +80,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Remove automations
     entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
     automations = entry_data.get("automations", {})
+    solar_surplus = entry_data.get("solar_surplus")
 
     if automations:
         await async_remove_automations(automations)
+
+    if solar_surplus:
+        await solar_surplus.async_remove()
 
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

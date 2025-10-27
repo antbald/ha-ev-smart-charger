@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.5.0
+## Current Version: 0.6.0
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -10,6 +10,52 @@ A Home Assistant integration for intelligent EV charging control based on solar 
 ---
 
 ## Features
+
+### ⚡ Charging Profiles (v0.6.0+)
+
+Choose from multiple intelligent charging modes via the **Charging Profile** selector:
+
+#### 1. Manual Mode
+Standard charging without automation - full manual control.
+
+#### 2. Solar Surplus Mode ☀️ (v0.6.0+)
+**Charge your EV using only excess solar energy - never import from the grid!**
+
+**How it works:**
+- Calculates available surplus: `Solar Production - Home Consumption`
+- Automatically adjusts charging amperage based on available surplus
+- Uses European 230V standard to convert watts to amps
+- Adjusts every X minutes (configurable, default: 1 minute)
+- **Grid Import Protection:** Monitors grid import and reduces charging if importing power
+- Always starts with minimum 6A when surplus is available
+
+**Smart Amperage Adjustment:**
+- **Increasing:** Instant adjustment when more surplus is available
+- **Decreasing:** Safe sequence to prevent charger issues:
+  1. Stop charger
+  2. Wait 5 seconds
+  3. Set new amperage
+  4. Wait 1 second
+  5. Restart charger
+
+**Available Amperage Steps:** 6A, 8A, 10A, 13A, 16A, 20A, 24A, 32A
+
+**Controls:**
+- `select.evsc_charging_profile` - Choose charging mode
+- `number.evsc_check_interval` - How often to recalculate (1-60 minutes)
+- `number.evsc_grid_import_threshold` - Max grid import before reducing charge (W)
+
+**Requirements:**
+- Charger must be in status: `charger_charging`, `charger_end`, or `charger_wait`
+- Does NOT activate when charger status is `charger_free` (not connected)
+
+#### 3. Charge Target Mode (Coming Soon)
+Charge to a specific battery percentage by a target time.
+
+#### 4. Cheapest Mode (Coming Soon)
+Charge during the cheapest electricity price hours.
+
+---
 
 ### 🚫 Smart Charger Blocker (v0.4.0+)
 Automatically prevents EV charging during nighttime or when solar production is insufficient.
@@ -23,9 +69,9 @@ Automatically prevents EV charging during nighttime or when solar production is 
 - Fully configurable via helper entities
 
 **Controls:**
-- `input_boolean.evsc_forza_ricarica` - **Global Kill Switch**: When ON, disables ALL smart features (manual mode)
-- `input_boolean.evsc_smart_charger_blocker_enabled` - Enable/disable Smart Charger Blocker
-- `input_number.evsc_solar_production_threshold` - Minimum solar production (W) to allow charging
+- `switch.evsc_forza_ricarica` - **Global Kill Switch**: When ON, disables ALL smart features (manual mode)
+- `switch.evsc_smart_charger_blocker_enabled` - Enable/disable Smart Charger Blocker
+- `number.evsc_solar_production_threshold` - Minimum solar production (W) to allow charging
 
 ---
 
@@ -70,27 +116,51 @@ During setup, you'll map your existing Home Assistant entities to these roles:
 - **Home Battery SOC** - Home battery level (%)
 - **Solar Production** - Current PV production (W)
 - **Home Consumption** - Current home power usage (W)
+- **Grid Import** - Power being imported from grid (W) - Positive = importing
 
 ### Helper Entities (Auto-Created)
 
-The integration **automatically creates 3 helper entities** when you add it:
+The integration **automatically creates 7 helper entities** when you add it:
 
-#### Switch 1: EVSC Forza Ricarica
+#### Switches (2)
+
+**1. EVSC Forza Ricarica**
 - **Entity ID:** `switch.ev_smart_charger_<entry_id>_evsc_forza_ricarica`
 - **Purpose:** Global kill switch - When ON, all smart features are disabled
 - **Icon:** `mdi:power`
 
-#### Switch 2: EVSC Smart Charger Blocker
+**2. EVSC Smart Charger Blocker**
 - **Entity ID:** `switch.ev_smart_charger_<entry_id>_evsc_smart_charger_blocker_enabled`
 - **Purpose:** Enable/disable the Smart Charger Blocker feature
 - **Icon:** `mdi:solar-power`
 
-#### Number 1: EVSC Solar Production Threshold
+#### Numbers (3)
+
+**1. EVSC Solar Production Threshold**
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_solar_production_threshold`
 - **Purpose:** Minimum solar production (W) required to allow charging
-- **Default:** 50W
-- **Range:** 0-1000W (step: 10W)
+- **Default:** 50W | **Range:** 0-1000W (step: 10W)
 - **Icon:** `mdi:solar-power-variant`
+
+**2. EVSC Check Interval** *(v0.6.0+)*
+- **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_check_interval`
+- **Purpose:** How often Solar Surplus recalculates charging power (minutes)
+- **Default:** 1 min | **Range:** 1-60 min (step: 1 min)
+- **Icon:** `mdi:timer-outline`
+
+**3. EVSC Grid Import Threshold** *(v0.6.0+)*
+- **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_grid_import_threshold`
+- **Purpose:** Maximum allowed grid import (W) before reducing charging
+- **Default:** 50W | **Range:** 0-1000W (step: 10W)
+- **Icon:** `mdi:transmission-tower`
+
+#### Selects (1)
+
+**1. EVSC Charging Profile** *(v0.6.0+)*
+- **Entity ID:** `select.ev_smart_charger_<entry_id>_evsc_charging_profile`
+- **Purpose:** Choose charging mode (manual, solar_surplus, charge_target, cheapest)
+- **Default:** manual
+- **Icon:** `mdi:ev-station`
 
 **Note:** These entities are created automatically - no manual setup required!
 
@@ -106,8 +176,21 @@ Add these entities to your Lovelace dashboard for easy control:
 type: entities
 title: EV Smart Charger
 entities:
+  # Global Controls
   - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_forza_ricarica
     name: 🔴 Forza Ricarica (Override All)
+
+  # Charging Profile (v0.6.0+)
+  - entity: select.ev_smart_charger_YOUR_ENTRY_ID_evsc_charging_profile
+    name: ⚡ Charging Profile
+
+  # Solar Surplus Settings (v0.6.0+)
+  - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_check_interval
+    name: ⏱️ Check Interval (min)
+  - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_grid_import_threshold
+    name: 🔌 Max Grid Import (W)
+
+  # Smart Charger Blocker
   - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_smart_charger_blocker_enabled
     name: 🚫 Smart Charger Blocker
   - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_solar_production_threshold
@@ -204,7 +287,19 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.5.0 (2025-01-XX) - Current
+### v0.6.0 (2025-01-XX) - Current
+- **Major Feature:** Solar Surplus Charging Profile
+- Smart charging using only excess solar energy
+- Automatic amperage adjustment based on available surplus
+- Grid import protection - never import from grid while charging
+- Safe amperage decrease sequence (stop → wait → adjust → start)
+- Configurable check interval (1-60 minutes)
+- Configurable grid import threshold
+- New helper entities: Charging Profile selector, Check Interval, Grid Import Threshold
+- Robust charger status checking (works with charger_charging, charger_end, charger_wait)
+- European 230V standard with amperage steps: 6, 8, 10, 13, 16, 20, 24, 32A
+
+### v0.5.0 (2025-01-XX)
 - **Major Feature:** Automatic helper entity creation
 - Helper entities (switches/numbers) now created automatically by the integration
 - No more manual helper creation required

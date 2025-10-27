@@ -19,6 +19,7 @@ CHARGER_AMP_LEVELS = [6, 8, 10, 13, 16, 20, 24, 32]
 CHARGER_STATUS_CHARGING = "charger_charging"
 CHARGER_STATUS_FREE = "charger_free"
 CHARGER_STATUS_END = "charger_end"
+CHARGER_STATUS_WAIT = "charger_wait"
 
 # Charging Profiles
 PROFILE_MANUAL = "manual"

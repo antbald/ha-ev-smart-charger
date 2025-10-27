@@ -8,7 +8,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, DEFAULT_SOLAR_THRESHOLD
+from .const import (
+    DOMAIN,
+    DEFAULT_SOLAR_THRESHOLD,
+    DEFAULT_CHECK_INTERVAL,
+    DEFAULT_GRID_IMPORT_THRESHOLD,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +38,36 @@ async def async_setup_entry(
             max_value=1000,
             step=10,
             default_value=DEFAULT_SOLAR_THRESHOLD,
+            unit="W",
+        )
+    )
+
+    # Create Check Interval
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_check_interval",
+            "EVSC Check Interval",
+            "mdi:timer-outline",
+            min_value=1,
+            max_value=60,
+            step=1,
+            default_value=DEFAULT_CHECK_INTERVAL,
+            unit="min",
+        )
+    )
+
+    # Create Grid Import Threshold
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_grid_import_threshold",
+            "EVSC Grid Import Threshold",
+            "mdi:transmission-tower",
+            min_value=0,
+            max_value=1000,
+            step=10,
+            default_value=DEFAULT_GRID_IMPORT_THRESHOLD,
             unit="W",
         )
     )
