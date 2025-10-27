@@ -38,6 +38,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Set up platforms (creates helper entities automatically)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Wait a moment for entities to be registered
+    import asyncio
+    await asyncio.sleep(2)
+    _LOGGER.info("✅ Platforms setup complete, entities should be available")
+
     # Set up automations
     try:
         automations = await async_setup_automations(hass, entry.entry_id, entry.data)
