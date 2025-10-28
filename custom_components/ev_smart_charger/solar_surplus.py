@@ -69,6 +69,13 @@ class SolarSurplusAutomation:
         self._ev_min_soc_friday_entity = None
         self._ev_min_soc_saturday_entity = None
         self._ev_min_soc_sunday_entity = None
+        self._home_min_soc_monday_entity = None
+        self._home_min_soc_tuesday_entity = None
+        self._home_min_soc_wednesday_entity = None
+        self._home_min_soc_thursday_entity = None
+        self._home_min_soc_friday_entity = None
+        self._home_min_soc_saturday_entity = None
+        self._home_min_soc_sunday_entity = None
         self._priority_state_sensor_entity = None
 
         # Timer for periodic checks
@@ -122,6 +129,13 @@ class SolarSurplusAutomation:
         self._ev_min_soc_friday_entity = self._find_entity_by_suffix("evsc_ev_min_soc_friday")
         self._ev_min_soc_saturday_entity = self._find_entity_by_suffix("evsc_ev_min_soc_saturday")
         self._ev_min_soc_sunday_entity = self._find_entity_by_suffix("evsc_ev_min_soc_sunday")
+        self._home_min_soc_monday_entity = self._find_entity_by_suffix("evsc_home_min_soc_monday")
+        self._home_min_soc_tuesday_entity = self._find_entity_by_suffix("evsc_home_min_soc_tuesday")
+        self._home_min_soc_wednesday_entity = self._find_entity_by_suffix("evsc_home_min_soc_wednesday")
+        self._home_min_soc_thursday_entity = self._find_entity_by_suffix("evsc_home_min_soc_thursday")
+        self._home_min_soc_friday_entity = self._find_entity_by_suffix("evsc_home_min_soc_friday")
+        self._home_min_soc_saturday_entity = self._find_entity_by_suffix("evsc_home_min_soc_saturday")
+        self._home_min_soc_sunday_entity = self._find_entity_by_suffix("evsc_home_min_soc_sunday")
         self._priority_state_sensor_entity = self._find_entity_by_suffix("evsc_priority_daily_state")
 
         if not all([
@@ -141,6 +155,13 @@ class SolarSurplusAutomation:
             self._ev_min_soc_friday_entity,
             self._ev_min_soc_saturday_entity,
             self._ev_min_soc_sunday_entity,
+            self._home_min_soc_monday_entity,
+            self._home_min_soc_tuesday_entity,
+            self._home_min_soc_wednesday_entity,
+            self._home_min_soc_thursday_entity,
+            self._home_min_soc_friday_entity,
+            self._home_min_soc_saturday_entity,
+            self._home_min_soc_sunday_entity,
             self._priority_state_sensor_entity,
         ]):
             _LOGGER.error("❌ Solar Surplus: Required helper entities not found")
@@ -196,8 +217,8 @@ class SolarSurplusAutomation:
         day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         day_name = day_names[today_idx]
 
-        # Map day index to entity
-        day_entities = [
+        # Map day index to EV entities
+        ev_day_entities = [
             self._ev_min_soc_monday_entity,
             self._ev_min_soc_tuesday_entity,
             self._ev_min_soc_wednesday_entity,
@@ -205,6 +226,17 @@ class SolarSurplusAutomation:
             self._ev_min_soc_friday_entity,
             self._ev_min_soc_saturday_entity,
             self._ev_min_soc_sunday_entity,
+        ]
+
+        # Map day index to Home Battery entities
+        home_day_entities = [
+            self._home_min_soc_monday_entity,
+            self._home_min_soc_tuesday_entity,
+            self._home_min_soc_wednesday_entity,
+            self._home_min_soc_thursday_entity,
+            self._home_min_soc_friday_entity,
+            self._home_min_soc_saturday_entity,
+            self._home_min_soc_sunday_entity,
         ]
 
         # Initialize attributes dictionary
@@ -219,33 +251,33 @@ class SolarSurplusAutomation:
             return PRIORITY_EV_FREE, attributes
 
         # Get today's EV target SOC (ALWAYS reads fresh value from state machine)
-        ev_target_state = self.hass.states.get(day_entities[today_idx])
+        ev_target_state = self.hass.states.get(ev_day_entities[today_idx])
         if not ev_target_state:
             attributes["reason"] = f"EV target SOC helper not found for {day_name}"
-            _LOGGER.warning(f"⚠️ Priority Balancer: EV target SOC entity not found for {day_name}: {day_entities[today_idx]}")
+            _LOGGER.warning(f"⚠️ Priority Balancer: EV target SOC entity not found for {day_name}: {ev_day_entities[today_idx]}")
             return PRIORITY_EV, attributes
 
         try:
             target_ev_soc = float(ev_target_state.state)
-            _LOGGER.debug(f"🔄 Priority Balancer: Read fresh EV target SOC for {day_name}: {target_ev_soc}% from {day_entities[today_idx]}")
+            _LOGGER.debug(f"🔄 Priority Balancer: Read fresh EV target SOC for {day_name}: {target_ev_soc}% from {ev_day_entities[today_idx]}")
         except (ValueError, TypeError):
             attributes["reason"] = f"Invalid EV target SOC value for {day_name}"
             _LOGGER.warning(f"⚠️ Priority Balancer: Invalid EV target SOC value for {day_name}: {ev_target_state.state}")
             return PRIORITY_EV, attributes
 
-        # Get home battery target SOC (ALWAYS reads fresh value from state machine)
-        home_target_state = self.hass.states.get(self._home_battery_min_soc_entity)
+        # Get today's home battery target SOC (ALWAYS reads fresh value from state machine)
+        home_target_state = self.hass.states.get(home_day_entities[today_idx])
         if not home_target_state:
-            attributes["reason"] = "Home battery target SOC helper not found"
-            _LOGGER.warning(f"⚠️ Priority Balancer: Home battery target SOC entity not found: {self._home_battery_min_soc_entity}")
+            attributes["reason"] = f"Home battery target SOC helper not found for {day_name}"
+            _LOGGER.warning(f"⚠️ Priority Balancer: Home battery target SOC entity not found for {day_name}: {home_day_entities[today_idx]}")
             return PRIORITY_EV, attributes
 
         try:
             target_home_soc = float(home_target_state.state)
-            _LOGGER.debug(f"🔄 Priority Balancer: Read fresh home battery target SOC: {target_home_soc}% from {self._home_battery_min_soc_entity}")
+            _LOGGER.debug(f"🔄 Priority Balancer: Read fresh home battery target SOC for {day_name}: {target_home_soc}% from {home_day_entities[today_idx]}")
         except (ValueError, TypeError):
-            attributes["reason"] = "Invalid home battery target SOC value"
-            _LOGGER.warning(f"⚠️ Priority Balancer: Invalid home battery target SOC value: {home_target_state.state}")
+            attributes["reason"] = f"Invalid home battery target SOC value for {day_name}"
+            _LOGGER.warning(f"⚠️ Priority Balancer: Invalid home battery target SOC value for {day_name}: {home_target_state.state}")
             return PRIORITY_EV, attributes
 
         # Get current EV SOC

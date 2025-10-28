@@ -228,6 +228,112 @@ async def async_setup_entry(
         )
     )
 
+    # Create Home Battery Minimum SOC for each day of the week (for Priority Balancer)
+    # Monday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_home_min_soc_monday",
+            "EVSC Home Min SOC Monday",
+            "mdi:calendar-monday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=50,
+            unit="%",
+        )
+    )
+
+    # Tuesday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_home_min_soc_tuesday",
+            "EVSC Home Min SOC Tuesday",
+            "mdi:calendar-tuesday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=50,
+            unit="%",
+        )
+    )
+
+    # Wednesday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_home_min_soc_wednesday",
+            "EVSC Home Min SOC Wednesday",
+            "mdi:calendar-wednesday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=50,
+            unit="%",
+        )
+    )
+
+    # Thursday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_home_min_soc_thursday",
+            "EVSC Home Min SOC Thursday",
+            "mdi:calendar-thursday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=50,
+            unit="%",
+        )
+    )
+
+    # Friday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_home_min_soc_friday",
+            "EVSC Home Min SOC Friday",
+            "mdi:calendar-friday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=50,
+            unit="%",
+        )
+    )
+
+    # Saturday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_home_min_soc_saturday",
+            "EVSC Home Min SOC Saturday",
+            "mdi:calendar-saturday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=50,
+            unit="%",
+        )
+    )
+
+    # Sunday
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_home_min_soc_sunday",
+            "EVSC Home Min SOC Sunday",
+            "mdi:calendar-sunday",
+            min_value=0,
+            max_value=100,
+            step=5,
+            default_value=50,
+            unit="%",
+        )
+    )
+
     async_add_entities(entities)
     _LOGGER.info(f"✅ Created {len(entities)} EVSC number entities")
 

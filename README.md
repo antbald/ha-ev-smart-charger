@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.8.6
+## Current Version: 0.8.7
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -217,7 +217,7 @@ During setup, you'll map your existing Home Assistant entities to these roles:
 
 ### Helper Entities (Auto-Created)
 
-The integration **automatically creates 19 helper entities** when you add it:
+The integration **automatically creates 26 helper entities** when you add it:
 
 #### Switches (4)
 
@@ -241,7 +241,7 @@ The integration **automatically creates 19 helper entities** when you add it:
 - **Purpose:** Enable intelligent priority-based charging between EV and home battery
 - **Icon:** `mdi:scale-balance`
 
-#### Numbers (13)
+#### Numbers (20)
 
 **1. EVSC Solar Production Threshold**
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_solar_production_threshold`
@@ -277,10 +277,10 @@ The integration **automatically creates 19 helper entities** when you add it:
 
 **6. EVSC Home Battery Min SOC** *(v0.7.0+)*
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_home_battery_min_soc`
-- **Purpose:** Minimum home battery charge level (%) to enable battery support / daily target for Priority Balancer
+- **Purpose:** Minimum home battery charge level (%) to enable Battery Support feature
 - **Default:** 20% | **Range:** 0-100% (step: 5%)
 - **Icon:** `mdi:battery-50`
-- **Use:** Protects home battery from over-discharge while supporting EV charging / Used as home battery target for Priority Balancer
+- **Use:** Protects home battery from over-discharge while supporting EV charging (Battery Support feature only)
 
 **7-13. EVSC EV Min SOC [Day]** *(v0.8.0+)*
 - **Entity IDs:**
@@ -296,6 +296,21 @@ The integration **automatically creates 19 helper entities** when you add it:
 - **Range:** 0-100% (step: 5%)
 - **Icons:** `mdi:calendar-monday` through `mdi:calendar-sunday`
 - **Use:** System compares current EV SOC against today's target to determine charging priority
+
+**14-20. EVSC Home Min SOC [Day]** *(v0.8.7+)*
+- **Entity IDs:**
+  - `number.ev_smart_charger_<entry_id>_evsc_home_min_soc_monday`
+  - `number.ev_smart_charger_<entry_id>_evsc_home_min_soc_tuesday`
+  - `number.ev_smart_charger_<entry_id>_evsc_home_min_soc_wednesday`
+  - `number.ev_smart_charger_<entry_id>_evsc_home_min_soc_thursday`
+  - `number.ev_smart_charger_<entry_id>_evsc_home_min_soc_friday`
+  - `number.ev_smart_charger_<entry_id>_evsc_home_min_soc_saturday`
+  - `number.ev_smart_charger_<entry_id>_evsc_home_min_soc_sunday`
+- **Purpose:** Daily home battery SOC targets for Priority Balancer
+- **Default:** 50% (all days)
+- **Range:** 0-100% (step: 5%)
+- **Icons:** `mdi:calendar-monday` through `mdi:calendar-sunday`
+- **Use:** System compares current home battery SOC against today's target to determine charging priority
 
 #### Selects (1)
 
@@ -442,7 +457,27 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.8.6 (2025-10-28) - Current - Smart Charger Blocker Simplification
+### v0.8.7 (2025-10-28) - Current - Separate Daily Home Battery Targets
+- **Feature:** Split home battery SOC configuration into two independent systems
+  - **Battery Support feature** now uses `number.evsc_home_battery_min_soc` (minimum safety threshold, default 20%)
+  - **Priority Balancer** now uses 7 new daily targets: `number.evsc_home_min_soc_[day]` (Monday-Sunday, default 50%)
+- **New Entities:** Added 7 home battery daily target number helpers (total entity count: 26)
+  - `evsc_home_min_soc_monday` through `evsc_home_min_soc_sunday`
+  - Each configurable 0-100% in 5% steps
+  - Allows different home battery charging goals for each day
+- **Priority Balancer Enhancement:** Now reads today's home battery target from appropriate daily entity
+  - More flexibility in daily energy management
+  - Can prioritize home battery differently on weekdays vs weekends
+- **Conceptual Clarity:**
+  - Battery Support: "Don't discharge home battery below X%" (safety threshold)
+  - Priority Balancer: "Charge home battery to X% today" (daily target)
+- **Files Modified:**
+  - `number.py` - Added 7 new home battery daily target entities
+  - `solar_surplus.py` - Updated Priority Balancer to use daily home battery targets
+  - `manifest.json` - Version bumped to 0.8.7
+  - `README.md` - Updated documentation with new entities
+
+### v0.8.6 (2025-10-28) - Smart Charger Blocker Simplification
 - **Simplification:** Removed solar threshold condition from Smart Charger Blocker
   - Now ONLY blocks charging during nighttime (after sunset, before sunrise)
   - Removed solar production threshold check entirely
