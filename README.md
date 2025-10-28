@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.9.5
+## Current Version: 0.9.6
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -729,7 +729,33 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.9.5 (2025-10-28) - Current - Entity ID Fix
+### v0.9.6 (2025-10-28) - Current - Entity ID Pattern Fix (BREAKING CHANGE)
+- **FIX: Enforced consistent entity_id pattern across all platforms**
+  - **⚠️ BREAKING CHANGE:** All entities now have explicit entity_id format
+  - Pattern: `{platform}.ev_smart_charger_{entry_id}_evsc_{suffix}`
+  - Example: `switch.ev_smart_charger_abc123_evsc_forza_ricarica`
+  - Fixed inconsistent entity_id generation that was causing dashboard YAML issues
+
+- **Why This Change:**
+  - Previous versions relied on Home Assistant's automatic entity_id generation
+  - This created unpredictable entity IDs based on entity names
+  - New explicit format ensures consistency and matches dashboard YAML
+
+- **Migration Required:**
+  - After updating, entity IDs will change for all helper entities
+  - You'll need to update automations, scripts, and dashboards referencing old entity IDs
+  - Old entity IDs may have been: `switch.evsc_smart_charger_blocker`
+  - New entity IDs will be: `switch.ev_smart_charger_{entry_id}_evsc_smart_charger_blocker_enabled`
+
+- **Files Modified:**
+  - `switch.py` - Added explicit entity_id assignment
+  - `number.py` - Added explicit entity_id assignment
+  - `select.py` - Added explicit entity_id assignment
+  - `time.py` - Added explicit entity_id assignment
+  - `sensor.py` - Added explicit entity_id assignment
+  - `manifest.json` - Version 0.9.6
+
+### v0.9.5 (2025-10-28) - Entity ID Fix
 - **FIX: Corrected time entity unique_id pattern**
   - Fixed unique_id to follow same pattern as other entities
   - Pattern: `{DOMAIN}_{entry_id}_{suffix}` instead of `{entry_id}_{suffix}`

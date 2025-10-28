@@ -364,7 +364,7 @@ class EVSCNumber(NumberEntity, RestoreEntity):
     def __init__(
         self,
         entry_id: str,
-        unique_id: str,
+        suffix: str,
         name: str,
         icon: str,
         min_value: float,
@@ -374,7 +374,7 @@ class EVSCNumber(NumberEntity, RestoreEntity):
         unit: str | None = None,
     ) -> None:
         """Initialize the number."""
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{unique_id}"
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
         self._attr_native_min_value = min_value
@@ -382,6 +382,8 @@ class EVSCNumber(NumberEntity, RestoreEntity):
         self._attr_native_step = step
         self._attr_native_unit_of_measurement = unit
         self._value = default_value
+        # Set explicit entity_id to match pattern
+        self.entity_id = f"number.{DOMAIN}_{entry_id}_{suffix}"
 
     @property
     def native_value(self) -> float:

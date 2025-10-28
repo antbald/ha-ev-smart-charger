@@ -45,17 +45,19 @@ class EVSCSelect(SelectEntity, RestoreEntity):
     def __init__(
         self,
         entry_id: str,
-        unique_id: str,
+        suffix: str,
         name: str,
         icon: str,
         options: list[str],
     ) -> None:
         """Initialize the select."""
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{unique_id}"
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
         self._attr_options = options
         self._current_option = PROFILE_MANUAL  # Default to manual
+        # Set explicit entity_id to match pattern
+        self.entity_id = f"select.{DOMAIN}_{entry_id}_{suffix}"
 
     @property
     def current_option(self) -> str:

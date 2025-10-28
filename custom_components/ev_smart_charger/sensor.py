@@ -55,15 +55,17 @@ class EVSCDiagnosticSensor(SensorEntity, RestoreEntity):
     def __init__(
         self,
         entry_id: str,
-        unique_id: str,
+        suffix: str,
         name: str,
         icon: str,
     ) -> None:
         """Initialize the diagnostic sensor."""
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{unique_id}"
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
         self._attr_native_value = "Initializing"
+        # Set explicit entity_id to match pattern
+        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -88,16 +90,18 @@ class EVSCPriorityStateSensor(SensorEntity, RestoreEntity):
     def __init__(
         self,
         entry_id: str,
-        unique_id: str,
+        suffix: str,
         name: str,
         icon: str,
     ) -> None:
         """Initialize the priority sensor."""
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{unique_id}"
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
         self._attr_native_value = "EV_Free"
         self._attr_extra_state_attributes = {}
+        # Set explicit entity_id to match pattern
+        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
 
     @property
     def extra_state_attributes(self) -> dict:

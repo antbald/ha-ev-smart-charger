@@ -86,15 +86,17 @@ class EVSCSwitch(SwitchEntity, RestoreEntity):
     def __init__(
         self,
         entry_id: str,
-        unique_id: str,
+        suffix: str,
         name: str,
         icon: str,
     ) -> None:
         """Initialize the switch."""
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{unique_id}"
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
         self._is_on = False
+        # Set explicit entity_id to match pattern
+        self.entity_id = f"switch.{DOMAIN}_{entry_id}_{suffix}"
 
     @property
     def is_on(self) -> bool:

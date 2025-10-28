@@ -59,6 +59,8 @@ class EVSCTime(RestoreEntity, TimeEntity):
         self._attr_icon = icon
         self._default_value = default_value
         self._attr_native_value = None
+        # Set explicit entity_id to match pattern
+        self.entity_id = f"time.{DOMAIN}_{entry_id}_{suffix}"
 
     @property
     def native_value(self) -> time | None:
