@@ -31,7 +31,6 @@ CHARGING_PROFILES = [PROFILE_MANUAL, PROFILE_SOLAR_SURPLUS, PROFILE_CHARGE_TARGE
 # Helper entity suffixes (auto-created by integration)
 HELPER_FORZA_RICARICA_SUFFIX = "evsc_forza_ricarica"
 HELPER_SMART_BLOCKER_ENABLED_SUFFIX = "evsc_smart_charger_blocker_enabled"
-HELPER_SOLAR_THRESHOLD_SUFFIX = "evsc_solar_production_threshold"
 HELPER_CHARGING_PROFILE_SUFFIX = "evsc_charging_profile"
 HELPER_CHECK_INTERVAL_SUFFIX = "evsc_check_interval"
 HELPER_GRID_IMPORT_THRESHOLD_SUFFIX = "evsc_grid_import_threshold"
@@ -50,7 +49,6 @@ HELPER_EV_MIN_SOC_SUNDAY_SUFFIX = "evsc_ev_min_soc_sunday"
 HELPER_PRIORITY_STATE_SUFFIX = "evsc_priority_daily_state"
 
 # Default values
-DEFAULT_SOLAR_THRESHOLD = 50  # Watts
 DEFAULT_CHECK_INTERVAL = 1  # Minutes
 DEFAULT_GRID_IMPORT_THRESHOLD = 50  # Watts
 DEFAULT_GRID_IMPORT_DELAY = 30  # Seconds

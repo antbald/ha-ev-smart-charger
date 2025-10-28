@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.8.8
+## Current Version: 0.8.9
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -217,7 +217,7 @@ During setup, you'll map your existing Home Assistant entities to these roles:
 
 ### Helper Entities (Auto-Created)
 
-The integration **automatically creates 26 helper entities** when you add it:
+The integration **automatically creates 25 helper entities** when you add it:
 
 #### Switches (4)
 
@@ -241,48 +241,42 @@ The integration **automatically creates 26 helper entities** when you add it:
 - **Purpose:** Enable intelligent priority-based charging between EV and home battery
 - **Icon:** `mdi:scale-balance`
 
-#### Numbers (20)
+#### Numbers (19)
 
-**1. EVSC Solar Production Threshold**
-- **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_solar_production_threshold`
-- **Purpose:** Minimum solar production (W) required to allow charging
-- **Default:** 50W | **Range:** 0-1000W (step: 10W)
-- **Icon:** `mdi:solar-power-variant`
-
-**2. EVSC Check Interval** *(v0.6.0+)*
+**1. EVSC Check Interval** *(v0.6.0+)*
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_check_interval`
 - **Purpose:** How often Solar Surplus recalculates charging power (minutes)
 - **Default:** 1 min | **Range:** 1-60 min (step: 1 min)
 - **Icon:** `mdi:timer-outline`
 
-**3. EVSC Grid Import Threshold** *(v0.6.0+)*
+**2. EVSC Grid Import Threshold** *(v0.6.0+)*
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_grid_import_threshold`
 - **Purpose:** Maximum allowed grid import (W) before reducing charging
 - **Default:** 50W | **Range:** 0-1000W (step: 10W)
 - **Icon:** `mdi:transmission-tower`
 
-**4. EVSC Grid Import Delay** *(v0.7.0+)*
+**3. EVSC Grid Import Delay** *(v0.7.0+)*
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_grid_import_delay`
 - **Purpose:** Delay (seconds) before reacting to grid import exceeding threshold
 - **Default:** 30s | **Range:** 0-120s (step: 5s)
 - **Icon:** `mdi:timer-sand`
 - **Use:** Prevents overreaction to brief grid import spikes
 
-**5. EVSC Surplus Drop Delay** *(v0.7.0+)*
+**4. EVSC Surplus Drop Delay** *(v0.7.0+)*
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_surplus_drop_delay`
 - **Purpose:** Delay (seconds) before reducing charging when surplus drops
 - **Default:** 30s | **Range:** 0-120s (step: 5s)
 - **Icon:** `mdi:timer-sand`
 - **Use:** Prevents overreaction to temporary cloud cover or consumption spikes
 
-**6. EVSC Home Battery Min SOC** *(v0.7.0+)*
+**5. EVSC Home Battery Min SOC** *(v0.7.0+)*
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_home_battery_min_soc`
 - **Purpose:** Minimum home battery charge level (%) to enable Battery Support feature
 - **Default:** 20% | **Range:** 0-100% (step: 5%)
 - **Icon:** `mdi:battery-50`
 - **Use:** Protects home battery from over-discharge while supporting EV charging (Battery Support feature only)
 
-**7-13. EVSC EV Min SOC [Day]** *(v0.8.0+)*
+**6-12. EVSC EV Min SOC [Day]** *(v0.8.0+)*
 - **Entity IDs:**
   - `number.ev_smart_charger_<entry_id>_evsc_ev_min_soc_monday`
   - `number.ev_smart_charger_<entry_id>_evsc_ev_min_soc_tuesday`
@@ -297,7 +291,7 @@ The integration **automatically creates 26 helper entities** when you add it:
 - **Icons:** `mdi:calendar-monday` through `mdi:calendar-sunday`
 - **Use:** System compares current EV SOC against today's target to determine charging priority
 
-**14-20. EVSC Home Min SOC [Day]** *(v0.8.7+)*
+**13-19. EVSC Home Min SOC [Day]** *(v0.8.7+)*
 - **Entity IDs:**
   - `number.ev_smart_charger_<entry_id>_evsc_home_min_soc_monday`
   - `number.ev_smart_charger_<entry_id>_evsc_home_min_soc_tuesday`
@@ -457,7 +451,25 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.8.8 (2025-10-28) - Current - Custom Logo and Branding
+### v0.8.9 (2025-10-28) - Current - Cleanup and Icon Verification
+- **Cleanup:** Removed unused solar production threshold entity
+  - Entity `evsc_solar_production_threshold` was not used by any automation since v0.8.6
+  - Removed from number.py entity creation
+  - Removed constants from const.py (DEFAULT_SOLAR_THRESHOLD, HELPER_SOLAR_THRESHOLD_SUFFIX)
+  - Total entity count reduced from 26 to 25
+- **Verification:** Confirmed all entities have proper icons assigned
+  - All 4 switches have icons
+  - All 19 numbers have icons
+  - 1 select has icon
+  - All 2 sensors have icons
+- **Documentation:** Updated README to reflect removed entity and correct entity count
+- **Files Modified:**
+  - `number.py` - Removed solar threshold entity creation and import
+  - `const.py` - Removed unused solar threshold constants
+  - `manifest.json` - Version bumped to 0.8.9
+  - `README.md` - Updated entity count (25) and removed solar threshold documentation
+
+### v0.8.8 (2025-10-28) - Custom Logo and Branding
 - **Visual Enhancement:** Added custom logo and branding for the integration
   - Created stylish black/gray logo with solar energy symbolism
   - Designed flat, modern icon featuring EV charger, solar rays, and lightning bolt

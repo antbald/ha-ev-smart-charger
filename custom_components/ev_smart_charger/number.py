@@ -10,7 +10,6 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     DOMAIN,
-    DEFAULT_SOLAR_THRESHOLD,
     DEFAULT_CHECK_INTERVAL,
     DEFAULT_GRID_IMPORT_THRESHOLD,
     DEFAULT_GRID_IMPORT_DELAY,
@@ -31,21 +30,6 @@ async def async_setup_entry(
     """Set up EVSC number entities."""
 
     entities = []
-
-    # Create Solar Threshold
-    entities.append(
-        EVSCNumber(
-            entry.entry_id,
-            "evsc_solar_production_threshold",
-            "EVSC Solar Production Threshold",
-            "mdi:solar-power-variant",
-            min_value=0,
-            max_value=1000,
-            step=10,
-            default_value=DEFAULT_SOLAR_THRESHOLD,
-            unit="W",
-        )
-    )
 
     # Create Check Interval
     entities.append(
