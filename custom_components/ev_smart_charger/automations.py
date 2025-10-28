@@ -12,7 +12,6 @@ from .const import (
     DOMAIN,
     CONF_EV_CHARGER_SWITCH,
     CONF_EV_CHARGER_STATUS,
-    CONF_FV_PRODUCTION,
     CHARGER_STATUS_CHARGING,
 )
 
@@ -34,7 +33,6 @@ class SmartChargerBlocker:
         # Helper entities - will be found in async_setup
         self._forza_ricarica_entity = None
         self._blocker_enabled_entity = None
-        self._solar_threshold_entity = None
 
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
         """Find entity ID by suffix, filtering by this integration's config_entry_id."""
@@ -61,7 +59,6 @@ class SmartChargerBlocker:
         # Find helper entities
         self._forza_ricarica_entity = self._find_entity_by_suffix(f"evsc_forza_ricarica")
         self._blocker_enabled_entity = self._find_entity_by_suffix(f"evsc_smart_charger_blocker_enabled")
-        self._solar_threshold_entity = self._find_entity_by_suffix(f"evsc_solar_production_threshold")
 
         if not self._blocker_enabled_entity:
             _LOGGER.error("Cannot set up Smart Charger Blocker - helper entities not found")
@@ -200,15 +197,8 @@ class SmartChargerBlocker:
         # Check if it's nighttime (after sunset and before sunrise)
         is_night = await self._is_nighttime(now)
 
-        # Check solar production
-        solar_below_threshold = await self._is_solar_below_threshold()
-
-        if is_night and solar_below_threshold:
-            return True, "Nighttime and solar production below threshold"
-        elif is_night:
+        if is_night:
             return True, "Nighttime (after sunset)"
-        elif solar_below_threshold:
-            return True, "Solar production below threshold"
 
         return False, ""
 
@@ -234,36 +224,6 @@ class SmartChargerBlocker:
             _LOGGER.error(f"Error checking nighttime: {e}")
 
         return False
-
-    async def _is_solar_below_threshold(self) -> bool:
-        """Check if solar production is below threshold."""
-        fv_production_entity = self.config.get(CONF_FV_PRODUCTION)
-
-        if not self._solar_threshold_entity:
-            _LOGGER.warning("Solar threshold helper not found")
-            return True
-
-        solar_threshold_state = self.hass.states.get(self._solar_threshold_entity)
-
-        if not fv_production_entity or not solar_threshold_state:
-            _LOGGER.warning("Solar production entity or threshold not configured")
-            return True  # Assume no solar if not configured
-
-        fv_state = self.hass.states.get(fv_production_entity)
-        if not fv_state:
-            _LOGGER.warning(f"Solar production entity {fv_production_entity} not found")
-            return True
-
-        try:
-            solar_production = float(fv_state.state)
-            threshold = float(solar_threshold_state.state)
-
-            is_below = solar_production < threshold
-            _LOGGER.debug(f"Solar check: production={solar_production}W, threshold={threshold}W, below={is_below}")
-            return is_below
-        except (ValueError, TypeError) as e:
-            _LOGGER.error(f"Error parsing solar values: {e}")
-            return True
 
     async def _block_charging(self, reason: str) -> None:
         """Block charging by turning off the charger switch."""

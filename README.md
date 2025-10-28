@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.8.5
+## Current Version: 0.8.6
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -157,21 +157,18 @@ Charge during the cheapest electricity price hours.
 
 ---
 
-### 🚫 Smart Charger Blocker (v0.4.0+)
-Automatically prevents EV charging during nighttime or when solar production is insufficient.
+### 🚫 Smart Charger Blocker (v0.4.0+, Simplified in v0.8.6)
+Automatically prevents EV charging during nighttime.
 
 **How it works:**
 - Monitors your charger status in real-time
-- Blocks charging when:
-  - Current time is after sunset AND before sunrise, OR
-  - Solar production is below the configured threshold (default: 50W)
+- Blocks charging when current time is after sunset AND before sunrise
 - Sends persistent notifications when charging is blocked
 - Fully configurable via helper entities
 
 **Controls:**
 - `switch.evsc_forza_ricarica` - **Global Kill Switch**: When ON, disables ALL smart features (manual mode)
 - `switch.evsc_smart_charger_blocker_enabled` - Enable/disable Smart Charger Blocker
-- `number.evsc_solar_production_threshold` - Minimum solar production (W) to allow charging
 
 ---
 
@@ -360,8 +357,6 @@ entities:
   # Smart Charger Blocker
   - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_smart_charger_blocker_enabled
     name: 🚫 Smart Charger Blocker
-  - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_solar_production_threshold
-    name: ☀️ Solar Threshold (W)
 ```
 
 **Tip:** Find your actual entity IDs by searching for "evsc" in Developer Tools → States.
@@ -379,31 +374,24 @@ Check: Is "Smart Charger Blocker" enabled?
   → NO: Allow charging
   → YES: Continue
   ↓
-Check: Is it nighttime OR solar < threshold?
-  → YES: BLOCK charging + Send notification
+Check: Is it nighttime (after sunset)?
+  → YES: Block charging + send notification
   → NO: Allow charging
 ```
 
 ### Typical Scenarios
 
-**Scenario 1: Daytime with Good Solar**
-- Solar production: 800W
-- Time: 2:00 PM
+**Scenario 1: Daytime**
+- Time: 2:00 PM (after sunrise, before sunset)
 - Result: ✅ Charging allowed
 
 **Scenario 2: Nighttime**
-- Solar production: 0W
-- Time: 11:00 PM
+- Time: 11:00 PM (after sunset, before sunrise)
 - Result: 🚫 Charging blocked
 
-**Scenario 3: Cloudy Day**
-- Solar production: 30W (below 50W threshold)
-- Time: 12:00 PM
-- Result: 🚫 Charging blocked
-
-**Scenario 4: Manual Override**
+**Scenario 3: Manual Override**
 - "Forza Ricarica" is ON
-- Any time, any solar production
+- Any time
 - Result: ✅ Charging allowed (all automations disabled)
 
 ---
@@ -454,7 +442,22 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.8.5 (2025-10-27) - Current - Complete Entity Registration Fix
+### v0.8.6 (2025-10-28) - Current - Smart Charger Blocker Simplification
+- **Simplification:** Removed solar threshold condition from Smart Charger Blocker
+  - Now ONLY blocks charging during nighttime (after sunset, before sunrise)
+  - Removed solar production threshold check entirely
+  - Simplified blocking logic for more predictable behavior
+  - Removed `_is_solar_below_threshold()` method
+  - Removed `_solar_threshold_entity` helper entity requirement
+  - Removed CONF_FV_PRODUCTION import (no longer needed)
+- **Impact:** Smart Charger Blocker is now easier to understand and more consistent
+- **Migration:** Users can still use Solar Production Threshold number helper for other automations, but it no longer affects Smart Charger Blocker
+- **Files Modified:**
+  - `automations.py` - Simplified blocking logic and removed solar threshold checks
+  - `manifest.json` - Version bumped to 0.8.6
+  - `README.md` - Updated documentation to reflect simplified behavior
+
+### v0.8.5 (2025-10-27) - Complete Entity Registration Fix
 - **Critical Fix:** Removed `_attr_has_entity_name = True` that was causing entity ID mismatch
   - **Root Cause:** With `_attr_has_entity_name = True`, HA generated entity IDs as `switch.evsc_forza_ricarica` (no entry_id)
   - **Root Cause:** `_find_entity_by_suffix()` searched ALL entities in registry, not just our integration's entities
