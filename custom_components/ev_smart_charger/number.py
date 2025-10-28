@@ -17,6 +17,10 @@ from .const import (
     DEFAULT_HOME_BATTERY_MIN_SOC,
     DEFAULT_EV_MIN_SOC_WEEKDAY,
     DEFAULT_EV_MIN_SOC_WEEKEND,
+    DEFAULT_NIGHT_CHARGE_HOUR,
+    DEFAULT_NIGHT_CHARGE_MINUTE,
+    DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD,
+    DEFAULT_NIGHT_CHARGE_AMPERAGE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -315,6 +319,67 @@ async def async_setup_entry(
             step=5,
             default_value=50,
             unit="%",
+        )
+    )
+
+    # Create Night Smart Charge entities
+    # Night Charge Hour
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_night_charge_hour",
+            "EVSC Night Charge Hour",
+            "mdi:clock-time-one",
+            min_value=0,
+            max_value=23,
+            step=1,
+            default_value=DEFAULT_NIGHT_CHARGE_HOUR,
+            unit="h",
+        )
+    )
+
+    # Night Charge Minute
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_night_charge_minute",
+            "EVSC Night Charge Minute",
+            "mdi:clock-outline",
+            min_value=0,
+            max_value=59,
+            step=5,
+            default_value=DEFAULT_NIGHT_CHARGE_MINUTE,
+            unit="min",
+        )
+    )
+
+    # Minimum Solar Forecast Threshold
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_min_solar_forecast_threshold",
+            "EVSC Min Solar Forecast Threshold",
+            "mdi:solar-power-variant",
+            min_value=0,
+            max_value=100,
+            step=1,
+            default_value=DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD,
+            unit="kWh",
+        )
+    )
+
+    # Night Charge Amperage
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_night_charge_amperage",
+            "EVSC Night Charge Amperage",
+            "mdi:current-ac",
+            min_value=6,
+            max_value=32,
+            step=2,
+            default_value=DEFAULT_NIGHT_CHARGE_AMPERAGE,
+            unit="A",
         )
     )
 

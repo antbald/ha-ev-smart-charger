@@ -21,11 +21,12 @@ _LOGGER = logging.getLogger(__name__)
 class SmartChargerBlocker:
     """Smart Charger Blocker automation."""
 
-    def __init__(self, hass: HomeAssistant, entry_id: str, config: dict) -> None:
+    def __init__(self, hass: HomeAssistant, entry_id: str, config: dict, night_smart_charge=None) -> None:
         """Initialize the Smart Charger Blocker."""
         self.hass = hass
         self.entry_id = entry_id
         self.config = config
+        self._night_smart_charge = night_smart_charge
         self._unsub_status = None
         self._unsub_switch = None
         self._unsub_blocker = None
@@ -192,6 +193,12 @@ class SmartChargerBlocker:
 
     async def _should_block_charging(self) -> tuple[bool, str]:
         """Determine if charging should be blocked."""
+        # Check if Night Smart Charge is active (override blocker)
+        if self._night_smart_charge and self._night_smart_charge.is_night_charge_active():
+            night_mode = self._night_smart_charge.get_active_mode()
+            _LOGGER.info(f"🌙 Night Smart Charge is active (mode: {night_mode}) - Smart Blocker overridden")
+            return False, "Night Smart Charge active"
+
         now = dt_util.now()
 
         # Check if it's nighttime (after sunset and before sunrise)
@@ -258,12 +265,12 @@ class SmartChargerBlocker:
         _LOGGER.info(f"Charger blocked successfully - Reason: {reason}")
 
 
-async def async_setup_automations(hass: HomeAssistant, entry_id: str, config: dict) -> dict:
+async def async_setup_automations(hass: HomeAssistant, entry_id: str, config: dict, night_smart_charge=None) -> dict:
     """Set up all automations for the integration."""
     automations = {}
 
     # Set up Smart Charger Blocker
-    smart_blocker = SmartChargerBlocker(hass, entry_id, config)
+    smart_blocker = SmartChargerBlocker(hass, entry_id, config, night_smart_charge)
     await smart_blocker.async_setup()
     automations["smart_blocker"] = smart_blocker
 

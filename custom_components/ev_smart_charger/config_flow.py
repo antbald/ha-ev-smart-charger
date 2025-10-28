@@ -16,6 +16,7 @@ from .const import (
     CONF_FV_PRODUCTION,
     CONF_HOME_CONSUMPTION,
     CONF_GRID_IMPORT,
+    CONF_PV_FORECAST,
 )
 
 class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -39,7 +40,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "1",
-                "total_steps": "3"
+                "total_steps": "4"
             }
         )
 
@@ -70,7 +71,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "2",
-                "total_steps": "3"
+                "total_steps": "4"
             }
         )
 
@@ -79,10 +80,9 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            # Merge all data and create entry
-            data = {**self.init_info, **self.charger_info, **user_input}
-            title = self.init_info.get(CONF_NAME, DEFAULT_NAME)
-            return self.async_create_entry(title=title, data=data)
+            # Store sensor entities and move to PV forecast step
+            self.sensor_info = user_input
+            return await self.async_step_pv_forecast()
 
         schema = vol.Schema({
             vol.Required(CONF_SOC_CAR): selector.EntitySelector(
@@ -108,7 +108,33 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "3",
-                "total_steps": "3"
+                "total_steps": "4"
+            }
+        )
+
+    async def async_step_pv_forecast(self, user_input: dict[str, Any] | None = None):
+        """Handle PV forecast entity selection step (optional)."""
+        errors = {}
+
+        if user_input is not None:
+            # Merge all data and create entry
+            data = {**self.init_info, **self.charger_info, **self.sensor_info, **user_input}
+            title = self.init_info.get(CONF_NAME, DEFAULT_NAME)
+            return self.async_create_entry(title=title, data=data)
+
+        schema = vol.Schema({
+            vol.Optional(CONF_PV_FORECAST): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="pv_forecast",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "step": "4",
+                "total_steps": "4"
             }
         )
 
@@ -162,19 +188,16 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
             description_placeholders={
                 "step": "1",
-                "total_steps": "2"
+                "total_steps": "3"
             }
         )
 
     async def async_step_sensors(self, user_input: dict[str, Any] | None = None):
         """Manage sensor entities options."""
         if user_input is not None:
-            # Merge all data and update entry
-            data = {**self.config_entry.data, **self.charger_info, **user_input}
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data=data
-            )
-            return self.async_create_entry(title="", data={})
+            # Store sensor entities and move to PV forecast step
+            self.sensor_info = user_input
+            return await self.async_step_pv_forecast()
 
         # Get current values
         current_data = self.config_entry.data
@@ -217,6 +240,37 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
             description_placeholders={
                 "step": "2",
-                "total_steps": "2"
+                "total_steps": "3"
+            }
+        )
+
+    async def async_step_pv_forecast(self, user_input: dict[str, Any] | None = None):
+        """Manage PV forecast entity options (optional)."""
+        if user_input is not None:
+            # Merge all data and update entry
+            data = {**self.config_entry.data, **self.charger_info, **self.sensor_info, **user_input}
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data=data
+            )
+            return self.async_create_entry(title="", data={})
+
+        # Get current values
+        current_data = self.config_entry.data
+
+        schema = vol.Schema({
+            vol.Optional(
+                CONF_PV_FORECAST,
+                default=current_data.get(CONF_PV_FORECAST)
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="pv_forecast",
+            data_schema=schema,
+            description_placeholders={
+                "step": "3",
+                "total_steps": "3"
             }
         )

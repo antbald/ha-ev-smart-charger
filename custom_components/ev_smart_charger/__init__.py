@@ -17,6 +17,7 @@ from .const import (
 )
 from .automations import async_setup_automations, async_remove_automations
 from .solar_surplus import SolarSurplusAutomation
+from .night_smart_charge import NightSmartCharge
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,17 +74,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _LOGGER.info("✅ Platforms setup complete, proceeding with automations")
 
-    # Set up automations
+    # Set up Night Smart Charge automation first (needed by other automations)
     try:
-        automations = await async_setup_automations(hass, entry.entry_id, entry.data)
+        night_smart_charge = NightSmartCharge(hass, entry.entry_id, entry.data)
+        await night_smart_charge.async_setup()
+    except Exception as e:
+        _LOGGER.error(f"Failed to set up Night Smart Charge automation: {e}")
+        _LOGGER.exception("Night Smart Charge setup error details:")
+        night_smart_charge = None
+
+    # Set up automations (passing night_smart_charge reference)
+    try:
+        automations = await async_setup_automations(hass, entry.entry_id, entry.data, night_smart_charge)
     except Exception as e:
         _LOGGER.error(f"Failed to set up automations: {e}")
         _LOGGER.exception("Automation setup error details:")
         return False
 
-    # Set up Solar Surplus automation
+    # Set up Solar Surplus automation (passing night_smart_charge reference)
     try:
-        solar_surplus = SolarSurplusAutomation(hass, entry.entry_id, entry.data)
+        solar_surplus = SolarSurplusAutomation(hass, entry.entry_id, entry.data, night_smart_charge)
         await solar_surplus.async_setup()
     except Exception as e:
         _LOGGER.error(f"Failed to set up Solar Surplus automation: {e}")
@@ -95,6 +105,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "config": entry.data,
         "automations": automations,
         "solar_surplus": solar_surplus,
+        "night_smart_charge": night_smart_charge,
     }
 
     # Register update listener
@@ -116,12 +127,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
     automations = entry_data.get("automations", {})
     solar_surplus = entry_data.get("solar_surplus")
+    night_smart_charge = entry_data.get("night_smart_charge")
 
     if automations:
         await async_remove_automations(automations)
 
     if solar_surplus:
         await solar_surplus.async_remove()
+
+    if night_smart_charge:
+        await night_smart_charge.async_remove()
 
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

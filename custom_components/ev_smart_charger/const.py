@@ -11,6 +11,7 @@ CONF_SOC_HOME = "soc_home"
 CONF_FV_PRODUCTION = "fv_production"
 CONF_HOME_CONSUMPTION = "home_consumption"
 CONF_GRID_IMPORT = "grid_import"
+CONF_PV_FORECAST = "pv_forecast"  # Night Smart Charge: PV forecast entity
 
 # EV Charger current amp levels
 CHARGER_AMP_LEVELS = [6, 8, 10, 13, 16, 20, 24, 32]
@@ -47,6 +48,11 @@ HELPER_EV_MIN_SOC_FRIDAY_SUFFIX = "evsc_ev_min_soc_friday"
 HELPER_EV_MIN_SOC_SATURDAY_SUFFIX = "evsc_ev_min_soc_saturday"
 HELPER_EV_MIN_SOC_SUNDAY_SUFFIX = "evsc_ev_min_soc_sunday"
 HELPER_PRIORITY_STATE_SUFFIX = "evsc_priority_daily_state"
+HELPER_NIGHT_SMART_CHARGE_ENABLED_SUFFIX = "evsc_night_smart_charge_enabled"
+HELPER_NIGHT_CHARGE_HOUR_SUFFIX = "evsc_night_charge_hour"
+HELPER_NIGHT_CHARGE_MINUTE_SUFFIX = "evsc_night_charge_minute"
+HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX = "evsc_min_solar_forecast_threshold"
+HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX = "evsc_night_charge_amperage"
 
 # Default values
 DEFAULT_CHECK_INTERVAL = 1  # Minutes
@@ -63,3 +69,14 @@ FALLBACK_AMPERAGE_WITH_BATTERY = 16  # Fixed amperage when using battery support
 PRIORITY_EV = "EV"
 PRIORITY_HOME = "Home"
 PRIORITY_EV_FREE = "EV_Free"
+
+# Night Smart Charge defaults
+DEFAULT_NIGHT_CHARGE_HOUR = 1  # 01:00
+DEFAULT_NIGHT_CHARGE_MINUTE = 0
+DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD = 20  # kWh
+DEFAULT_NIGHT_CHARGE_AMPERAGE = 16  # Amps
+
+# Night Smart Charge modes
+NIGHT_CHARGE_MODE_BATTERY = "battery"
+NIGHT_CHARGE_MODE_GRID = "grid"
+NIGHT_CHARGE_MODE_IDLE = "idle"

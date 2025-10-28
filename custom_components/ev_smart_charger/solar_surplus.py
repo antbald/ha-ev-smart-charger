@@ -36,11 +36,13 @@ class SolarSurplusAutomation:
         hass: HomeAssistant,
         entry_id: str,
         config: dict,
+        night_smart_charge=None,
     ) -> None:
         """Initialize the Solar Surplus automation."""
         self.hass = hass
         self.entry_id = entry_id
         self.config = config
+        self._night_smart_charge = night_smart_charge
 
         # User-configured entities
         self._charger_switch = config.get(CONF_EV_CHARGER_SWITCH)
@@ -378,6 +380,14 @@ class SolarSurplusAutomation:
 
         if forza_on:
             _LOGGER.info("🛑 Decision: Forza Ricarica is ON, skipping check")
+            _LOGGER.info("=" * 80)
+            return
+
+        # Check if Night Smart Charge is active
+        if self._night_smart_charge and self._night_smart_charge.is_night_charge_active():
+            night_mode = self._night_smart_charge.get_active_mode()
+            _LOGGER.info(f"🌙 Decision: Night Smart Charge is active (mode: {night_mode}), skipping Solar Surplus")
+            _LOGGER.info(f"   Night charging will transition to Solar Surplus when sun rises")
             _LOGGER.info("=" * 80)
             return
 

@@ -64,6 +64,16 @@ async def async_setup_entry(
         )
     )
 
+    # Create Night Smart Charge switch
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_night_smart_charge_enabled",
+            "EVSC Night Smart Charge",
+            "mdi:moon-waning-crescent",
+        )
+    )
+
     async_add_entities(entities)
     _LOGGER.info(f"✅ Created {len(entities)} EVSC switch entities")
 
