@@ -42,6 +42,16 @@
           "home_consumption": "**What it does:** Current household power usage\n**Domain:** sensor\n**Unit:** Watts (W)\n**Example:** `sensor.home_consumption`\n\n💡 **Important:** This should exclude EV charger power! Used to calculate: Surplus = Solar - Home Consumption",
           "grid_import": "**What it does:** Power being pulled from the grid\n**Domain:** sensor\n**Unit:** Watts (W)\n**Example:** `sensor.grid_import_power`\n\n💡 **Grid Protection:** Positive value = importing from grid. Solar Surplus mode uses this to ensure you never import while charging."
         }
+      },
+      "pv_forecast": {
+        "title": "🌙 Night Smart Charge (Optional) - Step {step}/{total_steps}",
+        "description": "**Configure Solar Forecast Sensor**\n\n🌙 **Night Smart Charge** optimizes overnight charging based on tomorrow's solar forecast:\n• ☀️ **High forecast (≥20 kWh):** Charge from home battery (solar will recharge it)\n• ☁️ **Low forecast (<20 kWh):** Charge from grid (preserve home battery)\n\n⚠️ **This step is OPTIONAL** - Skip if you don't have a solar forecast sensor or don't want Night Smart Charge.\n\n---",
+        "data": {
+          "pv_forecast": "☀️ Solar Forecast Sensor (Optional)"
+        },
+        "data_description": {
+          "pv_forecast": "**What it does:** Provides next-day solar production forecast\n**Domain:** sensor\n**Unit:** Kilowatt-hours (kWh)\n**Example:** `sensor.solcast_pv_forecast_forecast_today`, `sensor.forecast_solar_production`\n\n💡 **Leave empty** if you don't have a forecast sensor. Night Smart Charge will use grid mode as fallback.\n\n💡 **Popular integrations:**\n  • Solcast Solar (recommended)\n  • Forecast.Solar\n  • Custom solar forecast sensors"
+        }
       }
     },
     "error": {
@@ -80,6 +90,16 @@
           "fv_production": "**Domain:** sensor | **Unit:** Watts (W) | **Critical for Solar Surplus mode**",
           "home_consumption": "**Domain:** sensor | **Unit:** Watts (W) | **Should exclude EV charger**",
           "grid_import": "**Domain:** sensor | **Unit:** Watts (W) | **Positive = importing from grid**"
+        }
+      },
+      "pv_forecast": {
+        "title": "🌙 Update Solar Forecast (Optional) - Step {step}/{total_steps}",
+        "description": "**Update Solar Forecast Sensor**\n\n🌙 Used by Night Smart Charge to optimize overnight charging.\n\n⚠️ **This is OPTIONAL** - Leave empty if not using Night Smart Charge.\n\n---",
+        "data": {
+          "pv_forecast": "☀️ Solar Forecast Sensor (Optional)"
+        },
+        "data_description": {
+          "pv_forecast": "**Domain:** sensor | **Unit:** kWh | **Example:** sensor.solcast_pv_forecast_forecast_today"
         }
       }
     },
