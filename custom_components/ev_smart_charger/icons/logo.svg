@@ -1,0 +1,62 @@
+<svg width="512" height="256" viewBox="0 0 512 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Icon part (left side) - scaled down -->
+  <g transform="translate(0, 28)">
+    <!-- Background circle -->
+    <circle cx="100" cy="100" r="95" fill="#2C3E50" opacity="0.95"/>
+
+    <!-- Sun rays (solar energy) -->
+    <g fill="#F39C12" opacity="0.9">
+      <rect x="97" y="10" width="6" height="24" rx="3"/>
+      <rect x="152" y="35" width="6" height="24" rx="3" transform="rotate(45 155 47)"/>
+      <rect x="166" y="97" width="24" height="6" rx="3"/>
+      <rect x="152" y="141" width="6" height="24" rx="3" transform="rotate(-45 155 153)"/>
+      <rect x="97" y="166" width="6" height="24" rx="3"/>
+      <rect x="42" y="141" width="6" height="24" rx="3" transform="rotate(45 45 153)"/>
+      <rect x="10" y="97" width="24" height="6" rx="3"/>
+      <rect x="42" y="35" width="6" height="24" rx="3" transform="rotate(-45 45 47)"/>
+    </g>
+
+    <!-- Charging plug -->
+    <g fill="#34495E">
+      <rect x="75" y="65" width="50" height="58" rx="6"/>
+      <rect x="83" y="52" width="12" height="16" rx="2"/>
+      <rect x="105" y="52" width="12" height="16" rx="2"/>
+    </g>
+
+    <!-- Lightning bolt -->
+    <path d="M 108 78 L 97 104 L 106 104 L 95 128 L 116 104 L 106 104 L 115 78 Z"
+          fill="#F39C12"
+          stroke="#2C3E50"
+          stroke-width="1.5"/>
+
+    <!-- Cable -->
+    <path d="M 100 123 Q 100 140 100 152"
+          stroke="#34495E"
+          stroke-width="10"
+          stroke-linecap="round"
+          fill="none"/>
+
+    <!-- Battery -->
+    <rect x="82" y="152" width="36" height="18" rx="3" fill="#34495E" stroke="#F39C12" stroke-width="2"/>
+    <rect x="118" y="157" width="3" height="8" rx="1" fill="#34495E"/>
+    <rect x="86" y="156" width="26" height="10" rx="2" fill="#27AE60"/>
+  </g>
+
+  <!-- Text part (right side) -->
+  <g transform="translate(220, 0)">
+    <!-- "EV SMART" -->
+    <text x="0" y="100" font-family="Arial, sans-serif" font-size="56" font-weight="bold" fill="#2C3E50">
+      EV SMART
+    </text>
+
+    <!-- "CHARGER" -->
+    <text x="0" y="160" font-family="Arial, sans-serif" font-size="48" font-weight="300" fill="#34495E">
+      CHARGER
+    </text>
+
+    <!-- Tagline -->
+    <text x="2" y="195" font-family="Arial, sans-serif" font-size="18" font-weight="300" fill="#7F8C8D" letter-spacing="2">
+      SOLAR POWERED CHARGING
+    </text>
+  </g>
+</svg>

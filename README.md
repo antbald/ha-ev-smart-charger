@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.8.7
+## Current Version: 0.8.8
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -457,7 +457,27 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.8.7 (2025-10-28) - Current - Separate Daily Home Battery Targets
+### v0.8.8 (2025-10-28) - Current - Custom Logo and Branding
+- **Visual Enhancement:** Added custom logo and branding for the integration
+  - Created stylish black/gray logo with solar energy symbolism
+  - Designed flat, modern icon featuring EV charger, solar rays, and lightning bolt
+  - Added logo with "EV SMART CHARGER" text and tagline
+- **Assets Created:**
+  - `icons/icon.png` (256x256) - Integration icon
+  - `icons/icon@2x.png` (512x512) - High-resolution icon
+  - `icons/logo.png` (512x256) - Integration logo with text
+  - `icons/logo@2x.png` (1024x512) - High-resolution logo
+  - Source SVG files included for future modifications
+- **Appearance:** Logo now appears in:
+  - Home Assistant Devices & Services integration card
+  - Device cards when viewing integration devices
+  - HACS integration listing
+- **Files Modified:**
+  - `manifest.json` - Version bumped to 0.8.8
+  - `README.md` - Updated version
+  - New directory: `icons/` with all branding assets
+
+### v0.8.7 (2025-10-28) - Separate Daily Home Battery Targets
 - **Feature:** Split home battery SOC configuration into two independent systems
   - **Battery Support feature** now uses `number.evsc_home_battery_min_soc` (minimum safety threshold, default 20%)
   - **Priority Balancer** now uses 7 new daily targets: `number.evsc_home_min_soc_[day]` (Monday-Sunday, default 50%)

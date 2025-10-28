@@ -1,0 +1,53 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="#2C3E50" opacity="0.95"/>
+
+  <!-- Sun rays (solar energy) -->
+  <g fill="#F39C12" opacity="0.9">
+    <!-- Top ray -->
+    <rect x="124" y="20" width="8" height="30" rx="4"/>
+    <!-- Top-right ray -->
+    <rect x="185" y="50" width="8" height="30" rx="4" transform="rotate(45 189 65)"/>
+    <!-- Right ray -->
+    <rect x="206" y="124" width="30" height="8" rx="4"/>
+    <!-- Bottom-right ray -->
+    <rect x="185" y="176" width="8" height="30" rx="4" transform="rotate(-45 189 191)"/>
+    <!-- Bottom ray -->
+    <rect x="124" y="206" width="8" height="30" rx="4"/>
+    <!-- Bottom-left ray -->
+    <rect x="63" y="176" width="8" height="30" rx="4" transform="rotate(45 67 191)"/>
+    <!-- Left ray -->
+    <rect x="20" y="124" width="30" height="8" rx="4"/>
+    <!-- Top-left ray -->
+    <rect x="63" y="50" width="8" height="30" rx="4" transform="rotate(-45 67 65)"/>
+  </g>
+
+  <!-- Central charging plug shape -->
+  <g fill="#34495E">
+    <!-- Plug body -->
+    <rect x="98" y="80" width="60" height="70" rx="8"/>
+    <!-- Plug pins -->
+    <rect x="108" y="65" width="15" height="20" rx="3"/>
+    <rect x="133" y="65" width="15" height="20" rx="3"/>
+  </g>
+
+  <!-- Lightning bolt (energy/charging) -->
+  <path d="M 138 95 L 125 125 L 135 125 L 122 155 L 145 125 L 135 125 L 145 95 Z"
+        fill="#F39C12"
+        stroke="#2C3E50"
+        stroke-width="2"/>
+
+  <!-- Cable -->
+  <path d="M 128 150 Q 128 170 128 185"
+        stroke="#34495E"
+        stroke-width="12"
+        stroke-linecap="round"
+        fill="none"/>
+
+  <!-- Battery indicator at bottom -->
+  <rect x="108" y="185" width="40" height="20" rx="4" fill="#34495E" stroke="#F39C12" stroke-width="2"/>
+  <rect x="148" y="191" width="4" height="8" rx="1" fill="#34495E"/>
+
+  <!-- Battery level indicator (showing charging) -->
+  <rect x="112" y="189" width="28" height="12" rx="2" fill="#27AE60"/>
+</svg>
