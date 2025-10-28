@@ -462,34 +462,191 @@ The integration **automatically creates 29 helper entities** when you add it:
 
 ## Usage
 
-### Dashboard Example
+### Dashboard Card
 
-Add these entities to your Lovelace dashboard for easy control:
+Copy this complete vertical stack card to your Lovelace dashboard for full control:
 
 ```yaml
-type: entities
-title: EV Smart Charger
-entities:
-  # Global Controls
-  - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_forza_ricarica
-    name: 🔴 Forza Ricarica (Override All)
+type: vertical-stack
+cards:
+  # ============= MAIN CONTROLS =============
+  - type: entities
+    title: ⚡ EV Smart Charger - Main Controls
+    show_header_toggle: false
+    entities:
+      # Global Override
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_forza_ricarica
+        name: 🔴 Forza Ricarica (Override All)
+        icon: mdi:power
 
-  # Charging Profile (v0.6.0+)
-  - entity: select.ev_smart_charger_YOUR_ENTRY_ID_evsc_charging_profile
-    name: ⚡ Charging Profile
+      # Charging Profile Selector
+      - type: divider
+      - entity: select.ev_smart_charger_YOUR_ENTRY_ID_evsc_charging_profile
+        name: ⚡ Charging Profile
+        icon: mdi:ev-station
 
-  # Solar Surplus Settings (v0.6.0+)
-  - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_check_interval
-    name: ⏱️ Check Interval (min)
-  - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_grid_import_threshold
-    name: 🔌 Max Grid Import (W)
+      # Priority State (read-only)
+      - type: divider
+      - entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_priority_daily_state
+        name: 🎯 Current Priority
+        icon: mdi:priority-high
 
-  # Smart Charger Blocker
-  - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_smart_charger_blocker_enabled
-    name: 🚫 Smart Charger Blocker
+  # ============= NIGHT SMART CHARGE =============
+  - type: entities
+    title: 🌙 Night Smart Charge Settings
+    show_header_toggle: false
+    entities:
+      # Enable/Disable
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_smart_charge_enabled
+        name: Enable Night Smart Charge
+        icon: mdi:moon-waning-crescent
+
+      # Time Configuration
+      - type: divider
+      - entity: time.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_charge_time
+        name: ⏰ Start Time
+        icon: mdi:clock-time-one
+
+      # Threshold & Amperage
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_min_solar_forecast_threshold
+        name: ☀️ Min Solar Forecast (kWh)
+        icon: mdi:solar-power-variant
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_charge_amperage
+        name: ⚡ Night Charge Amperage
+        icon: mdi:current-ac
+
+  # ============= SOLAR SURPLUS SETTINGS =============
+  - type: entities
+    title: ☀️ Solar Surplus Settings
+    show_header_toggle: false
+    entities:
+      # Basic Settings
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_check_interval
+        name: ⏱️ Check Interval (min)
+        icon: mdi:timer-outline
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_grid_import_threshold
+        name: 🔌 Grid Import Threshold (W)
+        icon: mdi:transmission-tower
+
+      # Advanced Delays
+      - type: divider
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_grid_import_delay
+        name: ⏳ Grid Import Delay (s)
+        icon: mdi:timer-sand
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_surplus_drop_delay
+        name: ⏳ Surplus Drop Delay (s)
+        icon: mdi:timer-sand-empty
+
+      # Battery Support
+      - type: divider
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_use_home_battery
+        name: 🔋 Use Home Battery
+        icon: mdi:home-battery
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_battery_min_soc
+        name: 🔋 Home Battery Min SOC (%)
+        icon: mdi:battery-30
+
+  # ============= PRIORITY BALANCER =============
+  - type: entities
+    title: ⚖️ Priority Balancer Settings
+    show_header_toggle: false
+    entities:
+      # Enable/Disable
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_priority_balancer_enabled
+        name: Enable Priority Balancer
+        icon: mdi:scale-balance
+
+      # EV Daily Targets
+      - type: divider
+      - type: section
+        label: "🚗 EV Daily Targets"
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_monday
+        name: Monday
+        icon: mdi:calendar-monday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_tuesday
+        name: Tuesday
+        icon: mdi:calendar-tuesday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_wednesday
+        name: Wednesday
+        icon: mdi:calendar-wednesday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_thursday
+        name: Thursday
+        icon: mdi:calendar-thursday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_friday
+        name: Friday
+        icon: mdi:calendar-friday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_saturday
+        name: Saturday
+        icon: mdi:calendar-saturday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_sunday
+        name: Sunday
+        icon: mdi:calendar-sunday
+
+      # Home Battery Daily Targets
+      - type: divider
+      - type: section
+        label: "🏠 Home Battery Daily Targets"
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_monday
+        name: Monday
+        icon: mdi:calendar-monday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_tuesday
+        name: Tuesday
+        icon: mdi:calendar-tuesday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_wednesday
+        name: Wednesday
+        icon: mdi:calendar-wednesday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_thursday
+        name: Thursday
+        icon: mdi:calendar-thursday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_friday
+        name: Friday
+        icon: mdi:calendar-friday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_saturday
+        name: Saturday
+        icon: mdi:calendar-saturday
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_sunday
+        name: Sunday
+        icon: mdi:calendar-sunday
+
+  # ============= SMART BLOCKER =============
+  - type: entities
+    title: 🚫 Smart Charger Blocker
+    show_header_toggle: false
+    entities:
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_smart_charger_blocker_enabled
+        name: Enable Smart Blocker
+        icon: mdi:solar-power
 ```
 
-**Tip:** Find your actual entity IDs by searching for "evsc" in Developer Tools → States.
+**📝 Setup Instructions:**
+
+1. **Find Your Entry ID:**
+   - Go to **Developer Tools → States**
+   - Search for "evsc"
+   - Look at any entity ID, example: `switch.ev_smart_charger_abc123_evsc_forza_ricarica`
+   - Your entry ID is the part between `ev_smart_charger_` and `_evsc` (e.g., `abc123`)
+
+2. **Replace in YAML:**
+   - Replace all instances of `YOUR_ENTRY_ID` with your actual entry ID
+   - Use Find & Replace in your text editor for speed
+
+3. **Add to Dashboard:**
+   - Go to your dashboard
+   - Click **Edit Dashboard** → **Add Card** → **Manual**
+   - Paste the YAML code
+   - Save
+
+4. **Optional Customization:**
+   - Remove sections you don't use (e.g., Priority Balancer if disabled)
+   - Adjust card order to your preference
+   - Add to a dedicated "EV Charging" view/tab
+
+**💡 Pro Tips:**
+
+- **Collapsible Sections:** Can't collapse? Use `state_color: true` on switches for visual feedback
+- **Quick Access:** Pin frequently used controls (Forza Ricarica, Charging Profile) to a separate card
+- **Mobile Friendly:** The vertical stack works great on mobile devices
+- **Monitoring:** Add sensor cards above this stack to monitor charging status, SOC levels, etc.
 
 ### How Smart Charger Blocker Works
 
