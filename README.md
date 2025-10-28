@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.9.3
+## Current Version: 0.9.5
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -729,7 +729,25 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.9.3 (2025-10-28) - Current - Time Entity Refactor
+### v0.9.5 (2025-10-28) - Current - Entity ID Fix
+- **FIX: Corrected time entity unique_id pattern**
+  - Fixed unique_id to follow same pattern as other entities
+  - Pattern: `{DOMAIN}_{entry_id}_{suffix}` instead of `{entry_id}_{suffix}`
+  - Entity ID will now be: `time.ev_smart_charger_{entry_id}_evsc_night_charge_time`
+  - Ensures consistent entity ID generation across all platforms
+
+- **Files Modified:**
+  - `time.py` - Fixed unique_id generation
+  - `manifest.json` - Version 0.9.5
+
+### v0.9.4 (2025-10-28) - Dashboard YAML
+- **DOCS: Added comprehensive dashboard card**
+  - Complete vertical-stack YAML with all 29 entities
+  - 5 organized sections: Main Controls, Night Smart Charge, Solar Surplus, Priority Balancer, Smart Blocker
+  - Copy-paste ready with clear setup instructions
+  - Mobile-friendly layout
+
+### v0.9.3 (2025-10-28) - Time Entity Refactor
 - **IMPROVEMENT: Replaced hour/minute numbers with time entity**
   - Replaced `number.evsc_night_charge_hour` and `number.evsc_night_charge_minute` with single `time.evsc_night_charge_time`
   - Provides native time picker UI in Home Assistant

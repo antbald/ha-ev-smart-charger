@@ -54,7 +54,7 @@ class EVSCTime(RestoreEntity, TimeEntity):
     ) -> None:
         """Initialize the time entity."""
         self._entry_id = entry_id
-        self._attr_unique_id = f"{entry_id}_{suffix}"
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
         self._default_value = default_value
