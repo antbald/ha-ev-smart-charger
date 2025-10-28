@@ -1,6 +1,6 @@
 DOMAIN = "ev_smart_charger"
 DEFAULT_NAME = "EV Smart Charger"
-PLATFORMS = ["switch", "number", "select", "sensor"]
+PLATFORMS = ["switch", "number", "select", "sensor", "time"]
 
 # Configuration keys
 CONF_EV_CHARGER_SWITCH = "ev_charger_switch"
@@ -49,8 +49,7 @@ HELPER_EV_MIN_SOC_SATURDAY_SUFFIX = "evsc_ev_min_soc_saturday"
 HELPER_EV_MIN_SOC_SUNDAY_SUFFIX = "evsc_ev_min_soc_sunday"
 HELPER_PRIORITY_STATE_SUFFIX = "evsc_priority_daily_state"
 HELPER_NIGHT_SMART_CHARGE_ENABLED_SUFFIX = "evsc_night_smart_charge_enabled"
-HELPER_NIGHT_CHARGE_HOUR_SUFFIX = "evsc_night_charge_hour"
-HELPER_NIGHT_CHARGE_MINUTE_SUFFIX = "evsc_night_charge_minute"
+HELPER_NIGHT_CHARGE_TIME_SUFFIX = "evsc_night_charge_time"
 HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX = "evsc_min_solar_forecast_threshold"
 HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX = "evsc_night_charge_amperage"
 
@@ -71,8 +70,7 @@ PRIORITY_HOME = "Home"
 PRIORITY_EV_FREE = "EV_Free"
 
 # Night Smart Charge defaults
-DEFAULT_NIGHT_CHARGE_HOUR = 1  # 01:00
-DEFAULT_NIGHT_CHARGE_MINUTE = 0
+DEFAULT_NIGHT_CHARGE_TIME = "01:00:00"  # 01:00 AM
 DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD = 20  # kWh
 DEFAULT_NIGHT_CHARGE_AMPERAGE = 16  # Amps
 

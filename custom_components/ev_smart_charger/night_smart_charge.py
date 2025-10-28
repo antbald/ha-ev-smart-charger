@@ -47,8 +47,7 @@ class NightSmartCharge:
 
         # Helper entities (will be discovered)
         self._night_charge_enabled_entity = None
-        self._night_charge_hour_entity = None
-        self._night_charge_minute_entity = None
+        self._night_charge_time_entity = None
         self._solar_forecast_threshold_entity = None
         self._night_charge_amperage_entity = None
         self._priority_balancer_enabled_entity = None
@@ -87,8 +86,7 @@ class NightSmartCharge:
 
         # Find helper entities
         self._night_charge_enabled_entity = self._find_entity_by_suffix("evsc_night_smart_charge_enabled")
-        self._night_charge_hour_entity = self._find_entity_by_suffix("evsc_night_charge_hour")
-        self._night_charge_minute_entity = self._find_entity_by_suffix("evsc_night_charge_minute")
+        self._night_charge_time_entity = self._find_entity_by_suffix("evsc_night_charge_time")
         self._solar_forecast_threshold_entity = self._find_entity_by_suffix("evsc_min_solar_forecast_threshold")
         self._night_charge_amperage_entity = self._find_entity_by_suffix("evsc_night_charge_amperage")
         self._priority_balancer_enabled_entity = self._find_entity_by_suffix("evsc_priority_balancer_enabled")
@@ -103,8 +101,7 @@ class NightSmartCharge:
 
         if not all([
             self._night_charge_enabled_entity,
-            self._night_charge_hour_entity,
-            self._night_charge_minute_entity,
+            self._night_charge_time_entity,
             self._solar_forecast_threshold_entity,
             self._night_charge_amperage_entity,
             self._priority_balancer_enabled_entity,
@@ -171,17 +168,18 @@ class NightSmartCharge:
 
     async def _is_in_active_window(self, now: datetime) -> bool:
         """Check if current time is between scheduled time and sunrise."""
-        # Get scheduled time configuration
-        hour_state = self.hass.states.get(self._night_charge_hour_entity)
-        minute_state = self.hass.states.get(self._night_charge_minute_entity)
+        # Get scheduled time configuration from time entity
+        time_state = self.hass.states.get(self._night_charge_time_entity)
 
-        if not hour_state or not minute_state:
+        if not time_state or time_state.state in ("unknown", "unavailable"):
             return False
 
         try:
-            hour = int(float(hour_state.state))
-            minute = int(float(minute_state.state))
-        except (ValueError, TypeError):
+            # Parse time string "HH:MM:SS"
+            time_parts = time_state.state.split(":")
+            hour = int(time_parts[0])
+            minute = int(time_parts[1])
+        except (ValueError, TypeError, IndexError):
             _LOGGER.error("❌ Invalid time configuration for Night Smart Charge")
             return False
 

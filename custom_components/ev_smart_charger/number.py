@@ -17,8 +17,6 @@ from .const import (
     DEFAULT_HOME_BATTERY_MIN_SOC,
     DEFAULT_EV_MIN_SOC_WEEKDAY,
     DEFAULT_EV_MIN_SOC_WEEKEND,
-    DEFAULT_NIGHT_CHARGE_HOUR,
-    DEFAULT_NIGHT_CHARGE_MINUTE,
     DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD,
     DEFAULT_NIGHT_CHARGE_AMPERAGE,
 )
@@ -323,36 +321,6 @@ async def async_setup_entry(
     )
 
     # Create Night Smart Charge entities
-    # Night Charge Hour
-    entities.append(
-        EVSCNumber(
-            entry.entry_id,
-            "evsc_night_charge_hour",
-            "EVSC Night Charge Hour",
-            "mdi:clock-time-one",
-            min_value=0,
-            max_value=23,
-            step=1,
-            default_value=DEFAULT_NIGHT_CHARGE_HOUR,
-            unit="h",
-        )
-    )
-
-    # Night Charge Minute
-    entities.append(
-        EVSCNumber(
-            entry.entry_id,
-            "evsc_night_charge_minute",
-            "EVSC Night Charge Minute",
-            "mdi:clock-outline",
-            min_value=0,
-            max_value=59,
-            step=5,
-            default_value=DEFAULT_NIGHT_CHARGE_MINUTE,
-            unit="min",
-        )
-    )
-
     # Minimum Solar Forecast Threshold
     entities.append(
         EVSCNumber(

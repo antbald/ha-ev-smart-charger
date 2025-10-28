@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.9.0
+## Current Version: 0.9.3
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -211,8 +211,7 @@ The Night Smart Charge feature automatically charges your EV overnight using the
 
 **Configuration:**
 - `switch.evsc_night_smart_charge_enabled` - Enable/disable Night Smart Charge
-- `number.evsc_night_charge_hour` - Hour to start check (0-23, default: 1)
-- `number.evsc_night_charge_minute` - Minute to start check (0-59, step 5, default: 0)
+- `time.evsc_night_charge_time` - Time to start check (default: 01:00)
 - `number.evsc_min_solar_forecast_threshold` - Minimum forecast to use battery (0-100 kWh, default: 20)
 - `number.evsc_night_charge_amperage` - Fixed charging amperage (6-32A, default: 16)
 
@@ -310,7 +309,7 @@ During setup, you'll map your existing Home Assistant entities to these roles:
 
 ### Helper Entities (Auto-Created)
 
-The integration **automatically creates 30 helper entities** when you add it:
+The integration **automatically creates 29 helper entities** when you add it:
 
 #### Switches (5)
 
@@ -339,7 +338,7 @@ The integration **automatically creates 30 helper entities** when you add it:
 - **Purpose:** Enable/disable Night Smart Charge automation
 - **Icon:** `mdi:moon-waning-crescent`
 
-#### Numbers (23)
+#### Numbers (21)
 
 **1. EVSC Check Interval** *(v0.6.0+)*
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_check_interval`
@@ -404,21 +403,7 @@ The integration **automatically creates 30 helper entities** when you add it:
 - **Icons:** `mdi:calendar-monday` through `mdi:calendar-sunday`
 - **Use:** System compares current home battery SOC against today's target to determine charging priority
 
-**20. EVSC Night Charge Hour** *(v0.9.0+)*
-- **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_night_charge_hour`
-- **Purpose:** Hour of day to start Night Smart Charge check
-- **Default:** 1 (01:00)
-- **Range:** 0-23 (step: 1)
-- **Icon:** `mdi:clock-time-one`
-
-**21. EVSC Night Charge Minute** *(v0.9.0+)*
-- **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_night_charge_minute`
-- **Purpose:** Minute of hour to start Night Smart Charge check
-- **Default:** 0
-- **Range:** 0-59 (step: 5)
-- **Icon:** `mdi:clock-outline`
-
-**22. EVSC Min Solar Forecast Threshold** *(v0.9.0+)*
+**20. EVSC Min Solar Forecast Threshold** *(v0.9.0+)*
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_min_solar_forecast_threshold`
 - **Purpose:** Minimum PV forecast (kWh) to enable battery charging mode
 - **Default:** 20 kWh
@@ -426,12 +411,21 @@ The integration **automatically creates 30 helper entities** when you add it:
 - **Icon:** `mdi:solar-power-variant`
 - **Use:** If forecast ≥ threshold, charge from battery; if < threshold, charge from grid
 
-**23. EVSC Night Charge Amperage** *(v0.9.0+)*
+**21. EVSC Night Charge Amperage** *(v0.9.0+)*
 - **Entity ID:** `number.ev_smart_charger_<entry_id>_evsc_night_charge_amperage`
 - **Purpose:** Fixed amperage for Night Smart Charge
 - **Default:** 16A
 - **Range:** 6-32A (step: 2)
 - **Icon:** `mdi:current-ac`
+
+#### Time (1)
+
+**1. EVSC Night Charge Time** *(v0.9.3+)*
+- **Entity ID:** `time.ev_smart_charger_<entry_id>_evsc_night_charge_time`
+- **Purpose:** Time of day to start Night Smart Charge check
+- **Default:** 01:00:00
+- **Icon:** `mdi:clock-time-one`
+- **Note:** Provides native time picker UI in Home Assistant
 
 #### Selects (1)
 
@@ -578,7 +572,36 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.9.0 (2025-10-28) - Current - Night Smart Charge
+### v0.9.3 (2025-10-28) - Current - Time Entity Refactor
+- **IMPROVEMENT: Replaced hour/minute numbers with time entity**
+  - Replaced `number.evsc_night_charge_hour` and `number.evsc_night_charge_minute` with single `time.evsc_night_charge_time`
+  - Provides native time picker UI in Home Assistant
+  - More user-friendly configuration experience
+  - Default time: 01:00:00
+
+- **Entity Count Changes:**
+  - Total: 30 → 29 entities
+  - Breakdown: 5 switches, 21 numbers (-2), 1 time (+1), 1 select, 2 sensors
+
+- **Files Modified:**
+  - `const.py` - Added time platform, updated constants
+  - `time.py` - NEW: Time platform implementation
+  - `number.py` - Removed hour/minute entities
+  - `night_smart_charge.py` - Updated to use time entity
+  - `manifest.json` - Version 0.9.3
+
+### v0.9.2 (2025-10-28) - Translation Improvements
+- **FIX: Added missing PV forecast translations**
+  - Added comprehensive help text for Step 4 (PV forecast)
+  - Examples of popular solar forecast integrations
+  - Clear indication that step is optional
+
+### v0.9.1 (2025-10-28) - Icon Support
+- **FIX: Added integration icon support**
+  - Added `"icon": "mdi:ev-station"` to manifest.json
+  - Placed brand assets in proper locations for HACS
+
+### v0.9.0 (2025-10-28) - Night Smart Charge
 - **NEW FEATURE: Night Smart Charge** 🌙
   - Intelligent overnight charging based on next-day solar forecast
   - Automatically chooses between battery mode or grid mode
@@ -592,10 +615,10 @@ Then restart Home Assistant.
   - Overrides Smart Blocker during active night charging
   - Grid import detection disabled during night charging
 
-- **New Entities:**
+- **New Entities (5):**
   - `switch.evsc_night_smart_charge_enabled` - Enable/disable feature
-  - `number.evsc_night_charge_hour` - Hour to start (0-23, default: 1)
-  - `number.evsc_night_charge_minute` - Minute to start (0-59, step 5, default: 0)
+  - `number.evsc_night_charge_hour` - Hour to start (replaced in v0.9.3)
+  - `number.evsc_night_charge_minute` - Minute to start (replaced in v0.9.3)
   - `number.evsc_min_solar_forecast_threshold` - Min forecast for battery mode (0-100 kWh, default: 20)
   - `number.evsc_night_charge_amperage` - Fixed amperage (6-32A, default: 16)
 
