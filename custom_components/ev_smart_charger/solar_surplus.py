@@ -748,6 +748,37 @@ class SolarSurplusAutomation:
                 }
             )
 
+        # === CRITICAL DEBUG: Force log and action ===
+        _LOGGER.error(f"🔍 [DEBUG] Reached decision logic: current={current_amps}A, target={target_amps}A, charger_is_on={charger_is_on}")
+
+        # IMMEDIATE ACTION: If charger is OFF and we have surplus, START IT NOW
+        if not charger_is_on and target_amps > 0:
+            _LOGGER.error(f"🚀 [FORCE START] Charger OFF with {target_amps}A target - STARTING NOW")
+            try:
+                # Set amperage first
+                await self.hass.services.async_call(
+                    "number",
+                    "set_value",
+                    {"entity_id": self._charger_current, "value": target_amps},
+                    blocking=True,
+                )
+                _LOGGER.error(f"✅ Set amperage to {target_amps}A")
+
+                # Start charger
+                await self.hass.services.async_call(
+                    "switch",
+                    "turn_on",
+                    {"entity_id": self._charger_switch},
+                    blocking=True,
+                )
+                _LOGGER.error(f"✅ Started charger switch")
+                _LOGGER.info("=" * 80)
+                return
+            except Exception as e:
+                _LOGGER.error(f"❌ Exception starting charger: {e}")
+                import traceback
+                _LOGGER.error(traceback.format_exc())
+
         # === ENHANCEMENT 2A: Grid Import Delay Protection ===
         current_time = time.time()
 
