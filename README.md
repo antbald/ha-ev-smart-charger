@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.9.7
+## Current Version: 0.9.8
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -729,7 +729,40 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.9.7 (2025-10-29) - Current - Critical Automation Fixes
+### v0.9.8 (2025-10-29) - Current - Critical Automation Conflict Resolution
+- **NEW: Automation Coordinator system with priority-based control**
+  - Centralized coordinator prevents conflicts between automations
+  - Priority hierarchy: Override (1) > Smart Blocker (2) > Night Charge (3) > Priority Balancer (4) > Solar Surplus (5)
+  - All automations request permission before controlling charger
+  - Tracks action history (last 50 actions) for debugging
+
+- **FIX: Smart Blocker enforcement mode exit conditions**
+  - Added 30-minute timeout to automatically exit enforcement
+  - Exits when evsc_forza_ricarica override enabled
+  - Exits when Smart Charger Blocker disabled
+  - Exits when blocking conditions no longer apply (e.g., sunrise)
+
+- **FIX: Enforcement re-checks blocking conditions**
+  - Before re-blocking, now validates conditions are still true
+  - Respects override switch during all enforcement operations
+  - Releases control when conditions change
+
+- **FIX: Endless conflict loop between Smart Blocker and Priority Balancer**
+  - Eliminated 64+ repeated blocking attempts in logs
+  - Priority Balancer can no longer override Smart Blocker's safety rules
+  - Coordinator manages priority and prevents conflicting turn_on/turn_off
+
+- **FIX: Override switch now works during enforcement**
+  - evsc_forza_ricarica has highest priority (Priority 1)
+  - Coordinator blocks any turn_off attempts when override active
+  - User can force charging at any time
+
+- **FIX: EV_FREE mode now works correctly at night**
+  - Priority Balancer respects Smart Blocker's active enforcement
+  - After enforcement timeout or sunrise, Priority Balancer can enable charging
+  - No more endless conflict loops
+
+### v0.9.7 (2025-10-29) - Critical Automation Fixes
 - **FIX: Smart Blocker enforcement with retry logic and continuous monitoring**
   - Added retry logic (3 attempts) with verification after each turn_off command
   - Implemented continuous enforcement monitoring to prevent external re-enable
