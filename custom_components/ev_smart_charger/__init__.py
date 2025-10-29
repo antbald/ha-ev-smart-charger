@@ -18,6 +18,7 @@ from .const import (
 from .automations import async_setup_automations, async_remove_automations
 from .solar_surplus import SolarSurplusAutomation
 from .night_smart_charge import NightSmartCharge
+from .automation_coordinator import AutomationCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -74,6 +75,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _LOGGER.info("✅ Platforms setup complete, proceeding with automations")
 
+    # Create automation coordinator to prevent conflicts
+    coordinator = AutomationCoordinator(hass, entry.entry_id)
+    _LOGGER.info("✅ Automation Coordinator created")
+
     # Set up Night Smart Charge automation first (needed by other automations)
     try:
         night_smart_charge = NightSmartCharge(hass, entry.entry_id, entry.data)
@@ -83,17 +88,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.exception("Night Smart Charge setup error details:")
         night_smart_charge = None
 
-    # Set up automations (passing night_smart_charge reference)
+    # Set up automations (passing night_smart_charge reference and coordinator)
     try:
-        automations = await async_setup_automations(hass, entry.entry_id, entry.data, night_smart_charge)
+        automations = await async_setup_automations(hass, entry.entry_id, entry.data, night_smart_charge, coordinator)
     except Exception as e:
         _LOGGER.error(f"Failed to set up automations: {e}")
         _LOGGER.exception("Automation setup error details:")
         return False
 
-    # Set up Solar Surplus automation (passing night_smart_charge reference)
+    # Set up Solar Surplus automation (passing night_smart_charge reference and coordinator)
     try:
-        solar_surplus = SolarSurplusAutomation(hass, entry.entry_id, entry.data, night_smart_charge)
+        solar_surplus = SolarSurplusAutomation(hass, entry.entry_id, entry.data, night_smart_charge, coordinator)
         await solar_surplus.async_setup()
     except Exception as e:
         _LOGGER.error(f"Failed to set up Solar Surplus automation: {e}")
@@ -103,6 +108,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store configuration data and automations
     hass.data[DOMAIN][entry.entry_id] = {
         "config": entry.data,
+        "coordinator": coordinator,
         "automations": automations,
         "solar_surplus": solar_surplus,
         "night_smart_charge": night_smart_charge,

@@ -14,19 +14,24 @@ from .const import (
     CONF_EV_CHARGER_STATUS,
     CHARGER_STATUS_CHARGING,
 )
+from .automation_coordinator import PRIORITY_SMART_BLOCKER
 
 _LOGGER = logging.getLogger(__name__)
+
+# Enforcement timeout in minutes - after this time, conditions will be re-checked
+ENFORCEMENT_TIMEOUT_MINUTES = 30
 
 
 class SmartChargerBlocker:
     """Smart Charger Blocker automation."""
 
-    def __init__(self, hass: HomeAssistant, entry_id: str, config: dict, night_smart_charge=None) -> None:
+    def __init__(self, hass: HomeAssistant, entry_id: str, config: dict, night_smart_charge=None, coordinator=None) -> None:
         """Initialize the Smart Charger Blocker."""
         self.hass = hass
         self.entry_id = entry_id
         self.config = config
         self._night_smart_charge = night_smart_charge
+        self._coordinator = coordinator  # Automation coordinator
         self._unsub_status = None
         self._unsub_switch = None
         self._unsub_blocker = None
@@ -38,6 +43,7 @@ class SmartChargerBlocker:
 
         # Enforcement state tracking
         self._currently_blocking = False  # Flag to indicate active blocking enforcement
+        self._enforcement_start_time = None  # Track when enforcement started
 
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
         """Find entity ID by suffix, filtering by this integration's config_entry_id."""
@@ -191,12 +197,39 @@ class SmartChargerBlocker:
         if not self._currently_blocking:
             return
 
+        # First, check if we should exit enforcement mode
+        should_exit, exit_reason = await self._should_exit_enforcement_mode()
+        if should_exit:
+            _LOGGER.info("🔓 [Smart Blocker] [ENFORCEMENT_ENDED] Exiting enforcement mode")
+            _LOGGER.info(f"   Reason: {exit_reason}")
+            self._currently_blocking = False
+            self._enforcement_start_time = None
+
+            # Release control from coordinator
+            if self._coordinator:
+                self._coordinator.release_control("Smart Charger Blocker", exit_reason)
+
+            return
+
         # Check if charger just turned ON
         if new_state.state == STATE_ON and old_state.state != STATE_ON:
             _LOGGER.warning("🚨 [Smart Blocker] [ENFORCEMENT] External charger re-enable detected during active blocking!")
             _LOGGER.warning(f"   Charger state: {old_state.state} → {new_state.state}")
             _LOGGER.warning(f"   Enforcement active since previous blocking attempt")
-            await self._block_charging("Enforcement - External re-enable detected")
+
+            # Re-check blocking conditions before re-blocking
+            should_block, block_reason = await self._should_block_charging()
+            if should_block:
+                _LOGGER.warning(f"   Blocking still required: {block_reason}")
+                await self._block_charging(f"Enforcement - External re-enable detected - {block_reason}")
+            else:
+                _LOGGER.info(f"✅ [Smart Blocker] [ENFORCEMENT_ENDED] Blocking no longer needed: {block_reason}")
+                self._currently_blocking = False
+                self._enforcement_start_time = None
+
+                # Release control from coordinator
+                if self._coordinator:
+                    self._coordinator.release_control("Smart Charger Blocker", f"Blocking no longer needed: {block_reason}")
 
     async def _check_and_block_if_needed(self, trigger_reason: str) -> None:
         """Common logic to check conditions and block if needed."""
@@ -273,6 +306,36 @@ class SmartChargerBlocker:
 
         return False
 
+    async def _should_exit_enforcement_mode(self) -> tuple[bool, str]:
+        """Check if enforcement mode should be exited."""
+        if not self._currently_blocking:
+            return False, "Not in enforcement mode"
+
+        # Check 1: Timeout reached
+        if self._enforcement_start_time:
+            elapsed = (dt_util.now() - self._enforcement_start_time).total_seconds() / 60
+            if elapsed > ENFORCEMENT_TIMEOUT_MINUTES:
+                return True, f"Enforcement timeout reached ({elapsed:.1f} minutes)"
+
+        # Check 2: Override switch enabled (Forza Ricarica)
+        if self._forza_ricarica_entity:
+            forza_ricarica_state = self.hass.states.get(self._forza_ricarica_entity)
+            if forza_ricarica_state and forza_ricarica_state.state == STATE_ON:
+                return True, "Forza Ricarica override enabled"
+
+        # Check 3: Smart Charger Blocker disabled
+        if self._blocker_enabled_entity:
+            blocker_state = self.hass.states.get(self._blocker_enabled_entity)
+            if not blocker_state or blocker_state.state != STATE_ON:
+                return True, "Smart Charger Blocker disabled"
+
+        # Check 4: Blocking conditions no longer apply
+        should_block, reason = await self._should_block_charging()
+        if not should_block:
+            return True, f"Blocking conditions no longer apply: {reason}"
+
+        return False, "Enforcement should continue"
+
     async def _block_charging(self, reason: str) -> None:
         """Block charging by turning off the charger switch with retry logic and verification."""
         import asyncio
@@ -282,6 +345,20 @@ class SmartChargerBlocker:
         if not charger_switch:
             _LOGGER.error("❌ [Smart Blocker] [BLOCK] Charger switch not configured")
             return
+
+        # Request permission from coordinator
+        if self._coordinator:
+            allowed, coord_reason = await self._coordinator.request_charger_action(
+                automation_name="Smart Charger Blocker",
+                action="turn_off",
+                reason=reason,
+                priority=PRIORITY_SMART_BLOCKER,
+            )
+
+            if not allowed:
+                _LOGGER.warning(f"🚫 [Smart Blocker] [BLOCKED BY COORDINATOR] Cannot block charging")
+                _LOGGER.warning(f"   Reason: {coord_reason}")
+                return
 
         _LOGGER.warning("=" * 80)
         _LOGGER.warning(f"🚫 [Smart Blocker] [BLOCKING_ATTEMPT] Starting blocking sequence")
@@ -325,9 +402,11 @@ class SmartChargerBlocker:
                 _LOGGER.warning("✅ [Smart Blocker] [BLOCKING_SUCCESS] Charger successfully turned OFF")
                 _LOGGER.warning(f"   Attempt: {attempt}/{max_attempts}")
                 _LOGGER.warning(f"   Enforcement: ACTIVE (continuous monitoring enabled)")
+                _LOGGER.warning(f"   Enforcement timeout: {ENFORCEMENT_TIMEOUT_MINUTES} minutes")
 
-                # Set enforcement flag
+                # Set enforcement flag and timestamp
                 self._currently_blocking = True
+                self._enforcement_start_time = dt_util.now()
 
                 # Send persistent notification
                 await self.hass.services.async_call(
@@ -375,12 +454,12 @@ class SmartChargerBlocker:
                     return
 
 
-async def async_setup_automations(hass: HomeAssistant, entry_id: str, config: dict, night_smart_charge=None) -> dict:
+async def async_setup_automations(hass: HomeAssistant, entry_id: str, config: dict, night_smart_charge=None, coordinator=None) -> dict:
     """Set up all automations for the integration."""
     automations = {}
 
     # Set up Smart Charger Blocker
-    smart_blocker = SmartChargerBlocker(hass, entry_id, config, night_smart_charge)
+    smart_blocker = SmartChargerBlocker(hass, entry_id, config, night_smart_charge, coordinator)
     await smart_blocker.async_setup()
     automations["smart_blocker"] = smart_blocker
 

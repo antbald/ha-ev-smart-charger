@@ -37,12 +37,14 @@ class SolarSurplusAutomation:
         entry_id: str,
         config: dict,
         night_smart_charge=None,
+        coordinator=None,
     ) -> None:
         """Initialize the Solar Surplus automation."""
         self.hass = hass
         self.entry_id = entry_id
         self.config = config
         self._night_smart_charge = night_smart_charge
+        self._coordinator = coordinator
 
         # User-configured entities
         self._charger_switch = config.get(CONF_EV_CHARGER_SWITCH)
