@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.9.10
+## Current Version: 0.9.11
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -729,7 +729,60 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.9.10 (2025-10-29) - Current - Critical: Charger Start Fix in EV_FREE Mode
+### v0.9.11 (2025-10-29) - Current - Diagnostic Sensor & Detailed Error Reporting
+- **NEW: Solar Surplus Diagnostic Sensor** (`sensor.evsc_solar_surplus_diagnostic`)
+  - Real-time diagnostic information about solar surplus checks
+  - Shows current state (OK, ERROR, WAITING, etc.)
+  - Detailed attributes with all sensor values and check results
+  - Helps troubleshoot "unknown" sensor value errors
+  - Updates on every periodic check with comprehensive data
+
+- **FIX: Detailed error reporting for "unknown" sensor values**
+  - Previously: Generic error "could not convert string to float: 'unknown'"
+  - Now: **Specific identification of WHICH sensor has invalid value**
+  - Logs show:
+    - Sensor entity ID
+    - Current sensor value (e.g., "unknown", "unavailable", etc.)
+    - Exact error message
+  - Makes troubleshooting much easier
+
+- **Enhanced Error Logging:**
+  - Each sensor parsed individually with try/catch
+  - Collects all sensor errors before reporting
+  - Detailed error block shows:
+    - Solar Production entity & value
+    - Home Consumption entity & value
+    - Grid Import entity & value
+    - Specific error for each invalid sensor
+  - Diagnostic sensor updated with error details
+
+- **Example Error Output:**
+  ```
+  ❌ SENSOR ERROR DETAILS:
+     Solar Production (sensor.solar_production): 'unknown' - could not convert string to float: 'unknown'
+     Entity IDs to check:
+     - Solar Production: sensor.solar_production
+     - Home Consumption: sensor.home_consumption
+     - Grid Import: sensor.grid_import
+  ```
+
+- **Diagnostic Sensor Attributes:**
+  - `last_check`: ISO timestamp of last check
+  - `errors`: List of all sensor errors (if any)
+  - `solar_production_entity`: Entity ID
+  - `solar_production_value`: Current value
+  - `home_consumption_entity`: Entity ID
+  - `home_consumption_value`: Current value
+  - `grid_import_entity`: Entity ID
+  - `grid_import_value`: Current value
+  - *(More attributes added as development continues)*
+
+- **Files Modified:**
+  - `sensor.py` - Added `EVSCSolarSurplusDiagnosticSensor` class
+  - `solar_surplus.py` - Enhanced error handling, added diagnostic sensor updates, added datetime import
+  - `manifest.json` - Version 0.9.11
+
+### v0.9.10 (2025-10-29) - Critical: Charger Start Fix in EV_FREE Mode
 - **FIX: Charger now treats amperage as 0 when OFF, enabling proper start logic**
   - **Critical Issue**: When charger was OFF, `current_amps` was read from charger setting (e.g., 16A from previous session)
   - Solar surplus logic compared `target_amps` (e.g., 26A) vs `current_amps` (16A) → triggered increase (correct)

@@ -1,7 +1,7 @@
 """Solar Surplus Charging Profile automation."""
 from __future__ import annotations
 import logging
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
@@ -81,6 +81,7 @@ class SolarSurplusAutomation:
         self._home_min_soc_saturday_entity = None
         self._home_min_soc_sunday_entity = None
         self._priority_state_sensor_entity = None
+        self._solar_surplus_diagnostic_sensor_entity = None
 
         # Timer for periodic checks
         self._timer_unsub = None
@@ -141,6 +142,7 @@ class SolarSurplusAutomation:
         self._home_min_soc_saturday_entity = self._find_entity_by_suffix("evsc_home_min_soc_saturday")
         self._home_min_soc_sunday_entity = self._find_entity_by_suffix("evsc_home_min_soc_sunday")
         self._priority_state_sensor_entity = self._find_entity_by_suffix("evsc_priority_daily_state")
+        self._solar_surplus_diagnostic_sensor_entity = self._find_entity_by_suffix("evsc_solar_surplus_diagnostic")
 
         if not all([
             self._forza_ricarica_entity,
@@ -530,29 +532,96 @@ class SolarSurplusAutomation:
             _LOGGER.info("=" * 80)
             return
 
-        # Parse values
+        # Parse values with detailed error reporting
+        sensor_values = {}
+        sensor_errors = []
+
         try:
-            fv_production = float(fv_state.state)
-            home_consumption = float(consumption_state.state)
-            grid_import = float(grid_import_state.state)
-            grid_threshold = float(grid_threshold_state.state)
-            grid_import_delay = float(grid_delay_state.state)
-            surplus_drop_delay = float(surplus_delay_state.state)
-            use_home_battery = use_battery_state.state == "on"
-            battery_min_soc = float(battery_min_soc_state.state)
-
-            # Home battery SOC (optional)
-            home_battery_soc = None
-            if soc_home_state and use_home_battery:
-                try:
-                    home_battery_soc = float(soc_home_state.state)
-                except (ValueError, TypeError):
-                    _LOGGER.warning("⚠️ Home Battery SOC value invalid, treating as unavailable")
-
+            sensor_values["fv_production"] = float(fv_state.state)
         except (ValueError, TypeError) as e:
-            _LOGGER.warning(f"⚠️ Decision: Invalid sensor values: {e}")
+            sensor_errors.append(f"Solar Production ({self._fv_production}): '{fv_state.state}' - {e}")
+
+        try:
+            sensor_values["home_consumption"] = float(consumption_state.state)
+        except (ValueError, TypeError) as e:
+            sensor_errors.append(f"Home Consumption ({self._home_consumption}): '{consumption_state.state}' - {e}")
+
+        try:
+            sensor_values["grid_import"] = float(grid_import_state.state)
+        except (ValueError, TypeError) as e:
+            sensor_errors.append(f"Grid Import ({self._grid_import}): '{grid_import_state.state}' - {e}")
+
+        try:
+            sensor_values["grid_threshold"] = float(grid_threshold_state.state)
+        except (ValueError, TypeError) as e:
+            sensor_errors.append(f"Grid Threshold: '{grid_threshold_state.state}' - {e}")
+
+        try:
+            sensor_values["grid_import_delay"] = float(grid_delay_state.state)
+        except (ValueError, TypeError) as e:
+            sensor_errors.append(f"Grid Import Delay: '{grid_delay_state.state}' - {e}")
+
+        try:
+            sensor_values["surplus_drop_delay"] = float(surplus_delay_state.state)
+        except (ValueError, TypeError) as e:
+            sensor_errors.append(f"Surplus Drop Delay: '{surplus_delay_state.state}' - {e}")
+
+        try:
+            sensor_values["battery_min_soc"] = float(battery_min_soc_state.state)
+        except (ValueError, TypeError) as e:
+            sensor_errors.append(f"Home Battery Min SOC: '{battery_min_soc_state.state}' - {e}")
+
+        sensor_values["use_home_battery"] = use_battery_state.state == "on"
+
+        # Home battery SOC (optional)
+        home_battery_soc = None
+        if soc_home_state and sensor_values.get("use_home_battery"):
+            try:
+                home_battery_soc = float(soc_home_state.state)
+            except (ValueError, TypeError):
+                _LOGGER.warning(f"⚠️ Home Battery SOC ({self._soc_home}) value invalid: '{soc_home_state.state}', treating as unavailable")
+
+        # If there are any errors, log them and update diagnostic sensor
+        if sensor_errors:
+            _LOGGER.error("=" * 80)
+            _LOGGER.error("❌ SENSOR ERROR DETAILS:")
+            for error in sensor_errors:
+                _LOGGER.error(f"   {error}")
+            _LOGGER.error("=" * 80)
+            _LOGGER.error("⚠️ Decision: Cannot proceed with solar surplus check due to invalid sensor values")
+            _LOGGER.error("   Please check that all configured sensors are providing valid numeric values")
+            _LOGGER.error("   Entity IDs to check:")
+            _LOGGER.error(f"   - Solar Production: {self._fv_production}")
+            _LOGGER.error(f"   - Home Consumption: {self._home_consumption}")
+            _LOGGER.error(f"   - Grid Import: {self._grid_import}")
             _LOGGER.info("=" * 80)
+
+            # Update diagnostic sensor with error details
+            if self._solar_surplus_diagnostic_sensor_entity:
+                await self._update_diagnostic_sensor(
+                    state="ERROR: Invalid sensor values",
+                    attributes={
+                        "last_check": datetime.now().isoformat(),
+                        "errors": sensor_errors,
+                        "solar_production_entity": self._fv_production,
+                        "home_consumption_entity": self._home_consumption,
+                        "grid_import_entity": self._grid_import,
+                        "solar_production_value": fv_state.state,
+                        "home_consumption_value": consumption_state.state,
+                        "grid_import_value": grid_import_state.state,
+                    }
+                )
             return
+
+        # Extract parsed values
+        fv_production = sensor_values["fv_production"]
+        home_consumption = sensor_values["home_consumption"]
+        grid_import = sensor_values["grid_import"]
+        grid_threshold = sensor_values["grid_threshold"]
+        grid_import_delay = sensor_values["grid_import_delay"]
+        surplus_drop_delay = sensor_values["surplus_drop_delay"]
+        use_home_battery = sensor_values["use_home_battery"]
+        battery_min_soc = sensor_values["battery_min_soc"]
 
         # Get current amperage - treat as 0 if charger is OFF
         charger_state = self.hass.states.get(self._charger_switch)
@@ -828,6 +897,17 @@ class SolarSurplusAutomation:
         else:
             _LOGGER.info("   3/5: Target is 0A, keeping charger off")
             _LOGGER.info("✅ Charger stopped")
+
+    async def _update_diagnostic_sensor(self, state: str, attributes: dict) -> None:
+        """Update the solar surplus diagnostic sensor with current check information."""
+        if not self._solar_surplus_diagnostic_sensor_entity:
+            return
+
+        self.hass.states.async_set(
+            self._solar_surplus_diagnostic_sensor_entity,
+            state,
+            attributes,
+        )
 
     async def async_remove(self) -> None:
         """Remove the automation."""

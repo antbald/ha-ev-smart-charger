@@ -43,6 +43,16 @@ async def async_setup_entry(
         )
     )
 
+    # Create Solar Surplus Diagnostic Sensor
+    entities.append(
+        EVSCSolarSurplusDiagnosticSensor(
+            entry.entry_id,
+            "evsc_solar_surplus_diagnostic",
+            "EVSC Solar Surplus Diagnostic",
+            "mdi:solar-power",
+        )
+    )
+
     async_add_entities(entities)
     _LOGGER.info(f"✅ Created {len(entities)} EVSC sensors")
 
@@ -112,6 +122,43 @@ class EVSCPriorityStateSensor(SensorEntity, RestoreEntity):
         """Restore last state."""
         await super().async_added_to_hass()
         _LOGGER.info(f"✅ Priority sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
+
+        if (last_state := await self.async_get_last_state()) is not None:
+            self._attr_native_value = last_state.state
+            if last_state.attributes:
+                self._attr_extra_state_attributes = dict(last_state.attributes)
+
+
+class EVSCSolarSurplusDiagnosticSensor(SensorEntity, RestoreEntity):
+    """EVSC Solar Surplus Diagnostic Sensor with detailed check information."""
+
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        entry_id: str,
+        suffix: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        """Initialize the solar surplus diagnostic sensor."""
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_native_value = "Waiting for first check"
+        self._attr_extra_state_attributes = {}
+        # Set explicit entity_id to match pattern
+        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        return self._attr_extra_state_attributes
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+        _LOGGER.info(f"✅ Solar Surplus Diagnostic sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
 
         if (last_state := await self.async_get_last_state()) is not None:
             self._attr_native_value = last_state.state
