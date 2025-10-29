@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.9.9
+## Current Version: 0.9.10
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -729,7 +729,42 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.9.9 (2025-10-29) - Current - EV_FREE Solar Surplus Charging Fix
+### v0.9.10 (2025-10-29) - Current - Critical: Charger Start Fix in EV_FREE Mode
+- **FIX: Charger now treats amperage as 0 when OFF, enabling proper start logic**
+  - **Critical Issue**: When charger was OFF, `current_amps` was read from charger setting (e.g., 16A from previous session)
+  - Solar surplus logic compared `target_amps` (e.g., 26A) vs `current_amps` (16A) → triggered increase (correct)
+  - BUT if `target_amps` (6A) < `current_amps` (16A), charger would NOT start despite having surplus
+  - **v0.9.9 incomplete fix**: Only removed early return, didn't fix amperage comparison
+
+- **Root Cause Identified:**
+  - User correctly pointed out: "If priority switches from HOME to EV_FREE, it should start charging"
+  - When Priority Balancer transitions HOME → EV_FREE, charger is OFF (was stopped for home battery)
+  - Solar surplus available (6000W = 26A), but comparison logic failed because charger OFF state not handled
+  - System read stored amperage setting instead of treating OFF charger as 0A
+
+- **Complete Fix:**
+  - Modified amperage detection logic (lines 557-573) to check charger switch state FIRST
+  - If charger is **ON**: Read actual amperage from sensor (normal operation)
+  - If charger is **OFF**: Set `current_amps = 0` (allows ANY surplus to trigger start)
+  - Now comparison works correctly: `target_amps (26A) > current_amps (0A)` = TRUE → starts charger
+
+- **Impact:**
+  - **Priority transitions now work**: HOME → EV_FREE automatically starts charging with available solar
+  - **Fresh installations work**: Charger OFF + solar surplus → starts automatically
+  - **All surplus levels work**: Even low surplus (6A) will start charger when OFF
+  - **Proper state machine**: OFF (0A) → any surplus → ON at target amperage
+
+- **Technical Details:**
+  - Added charger switch state check before reading amperage
+  - Treats OFF charger as 0A for comparison logic
+  - Ensures line 677 condition `target_amps > current_amps` always evaluates correctly
+  - Complements v0.9.9 EV_FREE fall-through fix
+
+- **Files Modified:**
+  - `solar_surplus.py` - Amperage detection logic (lines 557-573)
+  - `manifest.json` - Version 0.9.10
+
+### v0.9.9 (2025-10-29) - EV_FREE Solar Surplus Charging Fix (Incomplete)
 - **FIX: EV_FREE priority now allows solar surplus charging when charger is OFF**
   - Previously, when Priority Balancer set priority to EV_FREE (both EV and home battery targets met), the automation would stop charging if charger was ON and then exit early
   - This prevented the charger from starting when it was OFF, even with abundant solar surplus available

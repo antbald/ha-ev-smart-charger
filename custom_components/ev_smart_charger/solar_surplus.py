@@ -554,15 +554,23 @@ class SolarSurplusAutomation:
             _LOGGER.info("=" * 80)
             return
 
-        # Get current amperage setting
-        current_setting_state = self.hass.states.get(self._charger_current)
-        if current_setting_state:
-            try:
-                current_amps = int(float(current_setting_state.state))
-            except (ValueError, TypeError):
+        # Get current amperage - treat as 0 if charger is OFF
+        charger_state = self.hass.states.get(self._charger_switch)
+        charger_is_on = charger_state and charger_state.state == "on"
+
+        if charger_is_on:
+            # Charger is ON, get actual amperage setting
+            current_setting_state = self.hass.states.get(self._charger_current)
+            if current_setting_state:
+                try:
+                    current_amps = int(float(current_setting_state.state))
+                except (ValueError, TypeError):
+                    current_amps = 6
+            else:
                 current_amps = 6
         else:
-            current_amps = 6
+            # Charger is OFF, treat as 0A (allows any surplus to start it)
+            current_amps = 0
 
         # Calculate surplus
         surplus_watts = fv_production - home_consumption
