@@ -399,6 +399,17 @@ class SolarSurplusAutomation:
         if forza_on:
             _LOGGER.info("🛑 Decision: Forza Ricarica is ON, skipping check")
             _LOGGER.info("=" * 80)
+            # Update diagnostic sensor
+            if self._solar_surplus_diagnostic_sensor_entity:
+                await self._update_diagnostic_sensor(
+                    state="SKIPPED: Forza Ricarica ON",
+                    attributes={
+                        "last_check": datetime.now().isoformat(),
+                        "forza_ricarica": "ON",
+                        "forza_ricarica_entity": self._forza_ricarica_entity,
+                        "reason": "Override switch is enabled - automation skipped",
+                    }
+                )
             return
 
         # Check if Night Smart Charge is active
@@ -407,6 +418,18 @@ class SolarSurplusAutomation:
             _LOGGER.info(f"🌙 Decision: Night Smart Charge is active (mode: {night_mode}), skipping Solar Surplus")
             _LOGGER.info(f"   Night charging will transition to Solar Surplus when sun rises")
             _LOGGER.info("=" * 80)
+            # Update diagnostic sensor
+            if self._solar_surplus_diagnostic_sensor_entity:
+                await self._update_diagnostic_sensor(
+                    state="SKIPPED: Night Smart Charge Active",
+                    attributes={
+                        "last_check": datetime.now().isoformat(),
+                        "forza_ricarica": "OFF",
+                        "night_smart_charge_active": True,
+                        "night_smart_charge_mode": night_mode,
+                        "reason": "Night Smart Charge is handling charging",
+                    }
+                )
             return
 
         # Check if Solar Surplus profile is selected
@@ -416,6 +439,19 @@ class SolarSurplusAutomation:
         if not profile_state or current_profile != "solar_surplus":
             _LOGGER.info(f"⏭️ Decision: Profile not 'solar_surplus' (current: {current_profile}), skipping")
             _LOGGER.info("=" * 80)
+            # Update diagnostic sensor
+            if self._solar_surplus_diagnostic_sensor_entity:
+                await self._update_diagnostic_sensor(
+                    state="SKIPPED: Wrong Profile",
+                    attributes={
+                        "last_check": datetime.now().isoformat(),
+                        "forza_ricarica": "OFF",
+                        "night_smart_charge_active": False,
+                        "charging_profile": current_profile,
+                        "charging_profile_entity": self._charging_profile_entity,
+                        "reason": f"Profile is '{current_profile}', need 'solar_surplus'",
+                    }
+                )
             return
 
         # Check charger status - only skip if charger_free
@@ -662,6 +698,56 @@ class SolarSurplusAutomation:
             _LOGGER.info(f"  - Home Battery Min SOC: {battery_min_soc}%")
             _LOGGER.info(f"  - Home Battery Current SOC: {home_battery_soc}%" if home_battery_soc is not None else "  - Home Battery SOC: unavailable")
 
+        # Calculate target amperage for diagnostic
+        target_amps = self._find_target_amperage(surplus_amps)
+
+        # Update diagnostic sensor with comprehensive state
+        if self._solar_surplus_diagnostic_sensor_entity:
+            await self._update_diagnostic_sensor(
+                state=f"CHECKING: {surplus_watts}W surplus ({surplus_amps:.1f}A)",
+                attributes={
+                    "last_check": datetime.now().isoformat(),
+                    # Basic control flags
+                    "forza_ricarica": "OFF",
+                    "night_smart_charge_active": False,
+                    "charging_profile": current_profile,
+                    "charger_status": charger_status,
+                    "charger_switch_state": "ON" if charger_is_on else "OFF",
+                    # Priority Balancer
+                    "priority": priority,
+                    "priority_balancer_enabled": priority_attrs.get('balancer_enabled', False),
+                    "current_ev_soc": priority_attrs.get('current_ev_soc', 'N/A'),
+                    "target_ev_soc": priority_attrs.get('target_ev_soc', 'N/A'),
+                    "current_home_soc": priority_attrs.get('current_home_soc', 'N/A'),
+                    "target_home_soc": priority_attrs.get('target_home_soc', 'N/A'),
+                    "priority_reason": priority_attrs.get('reason', 'N/A'),
+                    # Sensor values
+                    "solar_production_w": fv_production,
+                    "solar_production_entity": self._fv_production,
+                    "home_consumption_w": home_consumption,
+                    "home_consumption_entity": self._home_consumption,
+                    "grid_import_w": grid_import,
+                    "grid_import_entity": self._grid_import,
+                    "surplus_w": surplus_watts,
+                    "surplus_a": round(surplus_amps, 2),
+                    # Current charging state
+                    "current_charging_a": current_amps,
+                    "charger_current_entity": self._charger_current,
+                    "target_charging_a": target_amps,
+                    # Configuration
+                    "grid_import_threshold_w": grid_threshold,
+                    "grid_import_delay_s": grid_import_delay,
+                    "surplus_drop_delay_s": surplus_drop_delay,
+                    "use_home_battery": use_home_battery,
+                    "home_battery_min_soc": battery_min_soc if use_home_battery else "N/A",
+                    "home_battery_current_soc": home_battery_soc if (use_home_battery and home_battery_soc is not None) else "N/A",
+                    # Decision info
+                    "grid_import_exceeds_threshold": grid_import > grid_threshold,
+                    "surplus_sufficient_for_charging": surplus_amps >= 6,
+                    "decision_pending": "Evaluating...",
+                }
+            )
+
         # === ENHANCEMENT 2A: Grid Import Delay Protection ===
         current_time = time.time()
 
@@ -697,8 +783,7 @@ class SolarSurplusAutomation:
             self._last_grid_import_high = None
 
         # === ENHANCEMENT 2B: Surplus Drop Delay + Home Battery Support ===
-        target_amps = self._find_target_amperage(surplus_amps)
-
+        # target_amps already calculated above for diagnostic
         _LOGGER.info(f"🎯 Target amperage based on surplus: {target_amps}A")
 
         # Check if we're in a ramp-down scenario

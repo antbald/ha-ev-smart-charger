@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.9.12
+## Current Version: 0.9.13
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -729,7 +729,70 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.9.12 (2025-10-29) - Current - CRITICAL: Fix Smart Blocker Nighttime Detection Bug
+### v0.9.13 (2025-10-29) - Current - Comprehensive Diagnostic Sensor with All Decision Variables
+- **ENHANCEMENT: Diagnostic sensor now shows ALL variables used for charging decisions**
+  - User request: "Print inside all the controlled variables you use to make decision"
+  - Sensor now updates on EVERY check, not just on errors
+  - Shows complete state of automation logic in real-time
+
+- **45+ Diagnostic Attributes Including:**
+  - **Control Flags**: forza_ricarica, night_smart_charge_active, charging_profile, charger_status, charger_switch_state
+  - **Priority Balancer**: priority, priority_balancer_enabled, current_ev_soc, target_ev_soc, current_home_soc, target_home_soc, priority_reason
+  - **Sensor Values**: solar_production_w, home_consumption_w, grid_import_w, surplus_w, surplus_a (all with entity IDs)
+  - **Charging State**: current_charging_a, target_charging_a, charger_current_entity
+  - **Configuration**: grid_import_threshold_w, grid_import_delay_s, surplus_drop_delay_s, use_home_battery, home_battery_min_soc, home_battery_current_soc
+  - **Decision Logic**: grid_import_exceeds_threshold, surplus_sufficient_for_charging, decision_pending
+
+- **Sensor States Show Context:**
+  - `SKIPPED: Forza Ricarica ON` - Override switch enabled
+  - `SKIPPED: Night Smart Charge Active` - Night charging is handling it
+  - `SKIPPED: Wrong Profile` - Profile not set to "solar_surplus"
+  - `CHECKING: 6000W surplus (26.1A)` - Active evaluation in progress
+  - `ERROR: Invalid sensor values` - Shows which sensors have issues
+
+- **Example Diagnostic Sensor Output:**
+  ```yaml
+  state: "CHECKING: 6000W surplus (26.1A)"
+  attributes:
+    last_check: "2025-10-29T14:30:45.123456"
+    forza_ricarica: "OFF"
+    charging_profile: "solar_surplus"
+    charger_status: "charger_wait"
+    charger_switch_state: "OFF"
+    priority: "EV_Free"
+    priority_balancer_enabled: true
+    current_ev_soc: 70
+    target_ev_soc: 70
+    current_home_soc: 69
+    target_home_soc: 50
+    solar_production_w: 6000
+    home_consumption_w: 1500
+    grid_import_w: 0
+    surplus_w: 4500
+    surplus_a: 19.57
+    current_charging_a: 0
+    target_charging_a: 16
+    grid_import_threshold_w: 100
+    use_home_battery: true
+    home_battery_current_soc: 69
+    grid_import_exceeds_threshold: false
+    surplus_sufficient_for_charging: true
+  ```
+
+- **Benefits:**
+  - ✅ See EXACTLY why charger is/isn't starting
+  - ✅ All sensor values visible at a glance
+  - ✅ Priority Balancer decision logic transparent
+  - ✅ Configuration settings confirmed
+  - ✅ Real-time troubleshooting without logs
+  - ✅ Easy to share state for support
+
+- **Files Modified:**
+  - `solar_surplus.py` - Added comprehensive diagnostic updates at all decision points
+  - `manifest.json` - Version 0.9.13
+  - `README.md` - Changelog
+
+### v0.9.12 (2025-10-29) - CRITICAL: Fix Smart Blocker Nighttime Detection Bug
 - **FIX: Smart Blocker incorrectly detecting daytime as nighttime**
   - **CRITICAL BUG**: At 1:44 PM (daytime), Smart Blocker was blocking charger with reason "Nighttime (after sunset)"
   - **Root cause**: Flawed OR logic in nighttime detection: `now >= sunset OR now < sunrise`
