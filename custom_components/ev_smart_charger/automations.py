@@ -292,14 +292,20 @@ class SmartChargerBlocker:
             sunrise = get_astral_event_date(self.hass, "sunrise", now)
 
             if sunset and sunrise:
-                # If sunrise is before sunset, it means it's tomorrow's sunrise
-                if sunrise < sunset:
-                    # We need tomorrow's sunrise
-                    tomorrow = now + dt_util.dt.timedelta(days=1)
-                    sunrise = get_astral_event_date(self.hass, "sunrise", tomorrow)
+                # Determine if we're in nighttime period
+                # Nighttime is: after today's sunset AND before tomorrow's sunrise
 
-                is_night = now >= sunset or now < sunrise
-                _LOGGER.debug(f"Nighttime check: now={now}, sunset={sunset}, sunrise={sunrise}, is_night={is_night}")
+                # If current time is before today's sunset, check if we're after yesterday's sunset
+                if now < sunset:
+                    # Before sunset - check if we're still in nighttime from yesterday
+                    # (i.e., before today's sunrise)
+                    today_sunrise = get_astral_event_date(self.hass, "sunrise", now)
+                    is_night = now < today_sunrise if today_sunrise else False
+                else:
+                    # After sunset - we're in nighttime
+                    is_night = True
+
+                _LOGGER.debug(f"Nighttime check: now={now}, sunset={sunset}, is_night={is_night}")
                 return is_night
         except Exception as e:
             _LOGGER.error(f"Error checking nighttime: {e}")

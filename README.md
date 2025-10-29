@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.9.11
+## Current Version: 0.9.12
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -729,7 +729,43 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.9.11 (2025-10-29) - Current - Diagnostic Sensor & Detailed Error Reporting
+### v0.9.12 (2025-10-29) - Current - CRITICAL: Fix Smart Blocker Nighttime Detection Bug
+- **FIX: Smart Blocker incorrectly detecting daytime as nighttime**
+  - **CRITICAL BUG**: At 1:44 PM (daytime), Smart Blocker was blocking charger with reason "Nighttime (after sunset)"
+  - **Root cause**: Flawed OR logic in nighttime detection: `now >= sunset OR now < sunrise`
+  - At 1:44 PM: `now < sunrise` (1:44 PM < 7:00 AM sunrise) evaluated as TRUE (comparing against morning's sunrise)
+  - This caused Smart Blocker to block charging during entire daytime with solar surplus available
+
+- **The Fix:**
+  - Changed from OR logic to proper time-range logic
+  - **Before sunset**: Check if current time is before today's sunrise (nighttime from yesterday)
+  - **After sunset**: Definitely nighttime
+  - Correct logic: Daytime is between sunrise and sunset
+
+- **Impact:**
+  - ✅ Smart Blocker now correctly identifies daytime (e.g., 1:44 PM = NOT nighttime)
+  - ✅ Charger can now start during daytime with solar surplus
+  - ✅ Smart Blocker still blocks at actual nighttime (after sunset, before sunrise)
+  - ✅ Resolves enforcement loop preventing solar surplus charging
+
+- **Example Scenarios:**
+  - 1:44 PM (after sunrise, before sunset) → **Daytime** ✅ (was incorrectly "Nighttime" ❌)
+  - 8:00 PM (after sunset) → **Nighttime** ✅
+  - 6:00 AM (before sunrise) → **Nighttime** ✅
+  - 10:00 AM (after sunrise, before sunset) → **Daytime** ✅
+
+- **Technical Details:**
+  - Modified `_is_nighttime()` method in automations.py (lines 294-309)
+  - Removed buggy OR condition
+  - Added proper time-range check with sunrise/sunset boundaries
+  - Enhanced debug logging
+
+- **Files Modified:**
+  - `automations.py` - Fixed nighttime detection logic
+  - `manifest.json` - Version 0.9.12
+  - `README.md` - Changelog
+
+### v0.9.11 (2025-10-29) - Diagnostic Sensor & Detailed Error Reporting
 - **NEW: Solar Surplus Diagnostic Sensor** (`sensor.evsc_solar_surplus_diagnostic`)
   - Real-time diagnostic information about solar surplus checks
   - Shows current state (OK, ERROR, WAITING, etc.)
