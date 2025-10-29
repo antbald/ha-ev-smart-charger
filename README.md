@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.9.8
+## Current Version: 0.9.9
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -729,7 +729,30 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.9.8 (2025-10-29) - Current - Critical Automation Conflict Resolution
+### v0.9.9 (2025-10-29) - Current - EV_FREE Solar Surplus Charging Fix
+- **FIX: EV_FREE priority now allows solar surplus charging when charger is OFF**
+  - Previously, when Priority Balancer set priority to EV_FREE (both EV and home battery targets met), the automation would stop charging if charger was ON and then exit early
+  - This prevented the charger from starting when it was OFF, even with abundant solar surplus available
+  - Now, when charger is OFF in EV_FREE mode, the solar surplus logic continues to evaluate whether to start charging
+  - Allows excess solar energy to charge EV even after daily targets are met (maximizing solar usage)
+  - Fixed fresh installation scenario where charger was OFF, targets met, but 6000W solar surplus was not being used
+
+- **Technical Details:**
+  - Modified `solar_surplus.py` EV_FREE priority check (lines 479-503)
+  - Added else clause to allow fall-through when charger is OFF
+  - Only returns early (exits automation) when charger is ON and successfully stopped
+  - When charger is OFF, logs informational message and continues to solar surplus calculation logic
+
+- **Impact:**
+  - Users with Priority Balancer enabled will now see charger start automatically with solar surplus, even after daily targets met
+  - Maximizes solar energy utilization by using excess production
+  - Resolves reported issue where fresh v0.9.8 installation wasn't starting charger despite 6000W available solar
+
+- **Files Modified:**
+  - `solar_surplus.py` - EV_FREE priority logic
+  - `manifest.json` - Version 0.9.9
+
+### v0.9.8 (2025-10-29) - Critical Automation Conflict Resolution
 - **NEW: Automation Coordinator system with priority-based control**
   - Centralized coordinator prevents conflicts between automations
   - Priority hierarchy: Override (1) > Smart Blocker (2) > Night Charge (3) > Priority Balancer (4) > Solar Surplus (5)

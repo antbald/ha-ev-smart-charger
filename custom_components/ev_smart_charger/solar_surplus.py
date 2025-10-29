@@ -477,6 +477,7 @@ class SolarSurplusAutomation:
             return
 
         # If priority is EV_FREE (both targets met), stop charging if running
+        # But allow solar surplus logic to continue if charger is OFF (may start charging with excess solar)
         if priority == PRIORITY_EV_FREE:
             charger_state = self.hass.states.get(self._charger_switch)
             if charger_state and charger_state.state == "on":
@@ -494,6 +495,12 @@ class SolarSurplusAutomation:
                 _LOGGER.info("   ✅ EV charger STOPPED (targets maintained)")
                 _LOGGER.info("=" * 80)
                 return
+            else:
+                # Charger is OFF - allow solar surplus logic to potentially start it
+                _LOGGER.info(f"✅ [Priority Balancer] Priority = EV_FREE (targets met)")
+                _LOGGER.info(f"   Charger is OFF - will check solar surplus to potentially start charging")
+                _LOGGER.info(f"   EV: {priority_attrs.get('current_ev_soc', 'N/A')}% >= {priority_attrs.get('target_ev_soc', 'N/A')}%")
+                _LOGGER.info(f"   Home: {priority_attrs.get('current_home_soc', 'N/A')}% >= {priority_attrs.get('target_home_soc', 'N/A')}%")
 
         # Get all sensor and configuration values
         fv_state = self.hass.states.get(self._fv_production)
