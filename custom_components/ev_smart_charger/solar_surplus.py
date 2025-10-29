@@ -340,19 +340,33 @@ class SolarSurplusAutomation:
         attributes["target_home_soc"] = target_home_soc
 
         # Decision logic (uses FRESH values read from state machine this cycle)
-        _LOGGER.debug(f"🔄 Priority Balancer: Making decision with fresh values - EV: {current_ev_soc}% vs {target_ev_soc}%, Home: {current_home_soc}% vs {target_home_soc}%")
+        _LOGGER.info("=" * 50)
+        _LOGGER.info("⚖️ [Priority Balancer] [CALCULATION] Making decision")
+        _LOGGER.info(f"   EV: {current_ev_soc:.1f}% (target: {target_ev_soc}%)")
+        _LOGGER.info(f"   Home: {current_home_soc:.1f}% (target: {target_home_soc}%)")
 
         if current_ev_soc < target_ev_soc:
             attributes["reason"] = f"EV below target ({current_ev_soc:.1f}% < {target_ev_soc}%)"
-            _LOGGER.info(f"✅ Priority Balancer: Decision = PRIORITY_EV (EV {current_ev_soc:.1f}% < target {target_ev_soc}%)")
+            _LOGGER.info(f"✅ [Priority Balancer] [DECISION] PRIORITY_EV")
+            _LOGGER.info(f"   Reason: EV {current_ev_soc:.1f}% < target {target_ev_soc}%")
+            _LOGGER.info(f"   Action: Allow EV charging")
+            _LOGGER.info("=" * 50)
             return PRIORITY_EV, attributes
         elif current_home_soc < target_home_soc:
             attributes["reason"] = f"Home battery below target ({current_home_soc:.1f}% < {target_home_soc}%)"
-            _LOGGER.info(f"✅ Priority Balancer: Decision = PRIORITY_HOME (Home {current_home_soc:.1f}% < target {target_home_soc}%)")
+            _LOGGER.info(f"🏠 [Priority Balancer] [DECISION] PRIORITY_HOME")
+            _LOGGER.info(f"   Reason: Home {current_home_soc:.1f}% < target {target_home_soc}%")
+            _LOGGER.info(f"   Action: Stop EV charging, prioritize home battery")
+            _LOGGER.info("=" * 50)
             return PRIORITY_HOME, attributes
         else:
             attributes["reason"] = f"Both targets met (EV: {current_ev_soc:.1f}% >= {target_ev_soc}%, Home: {current_home_soc:.1f}% >= {target_home_soc}%)"
-            _LOGGER.info(f"✅ Priority Balancer: Decision = PRIORITY_EV_FREE (Both targets met)")
+            _LOGGER.info(f"✅ [Priority Balancer] [DECISION] PRIORITY_EV_FREE")
+            _LOGGER.info(f"   Reason: Both targets met")
+            _LOGGER.info(f"   EV: {current_ev_soc:.1f}% >= {target_ev_soc}%")
+            _LOGGER.info(f"   Home: {current_home_soc:.1f}% >= {target_home_soc}%")
+            _LOGGER.info(f"   Action: Stop EV charging (targets reached)")
+            _LOGGER.info("=" * 50)
             return PRIORITY_EV_FREE, attributes
 
     async def _update_priority_sensor(self, priority: str, attributes: dict) -> None:
@@ -435,11 +449,17 @@ class SolarSurplusAutomation:
 
         # If priority is HOME, stop EV charging
         if priority == PRIORITY_HOME:
-            _LOGGER.info("🏠 Priority is HOME - stopping EV charging to prioritize home battery")
-            _LOGGER.info("   EV charging will resume when home battery reaches target")
+            _LOGGER.warning("=" * 80)
+            _LOGGER.warning("🏠 [Priority Balancer] [ACTION] Stopping EV charger")
+            _LOGGER.warning(f"   Reason: Priority = HOME (home battery needs charging)")
+            _LOGGER.warning(f"   Home Battery: {priority_attrs.get('current_home_soc', 'N/A')}% < {priority_attrs.get('target_home_soc', 'N/A')}%")
+            _LOGGER.warning("   EV charging will resume when home battery reaches target")
 
             # Stop EV charger
             charger_state = self.hass.states.get(self._charger_switch)
+            current_charger_state = charger_state.state if charger_state else "unknown"
+            _LOGGER.warning(f"   Current charger state: {current_charger_state}")
+
             if charger_state and charger_state.state == "on":
                 await self.hass.services.async_call(
                     "switch",
@@ -447,12 +467,31 @@ class SolarSurplusAutomation:
                     {"entity_id": self._charger_switch},
                     blocking=True,
                 )
-                _LOGGER.info("   ✅ EV charger stopped")
+                _LOGGER.warning("   ✅ EV charger STOPPED successfully")
             else:
-                _LOGGER.info("   ✅ EV charger already off")
+                _LOGGER.warning(f"   ✅ EV charger already OFF (state: {current_charger_state})")
 
-            _LOGGER.info("=" * 80)
+            _LOGGER.warning("=" * 80)
             return
+
+        # If priority is EV_FREE (both targets met), stop charging if running
+        if priority == PRIORITY_EV_FREE:
+            charger_state = self.hass.states.get(self._charger_switch)
+            if charger_state and charger_state.state == "on":
+                _LOGGER.info("=" * 80)
+                _LOGGER.info("✅ [Priority Balancer] [ACTION] Both targets met - stopping EV charger")
+                _LOGGER.info(f"   EV: {priority_attrs.get('current_ev_soc', 'N/A')}% >= {priority_attrs.get('target_ev_soc', 'N/A')}%")
+                _LOGGER.info(f"   Home: {priority_attrs.get('current_home_soc', 'N/A')}% >= {priority_attrs.get('target_home_soc', 'N/A')}%")
+
+                await self.hass.services.async_call(
+                    "switch",
+                    "turn_off",
+                    {"entity_id": self._charger_switch},
+                    blocking=True,
+                )
+                _LOGGER.info("   ✅ EV charger STOPPED (targets maintained)")
+                _LOGGER.info("=" * 80)
+                return
 
         # Get all sensor and configuration values
         fv_state = self.hass.states.get(self._fv_production)

@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 0.9.6
+## Current Version: 0.9.7
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -729,7 +729,43 @@ Then restart Home Assistant.
 
 ## Changelog
 
-### v0.9.6 (2025-10-28) - Current - Entity ID Pattern Fix (BREAKING CHANGE)
+### v0.9.7 (2025-10-29) - Current - Critical Automation Fixes
+- **FIX: Smart Blocker enforcement with retry logic and continuous monitoring**
+  - Added retry logic (3 attempts) with verification after each turn_off command
+  - Implemented continuous enforcement monitoring to prevent external re-enable
+  - Enhanced logging: every blocking attempt includes timestamp, reason, current state, verification result
+  - Conflict detection: warns if Night Smart Charge is active when blocking
+  - Sends detailed notifications on blocking success or failure
+
+- **FIX: Night Smart Charge window logic and comprehensive logging**
+  - Fixed sunrise calculation bug: now correctly determines today vs tomorrow's sunrise
+  - Window check logs detailed information: current time, scheduled time, sunrise, boolean result
+  - Initialization logs now show all configuration values (enabled, time, threshold, amperage)
+  - Each evaluation step logs detailed progress and decisions
+  - Added explicit logging when evaluation is skipped (not in window, disabled, etc.)
+
+- **FIX: Home battery monitoring during Night Smart Charge battery mode**
+  - Implemented continuous monitoring every 1 minute during battery mode charging
+  - Monitors home battery SOC vs minimum threshold
+  - Monitors EV SOC vs target threshold
+  - Automatically stops charging when home battery reaches minimum (CRITICAL FIX for Problem 3)
+  - Automatically stops charging when EV reaches target
+  - Detailed logging every minute showing battery levels and thresholds
+
+- **FIX: Enhanced Priority Balancer logging**
+  - Comprehensive decision logging with structured format
+  - Clear action confirmations when stopping EV charger
+  - Logs priority decisions with full context (current vs target SOC for both EV and home)
+  - Added logging for EV_FREE state (both targets met)
+  - Every state transition now logged with reason and action taken
+
+- **Files Modified:**
+  - `automations.py` - Smart Blocker enforcement logic
+  - `night_smart_charge.py` - Window logic, logging, battery monitoring
+  - `solar_surplus.py` - Priority Balancer logging enhancements
+  - `manifest.json` - Version 0.9.7
+
+### v0.9.6 (2025-10-28) - Entity ID Pattern Fix (BREAKING CHANGE)
 - **FIX: Enforced consistent entity_id pattern across all platforms**
   - **⚠️ BREAKING CHANGE:** All entities now have explicit entity_id format
   - Pattern: `{platform}.ev_smart_charger_{entry_id}_evsc_{suffix}`
