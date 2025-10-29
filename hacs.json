@@ -1,6 +1,7 @@
 {
   "name": "EV Smart Charger",
   "render_readme": true,
-  "domain": "ev_smart_charger",
+  "content_in_root": false,
+  "filename": "ev_smart_charger",
   "iot_class": "Local Push"
 }
