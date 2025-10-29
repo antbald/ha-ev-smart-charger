@@ -98,6 +98,11 @@ class SolarSurplusAutomation:
         # State tracking for v0.8.0 Priority Balancer
         self._current_priority = PRIORITY_EV_FREE  # Current charging priority
 
+        # Rate limiting for logging
+        self._last_check_time = None
+        self._check_count = 0
+        self._check_count_reset_time = None
+
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
         """Find an entity by its suffix, filtering by this integration's config_entry_id."""
         # Use entity registry and filter by our config entry
@@ -389,8 +394,27 @@ class SolarSurplusAutomation:
         """Periodic check for solar surplus charging with v0.7.0 and v0.8.0 enhancements."""
         import time
 
-        _LOGGER.info("=" * 80)
-        _LOGGER.info("🔄 Solar Surplus v0.8.0: Starting periodic check")
+        # Rate limiting: Prevent running more than once per 30 seconds
+        current_time = time.time()
+        if self._last_check_time and (current_time - self._last_check_time) < 30:
+            # Too soon since last check - skip silently
+            return
+
+        self._last_check_time = current_time
+
+        # Count checks per minute for monitoring
+        if self._check_count_reset_time is None or (current_time - self._check_count_reset_time) > 60:
+            self._check_count = 0
+            self._check_count_reset_time = current_time
+
+        self._check_count += 1
+
+        # If we're checking too frequently, log warning but continue
+        if self._check_count > 10:
+            _LOGGER.warning(f"⚠️ Solar Surplus checking very frequently: {self._check_count} checks in last minute")
+
+        _LOGGER.error("=" * 80)
+        _LOGGER.error(f"🔄 Solar Surplus v0.8.0: Starting periodic check #{self._check_count}")
 
         # Check if Forza Ricarica is ON (kill switch)
         forza_state = self.hass.states.get(self._forza_ricarica_entity)
