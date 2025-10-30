@@ -396,24 +396,30 @@ class SolarSurplusAutomation:
         Returns:
             Target amperage in amps
         """
-        # If battery support is active, use configured amperage
-        if self._battery_support_active:
-            return int(get_float(self.hass, self._battery_support_amperage_entity, 16))
-
-        # Otherwise, calculate from surplus
+        # ALWAYS calculate from surplus first
         surplus_amps = surplus_watts / VOLTAGE_EU
 
-        if surplus_amps < CHARGER_AMP_LEVELS[0]:
-            return 0
+        # If surplus is sufficient (>= 6A), use it
+        if surplus_amps >= CHARGER_AMP_LEVELS[0]:
+            target = CHARGER_AMP_LEVELS[0]
+            for level in CHARGER_AMP_LEVELS:
+                if level <= surplus_amps:
+                    target = level
+                else:
+                    break
+            return target
 
-        target = CHARGER_AMP_LEVELS[0]
-        for level in CHARGER_AMP_LEVELS:
-            if level <= surplus_amps:
-                target = level
-            else:
-                break
+        # Surplus NOT sufficient (<6A)
+        # If battery support is active, use configured amperage as fallback
+        if self._battery_support_active:
+            battery_amps = int(get_float(self.hass, self._battery_support_amperage_entity, 16))
+            self.logger.info(
+                f"Surplus insufficient ({surplus_amps:.1f}A < 6A), using battery support at {battery_amps}A"
+            )
+            return battery_amps
 
-        return target
+        # No surplus, no battery support
+        return 0
 
     async def _handle_grid_import_protection(
         self,

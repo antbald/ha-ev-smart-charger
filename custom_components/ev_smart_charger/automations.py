@@ -331,7 +331,7 @@ class SmartChargerBlocker:
             return False, "Blocker entity not found"
 
         # Check 3: Night Smart Charge active (override blocker)
-        if self.night_smart_charge and self.night_smart_charge.is_night_charge_active():
+        if self.night_smart_charge and self.night_smart_charge.is_active():
             night_mode = self.night_smart_charge.get_active_mode()
             return False, f"Night Smart Charge active (mode: {night_mode})"
 
