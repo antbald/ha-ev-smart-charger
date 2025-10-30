@@ -359,10 +359,16 @@ class SolarSurplusAutomation:
             return
 
         # Check if priority allows battery support
-        # Allow if: balancer disabled (priority=None), or priority is EV/EV_FREE
-        if priority is not None and priority not in [PRIORITY_EV, PRIORITY_EV_FREE]:
-            self.logger.info(f"Battery support skipped (Priority={priority})")
-            self._battery_support_active = False
+        # ONLY allow when Priority = EV (EV below target, home can help)
+        # NOT allowed when:
+        # - Priority = HOME (home needs charging)
+        # - Priority = EV_FREE (both targets met, only opportunistic charging with surplus)
+        # - Balancer disabled (no targets defined, only surplus charging)
+        if priority != PRIORITY_EV:
+            if self._battery_support_active:
+                reason = "both targets met" if priority == PRIORITY_EV_FREE else f"Priority={priority or 'Balancer disabled'}"
+                self.logger.info(f"Battery support DEACTIVATING ({reason})")
+                self._battery_support_active = False
             return
 
         # Check home battery SOC
