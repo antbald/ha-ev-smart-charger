@@ -15,10 +15,12 @@ from .const import (
     DEFAULT_GRID_IMPORT_DELAY,
     DEFAULT_SURPLUS_DROP_DELAY,
     DEFAULT_HOME_BATTERY_MIN_SOC,
+    DEFAULT_BATTERY_SUPPORT_AMPERAGE,
     DEFAULT_EV_MIN_SOC_WEEKDAY,
     DEFAULT_EV_MIN_SOC_WEEKEND,
     DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD,
     DEFAULT_NIGHT_CHARGE_AMPERAGE,
+    DEFAULT_HOME_MIN_SOC,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -105,6 +107,21 @@ async def async_setup_entry(
             step=5,
             default_value=DEFAULT_HOME_BATTERY_MIN_SOC,
             unit="%",
+        )
+    )
+
+    # Create Battery Support Amperage
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_battery_support_amperage",
+            "EVSC Battery Support Amperage",
+            "mdi:current-ac",
+            min_value=6,
+            max_value=32,
+            step=2,
+            default_value=DEFAULT_BATTERY_SUPPORT_AMPERAGE,
+            unit="A",
         )
     )
 
