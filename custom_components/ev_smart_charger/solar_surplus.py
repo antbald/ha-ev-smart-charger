@@ -335,6 +335,14 @@ class SolarSurplusAutomation:
             self.logger.separator()
             return
 
+        # EV_FREE Mode: Stop immediately if no surplus (opportunistic charging only)
+        if priority == PRIORITY_EV_FREE and target_amps == 0 and charger_is_on:
+            self.logger.warning(f"EV_FREE mode: Insufficient surplus ({surplus_amps:.2f}A < 6A) - Stopping immediately")
+            await self._stop_charger("EV_FREE: Opportunistic charging requires sufficient surplus")
+            self._reset_state_tracking()
+            self.logger.separator()
+            return
+
         # Surplus-based adjustment
         if target_amps < current_amps:
             await self._handle_surplus_decrease(target_amps, current_amps, surplus_amps, surplus_drop_delay)

@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 1.0.0 🎉
+## Current Version: 1.0.3 🎉
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -731,6 +731,73 @@ Then restart Home Assistant.
 ---
 
 ## Changelog
+
+### v1.0.3 (2025-10-30) - EV_FREE Mode Charging Logic Fix
+
+**Bug Fix: EV_FREE Mode Opportunistic Charging**
+
+**Problem**: When Priority Balancer was in `EV_FREE` state (both EV and home battery targets met), the charger continued charging even with insufficient surplus (e.g., 1.61A < 6A minimum), waiting for the 30-second surplus drop delay before stopping.
+
+**Solution**: In `EV_FREE` mode, the integration now stops charging immediately when surplus is insufficient. This mode is for opportunistic charging only - if there's no excess solar energy available, charging stops right away without delays.
+
+**Why**: `EV_FREE` means both targets are already met, so charging should only happen when there's genuinely excess solar energy. Delays make sense in `PRIORITY_EV` mode (to handle temporary fluctuations), but not in `EV_FREE` where we're just taking advantage of true surplus.
+
+**Technical Details**:
+- Added immediate stop condition before surplus decrease delay logic
+- Condition: `priority == PRIORITY_EV_FREE && target_amps == 0 && charger_is_on`
+- Action: Stop charger immediately with reason "EV_FREE: Opportunistic charging requires sufficient surplus"
+- Resets all state tracking delays
+
+**Example Scenario**:
+- Priority: `EV_FREE` (both targets met)
+- Surplus: 1.61A (< 6A minimum required)
+- Old behavior: Continue charging for 30s delay period
+- New behavior: Stop immediately
+
+---
+
+### v1.0.2 (2025-10-30) - Battery Support Logic Refinement
+
+**Bug Fix: Battery Support Only When Priority=EV**
+
+**Problem**: Battery support was activating even when Priority Balancer was in `EV_FREE` state (both targets already met), wasting home battery energy for opportunistic charging.
+
+**Solution**: Battery support now ONLY activates when `Priority = EV` (EV below target, home can help balance). It will NOT activate when:
+- `Priority = EV_FREE` (both targets met - only opportunistic solar charging)
+- `Priority = HOME` (home battery needs charging)
+- Priority Balancer disabled (no targets defined)
+
+**Why**: When both systems are already balanced (EV_FREE), using home battery energy doesn't serve the balancing purpose - it just wastes stored energy for opportunistic charging that should only use surplus.
+
+**Technical Details**:
+- Modified `_handle_home_battery_usage()` activation logic
+- Changed from `priority not in [EV, EV_FREE]` to `priority != EV`
+- Added deactivation logging when transitioning out of EV priority
+- Updated diagnostic sensor to reflect activation conditions
+
+---
+
+### v1.0.1 (2025-10-30) - Critical Bug Fixes
+
+**Bug Fixes:**
+
+1. **AttributeError in Smart Blocker**
+   - Fixed wrong method name: `is_night_charge_active()` → `is_active()`
+   - Error occurred during Smart Blocker's check if Night Smart Charge was active
+
+2. **Battery Support Logic Fix**
+   - **Problem**: With 22.3A surplus available, system was charging at fixed 16A (battery support amperage) instead of 20A
+   - **Root Cause**: Battery support was activating as primary charging method instead of fallback
+   - **Solution**: Changed `_calculate_target_amperage()` to ALWAYS calculate from surplus first
+   - **New Logic**:
+     - If surplus >= 6A: Use surplus-based amperage (6-32A from levels)
+     - If surplus < 6A AND battery support active: Use `evsc_battery_support_amperage` as fallback
+     - If surplus < 6A AND battery support NOT active: Stop charging (target = 0)
+   - **Result**: Battery support now acts as fallback only when surplus is insufficient, maximizing use of solar energy
+
+**Impact**: These fixes ensure proper coordination between Night Smart Charge and Smart Blocker, and correct prioritization of solar surplus over battery support.
+
+---
 
 ### v1.0.0 (2025-10-30) - 🎉 MAJOR RELEASE: Complete Architecture Refactoring 🎉
 
