@@ -545,6 +545,9 @@ cards:
       - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_battery_min_soc
         name: 🔋 Home Battery Min SOC (%)
         icon: mdi:battery-30
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_battery_support_amperage
+        name: ⚡ Battery Support Amperage (A)
+        icon: mdi:current-ac
 
   # ============= PRIORITY BALANCER =============
   - type: entities
