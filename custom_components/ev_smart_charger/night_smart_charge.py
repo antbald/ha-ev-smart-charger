@@ -87,26 +87,41 @@ class NightSmartCharge:
         self.logger.start("Night Smart Charge initialization")
         self.logger.separator()
 
-        # Discover helper entities
-        try:
-            self._night_charge_enabled_entity = entity_helper.get_helper_entity(
-                self.hass, HELPER_NIGHT_CHARGE_ENABLED_SUFFIX, "Night Smart Charge"
+        # Discover helper entities (optional for backward compatibility)
+        self._night_charge_enabled_entity = entity_helper.find_by_suffix(
+            self.hass, HELPER_NIGHT_CHARGE_ENABLED_SUFFIX
+        )
+        self._night_charge_time_entity = entity_helper.find_by_suffix(
+            self.hass, HELPER_NIGHT_CHARGE_TIME_SUFFIX
+        )
+        self._solar_forecast_threshold_entity = entity_helper.find_by_suffix(
+            self.hass, HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX
+        )
+        self._night_charge_amperage_entity = entity_helper.find_by_suffix(
+            self.hass, HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX
+        )
+        self._home_battery_min_soc_entity = entity_helper.find_by_suffix(
+            self.hass, HELPER_HOME_BATTERY_MIN_SOC_SUFFIX
+        )
+
+        # Warn about missing entities (backward compatibility)
+        missing_entities = []
+        if not self._night_charge_enabled_entity:
+            missing_entities.append(HELPER_NIGHT_CHARGE_ENABLED_SUFFIX)
+        if not self._night_charge_time_entity:
+            missing_entities.append(HELPER_NIGHT_CHARGE_TIME_SUFFIX)
+        if not self._solar_forecast_threshold_entity:
+            missing_entities.append(HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX)
+        if not self._night_charge_amperage_entity:
+            missing_entities.append(HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX)
+        if not self._home_battery_min_soc_entity:
+            missing_entities.append(HELPER_HOME_BATTERY_MIN_SOC_SUFFIX)
+
+        if missing_entities:
+            self.logger.warning(
+                f"Helper entities not found: {', '.join(missing_entities)} - "
+                f"Using default values. Restart Home Assistant to create missing helper entities."
             )
-            self._night_charge_time_entity = entity_helper.get_helper_entity(
-                self.hass, HELPER_NIGHT_CHARGE_TIME_SUFFIX, "Night Smart Charge"
-            )
-            self._solar_forecast_threshold_entity = entity_helper.get_helper_entity(
-                self.hass, HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX, "Night Smart Charge"
-            )
-            self._night_charge_amperage_entity = entity_helper.get_helper_entity(
-                self.hass, HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX, "Night Smart Charge"
-            )
-            self._home_battery_min_soc_entity = entity_helper.get_helper_entity(
-                self.hass, HELPER_HOME_BATTERY_MIN_SOC_SUFFIX, "Night Smart Charge"
-            )
-        except ValueError as e:
-            self.logger.error(f"Failed to discover helper entities: {e}")
-            return
 
         # Log configuration
         self._log_configuration()
@@ -226,6 +241,10 @@ class NightSmartCharge:
             True if in active window
         """
         # Get scheduled time configuration
+        if not self._night_charge_time_entity:
+            self.logger.warning("Night charge time entity not configured")
+            return False
+
         time_state = state_helper.get_state(self.hass, self._night_charge_time_entity)
 
         if not time_state or time_state in ("unknown", "unavailable"):
@@ -545,8 +564,8 @@ class NightSmartCharge:
 
     def _log_configuration(self) -> None:
         """Log current configuration."""
-        enabled = state_helper.get_bool(self.hass, self._night_charge_enabled_entity)
-        scheduled_time = state_helper.get_state(self.hass, self._night_charge_time_entity)
+        enabled = state_helper.get_bool(self.hass, self._night_charge_enabled_entity) if self._night_charge_enabled_entity else False
+        scheduled_time = state_helper.get_state(self.hass, self._night_charge_time_entity) if self._night_charge_time_entity else "Not configured"
         threshold = self._get_solar_threshold()
         amperage = self._get_night_charge_amperage()
 

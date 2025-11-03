@@ -109,7 +109,7 @@ class SolarSurplusAutomation:
 
     async def async_setup(self) -> None:
         """Set up the Solar Surplus automation."""
-        # Find helper entities
+        # Find helper entities (optional for backward compatibility)
         self._forza_ricarica_entity = self._find_entity_by_suffix("evsc_forza_ricarica")
         self._charging_profile_entity = self._find_entity_by_suffix("evsc_charging_profile")
         self._check_interval_entity = self._find_entity_by_suffix("evsc_check_interval")
@@ -121,19 +121,32 @@ class SolarSurplusAutomation:
         self._battery_support_amperage_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
         self._solar_surplus_diagnostic_sensor_entity = self._find_entity_by_suffix("evsc_solar_surplus_diagnostic")
 
-        if not all([
-            self._forza_ricarica_entity,
-            self._charging_profile_entity,
-            self._check_interval_entity,
-            self._grid_import_threshold_entity,
-            self._grid_import_delay_entity,
-            self._surplus_drop_delay_entity,
-            self._use_home_battery_entity,
-            self._home_battery_min_soc_entity,
-            self._battery_support_amperage_entity,
-        ]):
-            self.logger.error("Required helper entities not found")
-            return
+        # Warn about missing entities (backward compatibility)
+        missing_entities = []
+        if not self._forza_ricarica_entity:
+            missing_entities.append("evsc_forza_ricarica")
+        if not self._charging_profile_entity:
+            missing_entities.append("evsc_charging_profile")
+        if not self._check_interval_entity:
+            missing_entities.append("evsc_check_interval")
+        if not self._grid_import_threshold_entity:
+            missing_entities.append("evsc_grid_import_threshold")
+        if not self._grid_import_delay_entity:
+            missing_entities.append("evsc_grid_import_delay")
+        if not self._surplus_drop_delay_entity:
+            missing_entities.append("evsc_surplus_drop_delay")
+        if not self._use_home_battery_entity:
+            missing_entities.append("evsc_use_home_battery")
+        if not self._home_battery_min_soc_entity:
+            missing_entities.append("evsc_home_battery_min_soc")
+        if not self._battery_support_amperage_entity:
+            missing_entities.append(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
+
+        if missing_entities:
+            self.logger.warning(
+                f"Helper entities not found: {', '.join(missing_entities)} - "
+                f"Using default values. Restart Home Assistant to create missing helper entities."
+            )
 
         self.logger.success("Solar Surplus automation initialized")
         await self._start_timer()

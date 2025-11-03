@@ -105,7 +105,7 @@ class SmartChargerBlocker:
         charger_status_entity = self.config.get(CONF_EV_CHARGER_STATUS)
         charger_switch_entity = self.config.get(CONF_EV_CHARGER_SWITCH)
 
-        # Find helper entities
+        # Find helper entities (optional for backward compatibility)
         self._forza_ricarica_entity = self._find_entity_by_suffix("evsc_forza_ricarica")
         self._blocker_enabled_entity = self._find_entity_by_suffix(
             "evsc_smart_charger_blocker_enabled"
@@ -114,9 +114,20 @@ class SmartChargerBlocker:
             HELPER_NIGHT_CHARGE_TIME_SUFFIX
         )
 
+        # Warn about missing entities (backward compatibility)
+        missing_entities = []
+        if not self._forza_ricarica_entity:
+            missing_entities.append("evsc_forza_ricarica")
         if not self._blocker_enabled_entity:
-            self.logger.error("Cannot set up - helper entities not found")
-            return
+            missing_entities.append("evsc_smart_charger_blocker_enabled")
+        if not self._night_charge_time_entity:
+            missing_entities.append(HELPER_NIGHT_CHARGE_TIME_SUFFIX)
+
+        if missing_entities:
+            self.logger.warning(
+                f"Helper entities not found: {', '.join(missing_entities)} - "
+                f"Using default values. Restart Home Assistant to create missing helper entities."
+            )
 
         # Listen for charger status changes (charger_free -> charger_charging)
         self._unsub_status = async_track_state_change_event(
@@ -129,9 +140,10 @@ class SmartChargerBlocker:
         )
 
         # Listen for blocker being enabled (check immediately if charger is already on)
-        self._unsub_blocker = async_track_state_change_event(
-            self.hass, self._blocker_enabled_entity, self._async_blocker_enabled_changed
-        )
+        if self._blocker_enabled_entity:
+            self._unsub_blocker = async_track_state_change_event(
+                self.hass, self._blocker_enabled_entity, self._async_blocker_enabled_changed
+            )
 
         # Listen for charger switch state changes during enforcement
         self._unsub_enforcement = async_track_state_change_event(
@@ -141,7 +153,7 @@ class SmartChargerBlocker:
         self.logger.success("Setup completed")
         self.logger.info(f"Monitoring charger status: {charger_status_entity}")
         self.logger.info(f"Monitoring charger switch: {charger_switch_entity}")
-        self.logger.info(f"Monitoring blocker switch: {self._blocker_enabled_entity}")
+        self.logger.info(f"Monitoring blocker switch: {self._blocker_enabled_entity or 'Not configured (enabled by default)'}")
         self.logger.info("Continuous enforcement monitoring enabled")
         self.logger.separator()
 
@@ -336,8 +348,7 @@ class SmartChargerBlocker:
             state = get_state(self.hass, self._blocker_enabled_entity)
             if state != STATE_ON:
                 return False, "Blocker disabled"
-        else:
-            return False, "Blocker entity not found"
+        # If blocker entity not found, assume enabled (backward compatibility)
 
         # Check 3: Night Smart Charge active (override blocker)
         if self.night_smart_charge and self.night_smart_charge.is_active():
