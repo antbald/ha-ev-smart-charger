@@ -7,7 +7,6 @@ from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.const import STATE_ON, STATE_OFF
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.sun import get_astral_event_date
-from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -24,6 +23,8 @@ from .automation_coordinator import PRIORITY_SMART_BLOCKER
 from .utils.logging_helper import EVSCLogger
 from .utils.entity_helper import find_by_suffix
 from .utils.state_helper import get_state
+from .utils.entity_registry_service import EntityRegistryService
+from .utils.notification_service import NotificationService
 
 # Enforcement timeout in seconds
 ENFORCEMENT_TIMEOUT_SECONDS = SMART_BLOCKER_ENFORCEMENT_TIMEOUT
@@ -58,6 +59,8 @@ class SmartChargerBlocker:
         self.charger_controller = charger_controller
         self._coordinator = coordinator
         self.logger = EVSCLogger("SMART BLOCKER")
+        self._registry_service = EntityRegistryService(hass, entry_id)
+        self._notification_service = NotificationService(hass)
 
         # Listeners
         self._unsub_status = None
@@ -75,21 +78,17 @@ class SmartChargerBlocker:
         self._enforcement_start_time = None
 
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
-        """Find entity ID by suffix, filtering by this integration's config_entry_id."""
-        entity_registry = er.async_get(self.hass)
+        """Find entity ID by suffix using EntityRegistryService."""
+        entity_id = self._registry_service.find_by_suffix_filtered(suffix)
 
-        for entity in entity_registry.entities.values():
-            if entity.config_entry_id == self.entry_id:
-                if entity.unique_id and entity.unique_id.endswith(suffix):
-                    self.logger.debug(
-                        f"Found helper entity: {entity.entity_id} (unique_id: {entity.unique_id})"
-                    )
-                    return entity.entity_id
+        if entity_id:
+            self.logger.debug(f"Found helper entity: {entity_id}")
+        else:
+            self.logger.warning(
+                f"Helper entity with suffix '{suffix}' not found for config_entry {self.entry_id}"
+            )
 
-        self.logger.warning(
-            f"Helper entity with suffix '{suffix}' not found for config_entry {self.entry_id}"
-        )
-        return None
+        return entity_id
 
     async def async_setup(self) -> None:
         """Set up the Smart Charger Blocker automation."""
@@ -577,19 +576,15 @@ class SmartChargerBlocker:
             )
 
             # Send persistent notification
-            await self.hass.services.async_call(
-                "persistent_notification",
-                "create",
-                {
-                    "title": "⚡ EV Smart Charger: Charging Blocked",
-                    "message": f"Charging has been automatically blocked.\n\n"
-                    f"**Reason:** {reason}\n\n"
-                    f"**Timestamp:** {dt_util.now().strftime('%H:%M:%S')}\n\n"
-                    f"To override this behavior, enable 'Forza Ricarica' or disable 'Smart Charger Blocker'.\n\n"
-                    f"**Continuous monitoring:** Any external attempt to re-enable charging will be immediately blocked.",
-                    "notification_id": f"evsc_blocked_{int(dt_util.now().timestamp())}",
-                },
-                blocking=False,
+            await self._notification_service.send_warning(
+                "Charging Blocked",
+                f"Charging has been automatically blocked.\n\n"
+                f"To override this behavior, enable 'Forza Ricarica' or disable 'Smart Charger Blocker'.\n\n"
+                f"**Continuous monitoring:** Any external attempt to re-enable charging will be immediately blocked.",
+                additional_data={
+                    "Reason": reason,
+                    "Timestamp": dt_util.now().strftime('%H:%M:%S')
+                }
             )
 
             self.logger.separator()
@@ -598,21 +593,17 @@ class SmartChargerBlocker:
             self.logger.error(f"Failed to block charging: {e}")
 
             # Send error notification
-            await self.hass.services.async_call(
-                "persistent_notification",
-                "create",
-                {
-                    "title": "⚠️ EV Smart Charger: Blocking Failed",
-                    "message": f"Failed to block charging.\n\n"
-                    f"**Reason:** {reason}\n\n"
-                    f"**Error:** {str(e)}\n\n"
-                    f"Please check:\n"
-                    f"- Charger switch entity is functioning\n"
-                    f"- No conflicting automations\n"
-                    f"- Charger hardware status",
-                    "notification_id": f"evsc_block_failed_{int(dt_util.now().timestamp())}",
-                },
-                blocking=False,
+            await self._notification_service.send_error(
+                "Blocking Failed",
+                f"Failed to block charging.\n\n"
+                f"Please check:\n"
+                f"- Charger switch entity is functioning\n"
+                f"- No conflicting automations\n"
+                f"- Charger hardware status",
+                error=str(e),
+                additional_data={
+                    "Reason": reason
+                }
             )
             self.logger.separator()
 

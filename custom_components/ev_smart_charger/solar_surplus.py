@@ -6,7 +6,6 @@ from datetime import timedelta, datetime
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CHARGER_AMP_LEVELS,
@@ -26,7 +25,8 @@ from .const import (
 )
 from .utils.logging_helper import EVSCLogger
 from .utils.entity_helper import find_by_suffix
-from .utils.state_helper import get_state, get_float, validate_sensor
+from .utils.state_helper import get_state, get_float, get_bool, validate_sensor
+from .utils.entity_registry_service import EntityRegistryService
 
 
 class SolarSurplusAutomation:
@@ -58,8 +58,9 @@ class SolarSurplusAutomation:
         self.charger_controller = charger_controller
         self._night_smart_charge = night_smart_charge
 
-        # Initialize logger
+        # Initialize logger and registry service
         self.logger = EVSCLogger("SOLAR SURPLUS")
+        self._registry_service = EntityRegistryService(hass, entry_id)
 
         # User-configured entities
         self._charger_status = config.get(CONF_EV_CHARGER_STATUS)
@@ -94,21 +95,17 @@ class SolarSurplusAutomation:
         self._check_count_reset_time = None
 
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
-        """Find an entity by its suffix, filtering by this integration's config_entry_id."""
-        entity_registry = er.async_get(self.hass)
+        """Find an entity by its suffix using EntityRegistryService."""
+        entity_id = self._registry_service.find_by_suffix_filtered(suffix)
 
-        for entity in entity_registry.entities.values():
-            if entity.config_entry_id == self.entry_id:
-                if entity.unique_id and entity.unique_id.endswith(suffix):
-                    self.logger.debug(
-                        f"Found helper entity: {entity.entity_id} (unique_id: {entity.unique_id})"
-                    )
-                    return entity.entity_id
+        if entity_id:
+            self.logger.debug(f"Found helper entity: {entity_id}")
+        else:
+            self.logger.warning(
+                f"Helper entity with suffix '{suffix}' not found for config_entry {self.entry_id}"
+            )
 
-        self.logger.warning(
-            f"Helper entity with suffix '{suffix}' not found for config_entry {self.entry_id}"
-        )
-        return None
+        return entity_id
 
     async def async_setup(self) -> None:
         """Set up the Solar Surplus automation."""
