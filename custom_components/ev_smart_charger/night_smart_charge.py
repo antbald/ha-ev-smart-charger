@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.const import STATE_ON
 from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
-from homeassistant.helpers.sun import get_astral_event_date
 
 from .const import (
     CONF_EV_CHARGER_STATUS,
@@ -23,6 +22,8 @@ from .const import (
 )
 from .utils.logging_helper import EVSCLogger
 from .utils import entity_helper, state_helper
+from .utils.astral_time_service import AstralTimeService
+from .utils.time_parsing_service import TimeParsingService
 
 
 class NightSmartCharge:
@@ -52,6 +53,7 @@ class NightSmartCharge:
         self.priority_balancer = priority_balancer
         self.charger_controller = charger_controller
         self.logger = EVSCLogger("NIGHT SMART CHARGE")
+        self._astral_service = AstralTimeService(hass)
 
         # User-configured entities
         self._charger_status = config.get(CONF_EV_CHARGER_STATUS)
@@ -204,6 +206,8 @@ class NightSmartCharge:
         """
         Check if current time is between scheduled time and sunrise.
 
+        Uses TimeParsingService for time parsing and AstralTimeService for sunrise.
+
         Logic:
         - Scheduled time is typically after midnight (e.g., 01:00)
         - Active if: now >= scheduled_time AND now < sunrise
@@ -222,37 +226,22 @@ class NightSmartCharge:
             self.logger.warning("Time entity unavailable for window check")
             return False
 
-        # Parse time string "HH:MM:SS"
+        # Parse time string using TimeParsingService
         try:
-            time_parts = time_state.split(":")
-            hour = int(time_parts[0])
-            minute = int(time_parts[1])
+            scheduled_time = TimeParsingService.time_string_to_datetime(time_state, now)
         except (ValueError, TypeError, IndexError) as e:
             self.logger.error(f"Invalid time configuration: {time_state} - {e}")
             return False
 
-        # Create scheduled time for today
-        scheduled_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        # Get next sunrise using AstralTimeService
+        sunrise = self._astral_service.get_next_sunrise_after(now)
 
-        # Get sunrise time - today's or tomorrow's
-        sunrise_today = get_astral_event_date(self.hass, "sunrise", now)
-
-        if not sunrise_today:
+        if not sunrise:
             self.logger.warning("Could not determine sunrise time")
             return False
 
-        # Determine which sunrise to use
-        if now < sunrise_today:
-            sunrise = sunrise_today
-            sunrise_label = "today"
-        else:
-            tomorrow = now + timedelta(days=1)
-            sunrise = get_astral_event_date(self.hass, "sunrise", tomorrow)
-            sunrise_label = "tomorrow"
-
-            if not sunrise:
-                self.logger.warning("Could not determine tomorrow's sunrise")
-                return False
+        # Determine sunrise label for logging
+        sunrise_label = "today" if sunrise.date() == now.date() else "tomorrow"
 
         # Check if we're in the active window
         is_active = now >= scheduled_time and now < sunrise

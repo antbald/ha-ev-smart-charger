@@ -160,60 +160,91 @@ class PriorityBalancer:
 
         return reached
 
-    def get_ev_target_for_today(self) -> int:
-        """Get EV target SOC for current day."""
+    def _get_target_for_today(
+        self,
+        entities_dict: dict[str, str],
+        default_weekday: int,
+        default_weekend: int = None
+    ) -> int:
+        """
+        Generic method to get target SOC for current day.
+
+        Args:
+            entities_dict: Dictionary mapping day names to entity IDs
+            default_weekday: Default value for weekdays
+            default_weekend: Default value for weekends (if None, uses default_weekday)
+
+        Returns:
+            Target SOC for today
+        """
         today = datetime.now().strftime("%A").lower()
-        entity_id = self._ev_min_soc_entities.get(today)
+        entity_id = entities_dict.get(today)
 
         if not entity_id:
             # Fallback to default
-            if today in ["saturday", "sunday"]:
-                return DEFAULT_EV_MIN_SOC_WEEKEND
-            return DEFAULT_EV_MIN_SOC_WEEKDAY
+            if default_weekend and today in ["saturday", "sunday"]:
+                return default_weekend
+            return default_weekday
 
-        target = state_helper.get_int(self.hass, entity_id, DEFAULT_EV_MIN_SOC_WEEKDAY)
+        target = state_helper.get_int(self.hass, entity_id, default_weekday)
         return target
+
+    def get_ev_target_for_today(self) -> int:
+        """Get EV target SOC for current day."""
+        return self._get_target_for_today(
+            self._ev_min_soc_entities,
+            DEFAULT_EV_MIN_SOC_WEEKDAY,
+            DEFAULT_EV_MIN_SOC_WEEKEND
+        )
 
     def get_home_target_for_today(self) -> int:
         """Get Home battery target SOC for current day."""
-        today = datetime.now().strftime("%A").lower()
-        entity_id = self._home_min_soc_entities.get(today)
+        return self._get_target_for_today(
+            self._home_min_soc_entities,
+            DEFAULT_HOME_MIN_SOC
+        )
 
-        if not entity_id:
-            return DEFAULT_HOME_MIN_SOC
+    def _get_soc_with_validation(
+        self,
+        sensor_entity: str | None,
+        sensor_name: str,
+        default_value: float
+    ) -> float:
+        """
+        Generic method to get SOC with validation and range clamping.
 
-        target = state_helper.get_int(self.hass, entity_id, DEFAULT_HOME_MIN_SOC)
-        return target
+        Args:
+            sensor_entity: Entity ID of the SOC sensor
+            sensor_name: Name for logging (e.g., "EV", "Home")
+            default_value: Default value if sensor not configured
+
+        Returns:
+            SOC value (0-100)
+        """
+        if not sensor_entity:
+            self.logger.warning(
+                f"{sensor_name} SOC sensor not configured, assuming {default_value}%"
+            )
+            return default_value
+
+        soc = state_helper.get_float(self.hass, sensor_entity, default_value)
+
+        # Validate range
+        if soc < 0 or soc > 100:
+            self.logger.warning(
+                f"{sensor_name} SOC out of range ({soc}%), clamping to 0-100"
+            )
+            soc = max(0, min(100, soc))
+
+        return soc
 
     async def get_ev_current_soc(self) -> float:
         """Get current EV SOC with fallback."""
-        if not self._soc_car:
-            self.logger.warning("EV SOC sensor not configured, assuming 0%")
-            return 0.0
-
-        soc = state_helper.get_float(self.hass, self._soc_car, 0.0)
-
-        # Validate range
-        if soc < 0 or soc > 100:
-            self.logger.warning(f"EV SOC out of range ({soc}%), clamping to 0-100")
-            soc = max(0, min(100, soc))
-
-        return soc
+        return self._get_soc_with_validation(self._soc_car, "EV", 0.0)
 
     async def get_home_current_soc(self) -> float:
         """Get current Home battery SOC with fallback."""
-        if not self._soc_home:
-            self.logger.warning("Home SOC sensor not configured, assuming 100%")
-            return 100.0
-
-        soc = state_helper.get_float(self.hass, self._soc_home, 100.0)
-
-        # Validate range
-        if soc < 0 or soc > 100:
-            self.logger.warning(f"Home SOC out of range ({soc}%), clamping to 0-100")
-            soc = max(0, min(100, soc))
-
-        return soc
+        return self._get_soc_with_validation(self._soc_home, "Home", 100.0)
 
     async def _update_priority_sensor(
         self,

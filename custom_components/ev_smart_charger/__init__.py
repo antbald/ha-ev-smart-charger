@@ -23,7 +23,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     _LOGGER.info("=" * 64)
-    _LOGGER.info("🚗 EV Smart Charger v1.1.0 - Starting setup")
+    _LOGGER.info("🚗 EV Smart Charger v1.2.0 - Starting setup")
     _LOGGER.info("=" * 64)
 
     # ========== PHASE 1: SETUP PLATFORMS (Helper Entities) ==========
@@ -120,7 +120,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_reload_on_update))
 
     _LOGGER.info("=" * 64)
-    _LOGGER.info("✅ EV Smart Charger v1.1.0 - Setup completed successfully!")
+    _LOGGER.info("✅ EV Smart Charger v1.2.0 - Setup completed successfully!")
     _LOGGER.info("=" * 64)
 
     return True

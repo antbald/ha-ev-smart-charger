@@ -6,7 +6,6 @@ import asyncio
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.const import STATE_ON, STATE_OFF
 from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.helpers.sun import get_astral_event_date
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -25,6 +24,8 @@ from .utils.entity_helper import find_by_suffix
 from .utils.state_helper import get_state
 from .utils.entity_registry_service import EntityRegistryService
 from .utils.notification_service import NotificationService
+from .utils.astral_time_service import AstralTimeService
+from .utils.time_parsing_service import TimeParsingService
 
 # Enforcement timeout in seconds
 ENFORCEMENT_TIMEOUT_SECONDS = SMART_BLOCKER_ENFORCEMENT_TIMEOUT
@@ -61,6 +62,7 @@ class SmartChargerBlocker:
         self.logger = EVSCLogger("SMART BLOCKER")
         self._registry_service = EntityRegistryService(hass, entry_id)
         self._notification_service = NotificationService(hass)
+        self._astral_service = AstralTimeService(hass)
 
         # Listeners
         self._unsub_status = None
@@ -349,6 +351,8 @@ class SmartChargerBlocker:
     async def _is_in_blocking_window(self, now: datetime) -> tuple[bool, str]:
         """Check if current time is within the blocking window.
 
+        Uses AstralTimeService for centralized astral calculations.
+
         Blocking window logic:
         - If Night Smart Charge ENABLED: Block from sunset to night_charge_time
         - If Night Smart Charge DISABLED: Block from sunset to sunrise
@@ -360,86 +364,28 @@ class SmartChargerBlocker:
             (is_blocked, reason) tuple
         """
         try:
-            # Get today's sunset
-            sunset = get_astral_event_date(self.hass, "sunset", now)
-            if not sunset:
-                self.logger.warning("Unable to determine sunset time")
-                return False, "Sunset time unavailable"
+            # Get night charge configuration
+            night_charge_enabled = self._is_night_charge_enabled()
+            night_charge_time = None
 
-            # Determine window end based on Night Smart Charge configuration
-            if self._is_night_charge_enabled():
-                # Window ends at night_charge_time
-                window_end = await self._get_night_charge_datetime(now)
-                if not window_end:
-                    # Fallback to sunrise if night_charge_time not available
-                    sunrise_tomorrow = get_astral_event_date(
-                        self.hass, "sunrise", now + timedelta(days=1)
-                    )
-                    window_end = sunrise_tomorrow
-                    window_type = "sunset → sunrise (fallback)"
-                else:
-                    window_type = "sunset → night_charge_time"
+            if night_charge_enabled:
+                night_charge_time = await self._get_night_charge_datetime(now)
+
+            # Use AstralTimeService to determine blocking window
+            is_blocked, reason = self._astral_service.is_in_blocking_window(
+                now, night_charge_enabled, night_charge_time
+            )
+
+            if is_blocked:
+                self.logger.debug(f"{self.logger.CALENDAR} {reason}")
             else:
-                # Window ends at sunrise tomorrow
-                sunrise_tomorrow = get_astral_event_date(
-                    self.hass, "sunrise", now + timedelta(days=1)
-                )
-                window_end = sunrise_tomorrow
-                window_type = "sunset → sunrise"
+                self.logger.debug(f"{self.logger.CALENDAR} {reason}")
 
-            if not window_end:
-                self.logger.warning("Unable to determine blocking window end")
-                return False, "Window end time unavailable"
-
-            # Determine if we're in the blocking window
-            # The window spans from sunset to window_end (which might be next day)
-
-            # Case 1: Before today's sunset - check if we're after yesterday's sunset
-            if now < sunset:
-                # Check if we're still in the window from yesterday
-                yesterday_sunset = get_astral_event_date(
-                    self.hass, "sunset", now - timedelta(days=1)
-                )
-
-                if self._is_night_charge_enabled():
-                    yesterday_window_end = await self._get_night_charge_datetime(
-                        now - timedelta(days=1)
-                    )
-                    if not yesterday_window_end:
-                        yesterday_window_end = get_astral_event_date(
-                            self.hass, "sunrise", now
-                        )
-                else:
-                    yesterday_window_end = get_astral_event_date(
-                        self.hass, "sunrise", now
-                    )
-
-                if yesterday_sunset and yesterday_window_end:
-                    if yesterday_sunset <= now < yesterday_window_end:
-                        self.logger.debug(
-                            f"In blocking window (from yesterday): "
-                            f"{yesterday_sunset.strftime('%H:%M')} → {yesterday_window_end.strftime('%H:%M')}"
-                        )
-                        return True, f"Nighttime blocking active ({window_type})"
-
-                # Not in yesterday's window and before today's sunset = daytime
-                self.logger.debug(
-                    f"Daytime (before sunset at {sunset.strftime('%H:%M')})"
-                )
-                return False, "Daytime (before sunset)"
-
-            # Case 2: After today's sunset - we're in the blocking window
-            if now >= sunset:
-                self.logger.debug(
-                    f"In blocking window: {sunset.strftime('%H:%M')} → {window_end.strftime('%H:%M')}"
-                )
-                return True, f"Nighttime blocking active ({window_type})"
+            return is_blocked, reason
 
         except Exception as e:
             self.logger.error(f"Error checking blocking window: {e}")
             return False, f"Error: {e}"
-
-        return False, "Outside blocking window"
 
     def _is_night_charge_enabled(self) -> bool:
         """Check if Night Smart Charge is enabled."""
@@ -459,6 +405,8 @@ class SmartChargerBlocker:
     async def _get_night_charge_datetime(self, reference_date: datetime) -> datetime | None:
         """Get the night charge time as a datetime object.
 
+        Uses TimeParsingService for centralized time parsing.
+
         Args:
             reference_date: Reference date to build the datetime
 
@@ -473,29 +421,10 @@ class SmartChargerBlocker:
             return None
 
         try:
-            # Parse time string (format: "HH:MM:SS")
-            time_parts = time_state.split(":")
-            if len(time_parts) != 3:
-                self.logger.warning(
-                    f"Invalid night_charge_time format: {time_state}"
-                )
-                return None
-
-            hour = int(time_parts[0])
-            minute = int(time_parts[1])
-            second = int(time_parts[2])
-
-            # Create datetime for today at night_charge_time
-            night_charge_dt = reference_date.replace(
-                hour=hour, minute=minute, second=second, microsecond=0
+            # Use TimeParsingService to convert time string to next occurrence
+            return TimeParsingService.time_string_to_next_occurrence(
+                time_state, reference_date
             )
-
-            # If the time has already passed today, use tomorrow
-            if night_charge_dt <= reference_date:
-                night_charge_dt += timedelta(days=1)
-
-            return night_charge_dt
-
         except (ValueError, AttributeError) as e:
             self.logger.warning(
                 f"Error parsing night_charge_time '{time_state}': {e}"
