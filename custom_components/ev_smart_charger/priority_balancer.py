@@ -5,6 +5,7 @@ from homeassistant.core import HomeAssistant
 from .const import (
     CONF_SOC_CAR,
     CONF_SOC_HOME,
+    CONF_NOTIFY_SERVICES,
     DEFAULT_EV_MIN_SOC_WEEKDAY,
     DEFAULT_EV_MIN_SOC_WEEKEND,
     DEFAULT_HOME_MIN_SOC,
@@ -15,6 +16,7 @@ from .const import (
 )
 from .utils.logging_helper import EVSCLogger
 from .utils import entity_helper, state_helper
+from .utils.mobile_notification_service import MobileNotificationService
 
 
 class PriorityBalancer:
@@ -40,8 +42,14 @@ class PriorityBalancer:
         self._ev_min_soc_entities = {}
         self._home_min_soc_entities = {}
 
+        # Mobile notification service
+        self._mobile_notifier = MobileNotificationService(
+            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id
+        )
+
         # Cached state
         self._current_priority = None
+        self._last_priority = None  # Track last priority for change detection
 
     async def async_setup(self):
         """Setup: discover helper entities."""
@@ -122,8 +130,21 @@ class PriorityBalancer:
         self.logger.decision("Priority", priority, reason)
         self.logger.separator()
 
+        # Check if priority changed and send notification
+        if self._last_priority is not None and self._last_priority != priority:
+            self.logger.info(f"Priority changed: {self._last_priority} → {priority}")
+            await self._mobile_notifier.send_priority_change_notification(
+                new_priority=priority,
+                reason=reason,
+                ev_soc=ev_soc,
+                ev_target=ev_target,
+                home_soc=home_soc,
+                home_target=home_target
+            )
+
         # Update cached value
         self._current_priority = priority
+        self._last_priority = priority
 
         # Update sensor
         await self._update_priority_sensor(

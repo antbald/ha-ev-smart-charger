@@ -52,6 +52,16 @@
         "data_description": {
           "pv_forecast": "**What it does:** Provides next-day solar production forecast\n**Domain:** sensor\n**Unit:** Kilowatt-hours (kWh)\n**Example:** `sensor.solcast_pv_forecast_forecast_today`, `sensor.forecast_solar_production`\n\n💡 **Leave empty** if you don't have a forecast sensor. Night Smart Charge will use grid mode as fallback.\n\n💡 **Popular integrations:**\n  • Solcast Solar (recommended)\n  • Forecast.Solar\n  • Custom solar forecast sensors"
         }
+      },
+      "notifications": {
+        "title": "📱 Mobile Notifications - Step {step}/{total_steps}",
+        "description": "**Configure Mobile Notifications**\n\n📱 Get notified on your phone for important events:\n• 🚫 **Smart Blocker:** Charging interrupted outside window\n• ⚖️ **Priority Balancer:** Priority changed (EV ↔ Home ↔ EV_Free)\n• 🌙 **Night Charge:** Charging started (battery/grid mode)\n\n💡 **Select one or more mobile devices** to receive notifications with title \"BORGO\".\n\n⚠️ Leave empty to skip mobile notifications.\n\n---",
+        "data": {
+          "notify_services": "📱 Mobile Devices (Optional)"
+        },
+        "data_description": {
+          "notify_services": "**What it does:** Sends push notifications to selected mobile devices\n**Domain:** notify (mobile_app_*)\n**Example:** `mobile_app_johns_iphone`, `mobile_app_pixel_8`\n\n💡 **Multiple devices:** Select all phones/tablets you want to notify.\n💡 **Control:** Use switches to enable/disable notifications per feature.\n💡 **Title:** All notifications use title \"BORGO\"."
+        }
       }
     },
     "error": {
@@ -100,6 +110,16 @@
         },
         "data_description": {
           "pv_forecast": "**Domain:** sensor | **Unit:** kWh | **Example:** sensor.solcast_pv_forecast_forecast_today"
+        }
+      },
+      "notifications": {
+        "title": "📱 Update Mobile Notifications - Step {step}/{total_steps}",
+        "description": "**Update Mobile Notification Settings**\n\n📱 Update which mobile devices receive notifications.\n\n⚠️ Leave empty to disable mobile notifications.\n\n---",
+        "data": {
+          "notify_services": "📱 Mobile Devices (Optional)"
+        },
+        "data_description": {
+          "notify_services": "**Domain:** notify (mobile_app_*) | **Title:** BORGO | **Control:** Use switches per feature"
         }
       }
     },

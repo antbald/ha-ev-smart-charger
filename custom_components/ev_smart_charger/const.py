@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -59,6 +59,9 @@ CONF_HOME_CONSUMPTION = "home_consumption"
 CONF_GRID_IMPORT = "grid_import"
 CONF_PV_FORECAST = "pv_forecast"
 
+# Mobile Notifications
+CONF_NOTIFY_SERVICES = "notify_services"
+
 # ========== HELPER ENTITY SUFFIXES ==========
 
 # Switches
@@ -67,6 +70,11 @@ HELPER_SMART_BLOCKER_ENABLED_SUFFIX = "evsc_smart_charger_blocker_enabled"
 HELPER_USE_HOME_BATTERY_SUFFIX = "evsc_use_home_battery"
 HELPER_PRIORITY_BALANCER_ENABLED_SUFFIX = "evsc_priority_balancer_enabled"
 HELPER_NIGHT_CHARGE_ENABLED_SUFFIX = "evsc_night_smart_charge_enabled"
+
+# Notification Switches
+HELPER_NOTIFY_SMART_BLOCKER_SUFFIX = "evsc_notify_smart_blocker_enabled"
+HELPER_NOTIFY_PRIORITY_BALANCER_SUFFIX = "evsc_notify_priority_balancer_enabled"
+HELPER_NOTIFY_NIGHT_CHARGE_SUFFIX = "evsc_notify_night_charge_enabled"
 
 # Numbers - Solar Surplus
 HELPER_CHECK_INTERVAL_SUFFIX = "evsc_check_interval"

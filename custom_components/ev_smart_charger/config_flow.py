@@ -17,6 +17,7 @@ from .const import (
     CONF_HOME_CONSUMPTION,
     CONF_GRID_IMPORT,
     CONF_PV_FORECAST,
+    CONF_NOTIFY_SERVICES,
 )
 
 class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -117,10 +118,9 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            # Merge all data and create entry
-            data = {**self.init_info, **self.charger_info, **self.sensor_info, **user_input}
-            title = self.init_info.get(CONF_NAME, DEFAULT_NAME)
-            return self.async_create_entry(title=title, data=data)
+            # Store PV forecast info and move to notifications step
+            self.pv_forecast_info = user_input
+            return await self.async_step_notifications()
 
         schema = vol.Schema({
             vol.Optional(CONF_PV_FORECAST): selector.EntitySelector(
@@ -134,9 +134,58 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "4",
-                "total_steps": "4"
+                "total_steps": "5"
             }
         )
+
+    async def async_step_notifications(self, user_input: dict[str, Any] | None = None):
+        """Handle mobile notification services selection step."""
+        errors = {}
+
+        if user_input is not None:
+            # Merge all data and create entry
+            data = {
+                **self.init_info,
+                **self.charger_info,
+                **self.sensor_info,
+                **self.pv_forecast_info,
+                **user_input
+            }
+            title = self.init_info.get(CONF_NAME, DEFAULT_NAME)
+            return self.async_create_entry(title=title, data=data)
+
+        # Discover available mobile notify services
+        notify_services = self._get_mobile_notify_services()
+
+        schema = vol.Schema({
+            vol.Optional(CONF_NOTIFY_SERVICES, default=[]): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=notify_services,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="notifications",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "step": "5",
+                "total_steps": "5"
+            }
+        )
+
+    def _get_mobile_notify_services(self) -> list[str]:
+        """Get list of available mobile_app notify services."""
+        notify_services = self.hass.services.async_services().get("notify", {})
+        mobile_services = [
+            service
+            for service in notify_services.keys()
+            if service.startswith("mobile_app_")
+        ]
+        return mobile_services if mobile_services else []
 
     @staticmethod
     @callback
@@ -247,12 +296,9 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
     async def async_step_pv_forecast(self, user_input: dict[str, Any] | None = None):
         """Manage PV forecast entity options (optional)."""
         if user_input is not None:
-            # Merge all data and update entry
-            data = {**self.config_entry.data, **self.charger_info, **self.sensor_info, **user_input}
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data=data
-            )
-            return self.async_create_entry(title="", data={})
+            # Store PV forecast info and move to notifications step
+            self.pv_forecast_info = user_input
+            return await self.async_step_notifications()
 
         # Get current values
         current_data = self.config_entry.data
@@ -271,6 +317,58 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
             description_placeholders={
                 "step": "3",
-                "total_steps": "3"
+                "total_steps": "4"
             }
         )
+
+    async def async_step_notifications(self, user_input: dict[str, Any] | None = None):
+        """Manage mobile notification services options."""
+        if user_input is not None:
+            # Merge all data and update entry
+            data = {
+                **self.config_entry.data,
+                **self.charger_info,
+                **self.sensor_info,
+                **self.pv_forecast_info,
+                **user_input
+            }
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data=data
+            )
+            return self.async_create_entry(title="", data={})
+
+        # Get current values
+        current_data = self.config_entry.data
+        notify_services = self._get_mobile_notify_services()
+
+        schema = vol.Schema({
+            vol.Optional(
+                CONF_NOTIFY_SERVICES,
+                default=current_data.get(CONF_NOTIFY_SERVICES, [])
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=notify_services,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="notifications",
+            data_schema=schema,
+            description_placeholders={
+                "step": "4",
+                "total_steps": "4"
+            }
+        )
+
+    def _get_mobile_notify_services(self) -> list[str]:
+        """Get list of available mobile_app notify services."""
+        notify_services = self.hass.services.async_services().get("notify", {})
+        mobile_services = [
+            service
+            for service in notify_services.keys()
+            if service.startswith("mobile_app_")
+        ]
+        return mobile_services if mobile_services else []

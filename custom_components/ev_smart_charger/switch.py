@@ -74,6 +74,37 @@ async def async_setup_entry(
         )
     )
 
+    # Notification switches (default ON)
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_notify_smart_blocker_enabled",
+            "EVSC Notify Smart Blocker",
+            "mdi:bell-outline",
+            default_state=True
+        )
+    )
+
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_notify_priority_balancer_enabled",
+            "EVSC Notify Priority Balancer",
+            "mdi:bell-outline",
+            default_state=True
+        )
+    )
+
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_notify_night_charge_enabled",
+            "EVSC Notify Night Charge",
+            "mdi:bell-outline",
+            default_state=True
+        )
+    )
+
     async_add_entities(entities)
     _LOGGER.info(f"✅ Created {len(entities)} EVSC switch entities")
 

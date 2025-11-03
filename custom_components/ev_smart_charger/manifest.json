@@ -1,7 +1,7 @@
 {
   "domain": "ev_smart_charger",
   "name": "EV Smart Charger",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "documentation": "https://github.com/antbald/ha-ev-smart-charger",
   "issue_tracker": "https://github.com/antbald/ha-ev-smart-charger/issues",
   "codeowners": ["@antbald"],

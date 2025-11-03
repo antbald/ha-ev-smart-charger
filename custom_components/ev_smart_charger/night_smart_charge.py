@@ -10,6 +10,7 @@ from .const import (
     CONF_EV_CHARGER_STATUS,
     CONF_SOC_HOME,
     CONF_PV_FORECAST,
+    CONF_NOTIFY_SERVICES,
     CHARGER_STATUS_FREE,
     NIGHT_CHARGE_MODE_BATTERY,
     NIGHT_CHARGE_MODE_GRID,
@@ -22,6 +23,7 @@ from .const import (
 )
 from .utils.logging_helper import EVSCLogger
 from .utils import entity_helper, state_helper
+from .utils.mobile_notification_service import MobileNotificationService
 from .utils.astral_time_service import AstralTimeService
 from .utils.time_parsing_service import TimeParsingService
 
@@ -54,6 +56,9 @@ class NightSmartCharge:
         self.charger_controller = charger_controller
         self.logger = EVSCLogger("NIGHT SMART CHARGE")
         self._astral_service = AstralTimeService(hass)
+        self._mobile_notifier = MobileNotificationService(
+            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id
+        )
 
         # User-configured entities
         self._charger_status = config.get(CONF_EV_CHARGER_STATUS)
@@ -327,18 +332,18 @@ class NightSmartCharge:
                 "BATTERY MODE",
                 f"Good solar forecast ({pv_forecast} kWh >= {threshold} kWh)"
             )
-            await self._start_battery_charge()
+            await self._start_battery_charge(pv_forecast)
         else:
             self.logger.decision(
                 "Charging mode",
                 "GRID MODE",
                 f"Low/no solar forecast ({pv_forecast} kWh < {threshold} kWh)"
             )
-            await self._start_grid_charge()
+            await self._start_grid_charge(pv_forecast)
 
     # ========== BATTERY CHARGE MODE ==========
 
-    async def _start_battery_charge(self) -> None:
+    async def _start_battery_charge(self, pv_forecast: float) -> None:
         """Start charging using home battery at configured amperage with continuous monitoring."""
         self.logger.separator()
         self.logger.start(f"{self.logger.BATTERY} Battery charge mode")
@@ -346,6 +351,7 @@ class NightSmartCharge:
         amperage = self._get_night_charge_amperage()
         home_min_soc = self._get_home_battery_min_soc()
         ev_target = self.priority_balancer.get_ev_target_for_today()
+        threshold = self._get_solar_threshold()
 
         self.logger.info(f"   Charger amperage: {amperage}A")
         self.logger.info(f"   EV target SOC: {ev_target}%")
@@ -357,6 +363,15 @@ class NightSmartCharge:
         # Set internal state
         self._night_charge_active = True
         self._active_mode = NIGHT_CHARGE_MODE_BATTERY
+
+        # Send mobile notification
+        reason = f"Previsione solare sufficiente ({pv_forecast:.1f} kWh >= {threshold} kWh)"
+        await self._mobile_notifier.send_night_charge_notification(
+            mode=NIGHT_CHARGE_MODE_BATTERY,
+            reason=reason,
+            amperage=amperage,
+            forecast=pv_forecast
+        )
 
         # Start continuous battery monitoring (every 1 minute)
         if self._battery_monitor_unsub:
@@ -425,13 +440,14 @@ class NightSmartCharge:
 
     # ========== GRID CHARGE MODE ==========
 
-    async def _start_grid_charge(self) -> None:
+    async def _start_grid_charge(self, pv_forecast: float) -> None:
         """Start charging from grid at configured amperage."""
         self.logger.separator()
         self.logger.start(f"{self.logger.GRID} Grid charge mode")
 
         amperage = self._get_night_charge_amperage()
         ev_target = self.priority_balancer.get_ev_target_for_today()
+        threshold = self._get_solar_threshold()
 
         self.logger.info(f"   Charger amperage: {amperage}A")
         self.logger.info(f"   EV target SOC: {ev_target}%")
@@ -442,6 +458,15 @@ class NightSmartCharge:
         # Set internal state
         self._night_charge_active = True
         self._active_mode = NIGHT_CHARGE_MODE_GRID
+
+        # Send mobile notification
+        reason = f"Previsione solare insufficiente ({pv_forecast:.1f} kWh < {threshold} kWh)"
+        await self._mobile_notifier.send_night_charge_notification(
+            mode=NIGHT_CHARGE_MODE_GRID,
+            reason=reason,
+            amperage=amperage,
+            forecast=pv_forecast
+        )
 
         self.logger.success("Grid charge started successfully")
         self.logger.info(f"Will charge until EV reaches target SOC ({ev_target}%)")

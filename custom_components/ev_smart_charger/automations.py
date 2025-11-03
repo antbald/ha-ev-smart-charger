@@ -12,6 +12,7 @@ from .const import (
     DOMAIN,
     CONF_EV_CHARGER_SWITCH,
     CONF_EV_CHARGER_STATUS,
+    CONF_NOTIFY_SERVICES,
     CHARGER_STATUS_CHARGING,
     HELPER_NIGHT_CHARGE_TIME_SUFFIX,
     SMART_BLOCKER_ENFORCEMENT_TIMEOUT,
@@ -24,6 +25,7 @@ from .utils.entity_helper import find_by_suffix
 from .utils.state_helper import get_state
 from .utils.entity_registry_service import EntityRegistryService
 from .utils.notification_service import NotificationService
+from .utils.mobile_notification_service import MobileNotificationService
 from .utils.astral_time_service import AstralTimeService
 from .utils.time_parsing_service import TimeParsingService
 
@@ -62,6 +64,9 @@ class SmartChargerBlocker:
         self.logger = EVSCLogger("SMART BLOCKER")
         self._registry_service = EntityRegistryService(hass, entry_id)
         self._notification_service = NotificationService(hass)
+        self._mobile_notifier = MobileNotificationService(
+            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id
+        )
         self._astral_service = AstralTimeService(hass)
 
         # Listeners
@@ -515,6 +520,9 @@ class SmartChargerBlocker:
                     "Timestamp": dt_util.now().strftime('%H:%M:%S')
                 }
             )
+
+            # Send mobile notification
+            await self._mobile_notifier.send_smart_blocker_notification(reason)
 
             self.logger.separator()
 
