@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -137,6 +137,10 @@ SMART_BLOCKER_RETRY_DELAYS = [2, 4, 6]  # seconds
 # ========== RATE LIMITING ==========
 SOLAR_SURPLUS_MIN_CHECK_INTERVAL = 30  # seconds between checks
 SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE = 10  # warning threshold
+
+# ========== CHARGER CONTROLLER SETTINGS ==========
+CHARGER_MIN_OPERATION_INTERVAL = 30  # seconds between charger operations (rate limiting)
+CHARGER_QUEUE_MAX_SIZE = 10  # maximum operations in queue
 
 # ========== DELAYS ==========
 CHARGER_COMMAND_DELAY = 2  # seconds to wait after charger commands

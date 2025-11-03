@@ -37,27 +37,29 @@ Since this is a Home Assistant custom integration, there are no build/test comma
 
 ## Architecture (v1.0.0+)
 
-### Major Architectural Changes (v1.0.0)
+### Major Architectural Changes (v1.0.0+)
 
-The v1.0.0 release introduced a complete refactoring with the following key changes:
+The v1.0.0+ releases introduced complete refactoring with the following key changes:
 
 1. **Dependency Injection Pattern**: All components receive dependencies via constructor
 2. **Independent Priority Balancer**: Extracted from solar_surplus.py into standalone component
-3. **Centralized Utilities**: New utils directory with logging, entity, and state helpers
-4. **7-Phase Setup**: Sequential initialization with proper dependency ordering
-5. **39% Code Reduction**: Solar Surplus reduced from 1068 to 651 lines
+3. **Centralized ChargerController**: Single source of truth for all charger operations (v1.0.4+)
+4. **Centralized Utilities**: New utils directory with logging, entity, and state helpers
+5. **8-Phase Setup**: Sequential initialization with proper dependency ordering
+6. **~50% Code Reduction**: Removed ~340 lines of duplicate charger control code
 
 ### Core Components
 
 **Entry Point (`__init__.py`):**
-- 7-phase setup process with dependency injection
+- 8-phase setup process with dependency injection
 - Creates helper entities via platform setup (Phase 1)
-- Initializes Automation Coordinator (Phase 2)
-- Creates independent Priority Balancer (Phase 3)
-- Creates Night Smart Charge with Balancer dependency (Phase 4)
-- Creates Smart Charger Blocker with Night Charge dependency (Phase 5)
-- Creates Solar Surplus with Balancer dependency (Phase 6)
-- Stores all component references (Phase 7)
+- **Creates ChargerController for centralized charger operations (Phase 2)**
+- Initializes Automation Coordinator (Phase 3)
+- Creates independent Priority Balancer (Phase 4)
+- Creates Night Smart Charge with Balancer + Controller dependencies (Phase 5)
+- Creates Smart Charger Blocker with Night Charge + Controller dependencies (Phase 6)
+- Creates Solar Surplus with Balancer + Controller dependencies (Phase 7)
+- Stores all component references (Phase 8)
 - Waits 2 seconds after platform setup for entity registration
 
 **Configuration Flow (`config_flow.py`):**
@@ -68,13 +70,17 @@ The v1.0.0 release introduced a complete refactoring with the following key chan
 ### Component Dependency Graph
 
 ```
+ChargerController (centralized, independent)
+       ↓
+       ├─→ ALL charger operations (start, stop, set amperage)
+       │
 Priority Balancer (independent)
        ↓
-       ├─→ Night Smart Charge
+       ├─→ Night Smart Charge + ChargerController
        │         ↓
-       │   Smart Charger Blocker
+       │   Smart Charger Blocker + ChargerController
        │
-       └─→ Solar Surplus Automation
+       └─→ Solar Surplus Automation + ChargerController
 ```
 
 **Priority Levels (execution order):**
@@ -121,6 +127,46 @@ The integration creates helper entities automatically via platform files:
 All helper entities use `RestoreEntity` to persist state across restarts.
 
 ### Component Details
+
+#### 0. ChargerController (`charger_controller.py`) - **NEW in v1.0.4+**
+
+**Purpose:** Centralized controller for ALL charger operations with rate limiting and queue management.
+
+**Key Features:**
+- **Single Source of Truth**: All charger on/off/amperage operations go through this controller
+- **Rate Limiting**: Enforces 30-second minimum interval between operations
+- **Operation Queue**: Manages multiple simultaneous requests with asyncio.Queue
+- **Safe Amperage Sequences**:
+  - Increase: Immediate (no delay needed)
+  - Decrease: stop → 5 sec → set → 1 sec → start
+- **Comprehensive Logging**: Every operation logged with EVSCLogger
+- **State Caching**: Tracks current amperage and on/off state
+
+**Key Methods:**
+- `start_charger(target_amps, reason)` - Start charger with specified amperage
+- `stop_charger(reason)` - Stop charger with reason logging
+- `set_amperage(target_amps, reason)` - Smart amperage change (auto-detects increase/decrease)
+- `is_charging()` - Check current charger state
+- `get_current_amperage()` - Get cached amperage value
+- `get_queue_size()` - Monitor operation queue
+- `get_seconds_since_last_operation()` - Rate limiting info
+
+**Rate Limiting Logic:**
+```python
+if time_since_last_operation < 30 seconds:
+    add_to_queue(operation)
+    process_queue_when_allowed()
+else:
+    execute_immediately()
+```
+
+**Used By:** Solar Surplus, Night Smart Charge, Smart Charger Blocker
+
+**Benefits:**
+- ✅ Eliminates ~340 lines of duplicate code
+- ✅ Prevents charger overflow errors (30-sec rate limit)
+- ✅ Consistent logging across all operations
+- ✅ Single place to fix/improve charger logic
 
 #### 1. Priority Balancer (`priority_balancer.py`)
 
@@ -169,13 +215,13 @@ Updates `evsc_priority_daily_state` sensor with:
 - `_should_block_charging()` - Main decision logic with window calculation
 - `_is_nighttime()` - Uses Home Assistant's astral events for sunset/sunrise
 - `_is_solar_below_threshold()` - Compares sensor value to threshold
-- `_block_charging()` - Turns off charger with retry logic
+- `_block_charging()` - Uses ChargerController to stop charger + sends notification
 - `_send_blocking_notification()` - Sends persistent notification
 
-**Retry Logic:**
-- 3 retry attempts with delays: [2, 4, 6] seconds
+**Implementation Notes:**
+- Uses `charger_controller.stop_charger()` for blocking (simplified from 130 lines to try-catch)
 - 30-minute enforcement timeout to prevent log spam
-- Rate limiting to prevent excessive blocking attempts
+- Rate limiting handled by ChargerController
 
 #### 3. Night Smart Charge (`night_smart_charge.py`)
 
@@ -188,6 +234,7 @@ Updates `evsc_priority_daily_state` sensor with:
 
 **Dependencies:**
 - Uses `priority_balancer.is_ev_target_reached()` for stop conditions
+- Uses `charger_controller` for start/stop operations
 - Coordinates with Smart Blocker for timing window
 
 **Logic:**
@@ -204,9 +251,8 @@ Updates `evsc_priority_daily_state` sensor with:
 - `_battery_mode_monitor()` - Monitor battery-based charging, check targets
 - `_grid_mode_monitor()` - Monitor grid-based charging, check targets
 - `_should_activate()` - Check activation conditions
-- `_start_charging()` - Start charger with configured amperage
-- `_stop_charging()` - Stop charger
 - `is_active()` - Public method to check if Night Charge is currently active
+- **All charger operations delegated to ChargerController**
 
 #### 4. Solar Surplus Automation (`solar_surplus.py`)
 
@@ -216,6 +262,7 @@ Updates `evsc_priority_daily_state` sensor with:
 
 **Dependencies:**
 - Uses `priority_balancer.calculate_priority()` for decision making
+- Uses `charger_controller` for ALL charger operations (start, stop, amperage changes)
 - Fallback mode when Balancer disabled (surplus → EV directly)
 
 **Logic:**
@@ -254,10 +301,7 @@ Updates `evsc_priority_daily_state` sensor with:
 - `_async_periodic_check()` - Main logic loop (runs every X minutes)
 - `_calculate_target_amperage()` - Converts surplus watts to amps, handles battery support fallback
 - `_handle_home_battery_usage()` - Manages battery support activation/deactivation
-- `_set_amperage()` - Instant amperage increase
-- `_adjust_amperage_down()` - Safe decrease sequence (stop → wait → adjust → wait → start)
-- `_start_charger()` - Turn on charger with sequence delays
-- `_stop_charger()` - Turn off charger
+- **All charger operations delegated to ChargerController** (no duplicate methods)
 
 **European Standard:** Uses 230V for watt-to-amp conversion
 

@@ -1,7 +1,6 @@
 """Solar Surplus Charging Profile automation."""
 from __future__ import annotations
 
-import asyncio
 import time
 from datetime import timedelta, datetime
 
@@ -13,8 +12,6 @@ from .const import (
     CHARGER_AMP_LEVELS,
     CHARGER_STATUS_FREE,
     VOLTAGE_EU,
-    CONF_EV_CHARGER_SWITCH,
-    CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
     CONF_FV_PRODUCTION,
     CONF_HOME_CONSUMPTION,
@@ -25,14 +22,11 @@ from .const import (
     PRIORITY_EV_FREE,
     SOLAR_SURPLUS_MIN_CHECK_INTERVAL,
     SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE,
-    CHARGER_START_SEQUENCE_DELAY,
-    CHARGER_STOP_SEQUENCE_DELAY,
-    CHARGER_AMPERAGE_STABILIZATION_DELAY,
     HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX,
 )
 from .utils.logging_helper import EVSCLogger
 from .utils.entity_helper import find_by_suffix
-from .utils.state_helper import get_state, get_float, get_bool, validate_sensor
+from .utils.state_helper import get_state, get_float, validate_sensor
 
 
 class SolarSurplusAutomation:
@@ -44,6 +38,7 @@ class SolarSurplusAutomation:
         entry_id: str,
         config: dict,
         priority_balancer,
+        charger_controller,
         night_smart_charge=None,
     ) -> None:
         """Initialize the Solar Surplus automation.
@@ -53,20 +48,20 @@ class SolarSurplusAutomation:
             entry_id: Config entry ID
             config: User configuration
             priority_balancer: PriorityBalancer instance for priority decisions
+            charger_controller: ChargerController instance for charger operations
             night_smart_charge: Night Smart Charge instance (optional)
         """
         self.hass = hass
         self.entry_id = entry_id
         self.config = config
         self.priority_balancer = priority_balancer
+        self.charger_controller = charger_controller
         self._night_smart_charge = night_smart_charge
 
         # Initialize logger
         self.logger = EVSCLogger("SOLAR SURPLUS")
 
         # User-configured entities
-        self._charger_switch = config.get(CONF_EV_CHARGER_SWITCH)
-        self._charger_current = config.get(CONF_EV_CHARGER_CURRENT)
         self._charger_status = config.get(CONF_EV_CHARGER_STATUS)
         self._fv_production = config.get(CONF_FV_PRODUCTION)
         self._home_consumption = config.get(CONF_HOME_CONSUMPTION)
@@ -196,7 +191,7 @@ class SolarSurplusAutomation:
             return
 
         # === 2. Check Night Smart Charge ===
-        if self._night_smart_charge and self._night_smart_charge.is_night_charge_active():
+        if self._night_smart_charge and self._night_smart_charge.is_active():
             night_mode = self._night_smart_charge.get_active_mode()
             self.logger.skip(f"Night Smart Charge active (mode: {night_mode})")
             await self._update_diagnostic_sensor(
@@ -275,7 +270,7 @@ class SolarSurplusAutomation:
 
             if priority == PRIORITY_HOME:
                 self.logger.warning("Priority = HOME - Stopping EV charger")
-                await self._stop_charger("Home battery needs charging")
+                await self.charger_controller.stop_charger("Home battery needs charging (Priority = HOME)")
                 self.logger.separator()
                 return
         else:
@@ -289,9 +284,9 @@ class SolarSurplusAutomation:
         self.logger.info(f"Target amperage: {target_amps}A")
 
         # === 10. Get Current Amperage ===
-        charger_is_on = get_bool(self.hass, self._charger_switch)
+        charger_is_on = await self.charger_controller.is_charging()
         if charger_is_on:
-            current_amps = get_float(self.hass, self._charger_current, 6)
+            current_amps = await self.charger_controller.get_current_amperage() or 6
         else:
             current_amps = 0
 
@@ -325,7 +320,7 @@ class SolarSurplusAutomation:
         # Start charger if OFF and we have target amperage
         if not charger_is_on and target_amps > 0:
             self.logger.action(f"Starting charger with {target_amps}A")
-            await self._start_charger(target_amps)
+            await self.charger_controller.start_charger(target_amps, "Solar surplus available")
             self.logger.separator()
             return
 
@@ -338,7 +333,7 @@ class SolarSurplusAutomation:
         # EV_FREE Mode: Stop immediately if no surplus (opportunistic charging only)
         if priority == PRIORITY_EV_FREE and target_amps == 0 and charger_is_on:
             self.logger.warning(f"EV_FREE mode: Insufficient surplus ({surplus_amps:.2f}A < 6A) - Stopping immediately")
-            await self._stop_charger("EV_FREE: Opportunistic charging requires sufficient surplus")
+            await self.charger_controller.stop_charger("EV_FREE: Opportunistic charging requires sufficient surplus")
             self._reset_state_tracking()
             self.logger.separator()
             return
@@ -459,7 +454,20 @@ class SolarSurplusAutomation:
 
         self.logger.warning(f"Grid import delay ELAPSED - Reducing charging")
         self._last_grid_import_high = None
-        await self._gradual_ramp_down(current_amps)
+
+        # Gradual ramp down: one level at a time
+        try:
+            current_index = CHARGER_AMP_LEVELS.index(current_amps)
+            if current_index > 0:
+                next_amps = CHARGER_AMP_LEVELS[current_index - 1]
+                self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")
+                await self.charger_controller.set_amperage(next_amps, "Grid import protection")
+            else:
+                self.logger.info("Already at minimum level - stopping charger")
+                await self.charger_controller.stop_charger("Grid import protection - minimum level reached")
+        except ValueError:
+            self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
+            await self.charger_controller.set_amperage(6, "Grid import protection - fallback to 6A")
 
     async def _handle_surplus_decrease(
         self,
@@ -485,162 +493,26 @@ class SolarSurplusAutomation:
 
         self.logger.warning("Surplus drop delay ELAPSED - Starting gradual ramp-down")
         self._last_surplus_sufficient = None
-        await self._gradual_ramp_down(current_amps)
+
+        # Gradual ramp down: one level at a time
+        try:
+            current_index = CHARGER_AMP_LEVELS.index(current_amps)
+            if current_index > 0:
+                next_amps = CHARGER_AMP_LEVELS[current_index - 1]
+                self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")
+                await self.charger_controller.set_amperage(next_amps, "Surplus decrease")
+            else:
+                self.logger.info("Already at minimum level - stopping charger")
+                await self.charger_controller.stop_charger("Surplus decrease - minimum level reached")
+        except ValueError:
+            self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
+            await self.charger_controller.set_amperage(6, "Surplus decrease - fallback to 6A")
 
     async def _handle_surplus_increase(self, target_amps: int, current_amps: int) -> None:
         """Handle surplus increase (immediate adjustment)."""
         self.logger.action(f"Increasing amperage from {current_amps}A to {target_amps}A (immediate)")
         self._reset_state_tracking()
-        await self._set_amperage(target_amps)
-
-    async def _start_charger(self, target_amps: int) -> None:
-        """Start charger with specified amperage.
-
-        Args:
-            target_amps: Target amperage to set
-        """
-        try:
-            # Turn ON charger
-            self.logger.action(f"Turning ON charger")
-            await self.hass.services.async_call(
-                "switch",
-                "turn_on",
-                {"entity_id": self._charger_switch},
-                blocking=True,
-            )
-
-            # Wait for charger to be ready
-            await asyncio.sleep(CHARGER_START_SEQUENCE_DELAY)
-
-            # Set amperage
-            self.logger.action(f"Setting amperage to {target_amps}A")
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": self._charger_current, "value": target_amps},
-                blocking=True,
-            )
-
-            self.logger.success(f"Charger started at {target_amps}A")
-
-        except Exception as e:
-            self.logger.error(f"Failed to start charger: {e}")
-
-    async def _stop_charger(self, reason: str) -> None:
-        """Stop the charger.
-
-        Args:
-            reason: Reason for stopping
-        """
-        charger_state = get_state(self.hass, self._charger_switch)
-
-        if charger_state == "on":
-            await self.hass.services.async_call(
-                "switch",
-                "turn_off",
-                {"entity_id": self._charger_switch},
-                blocking=True,
-            )
-            self.logger.success(f"Charger stopped - {reason}")
-        else:
-            self.logger.info(f"Charger already OFF - {reason}")
-
-    async def _set_amperage(self, amps: int) -> None:
-        """Set charger amperage (instant increase).
-
-        Args:
-            amps: Target amperage (0 to stop)
-        """
-        if amps == 0:
-            await self._stop_charger("Insufficient surplus")
-            return
-
-        self.logger.action(f"Setting amperage to {amps}A")
-        await self.hass.services.async_call(
-            "number",
-            "set_value",
-            {"entity_id": self._charger_current, "value": amps},
-            blocking=True,
-        )
-
-        # Ensure charger is on
-        if not get_bool(self.hass, self._charger_switch):
-            self.logger.action("Starting charger")
-            await self.hass.services.async_call(
-                "switch",
-                "turn_on",
-                {"entity_id": self._charger_switch},
-                blocking=True,
-            )
-
-    async def _gradual_ramp_down(self, current_amps: int) -> None:
-        """Gradually ramp down charging one step at a time.
-
-        Args:
-            current_amps: Current amperage
-        """
-        self.logger.info(f"Starting gradual ramp-down from {current_amps}A")
-
-        try:
-            current_index = CHARGER_AMP_LEVELS.index(current_amps)
-        except ValueError:
-            self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
-            await self._adjust_amperage_down(6)
-            return
-
-        if current_index > 0:
-            next_amps = CHARGER_AMP_LEVELS[current_index - 1]
-            self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")
-            await self._adjust_amperage_down(next_amps)
-        else:
-            self.logger.info("Already at minimum level - stopping charger")
-            await self._adjust_amperage_down(0)
-
-    async def _adjust_amperage_down(self, target_amps: int) -> None:
-        """Decrease amperage with proper sequence: stop -> wait 5s -> set -> wait 1s -> start.
-
-        Args:
-            target_amps: Target amperage
-        """
-        self.logger.info(f"Executing amperage change to {target_amps}A")
-
-        # Stop charger
-        self.logger.info("Step 1/5: Stopping charger")
-        await self.hass.services.async_call(
-            "switch",
-            "turn_off",
-            {"entity_id": self._charger_switch},
-            blocking=True,
-        )
-
-        # Wait
-        self.logger.info("Step 2/5: Waiting 5 seconds")
-        await asyncio.sleep(CHARGER_STOP_SEQUENCE_DELAY)
-
-        # Set new amperage or stop
-        if target_amps > 0:
-            self.logger.info(f"Step 3/5: Setting amperage to {target_amps}A")
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": self._charger_current, "value": target_amps},
-                blocking=True,
-            )
-
-            self.logger.info("Step 4/5: Waiting 1 second")
-            await asyncio.sleep(CHARGER_AMPERAGE_STABILIZATION_DELAY)
-
-            self.logger.info("Step 5/5: Restarting charger")
-            await self.hass.services.async_call(
-                "switch",
-                "turn_on",
-                {"entity_id": self._charger_switch},
-                blocking=True,
-            )
-            self.logger.success(f"Amperage changed to {target_amps}A")
-        else:
-            self.logger.info("Step 3/5: Target is 0A - keeping charger off")
-            self.logger.success("Charger stopped")
+        await self.charger_controller.set_amperage(target_amps, "Surplus increase")
 
     def _reset_state_tracking(self) -> None:
         """Reset state tracking flags."""

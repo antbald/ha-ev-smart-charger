@@ -1,17 +1,13 @@
 """Night Smart Charge automation for EV Smart Charger."""
 from __future__ import annotations
-import asyncio
 from datetime import datetime, timedelta
 
 from homeassistant.core import HomeAssistant, State, callback
-from homeassistant.const import STATE_ON, STATE_OFF
+from homeassistant.const import STATE_ON
 from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
 from homeassistant.helpers.sun import get_astral_event_date
-from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_EV_CHARGER_SWITCH,
-    CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
     CONF_SOC_HOME,
     CONF_PV_FORECAST,
@@ -38,6 +34,7 @@ class NightSmartCharge:
         entry_id: str,
         config: dict,
         priority_balancer,
+        charger_controller,
     ) -> None:
         """
         Initialize Night Smart Charge.
@@ -47,16 +44,16 @@ class NightSmartCharge:
             entry_id: Config entry ID
             config: User configuration
             priority_balancer: PriorityBalancer instance for target checks
+            charger_controller: ChargerController instance for charger operations
         """
         self.hass = hass
         self.entry_id = entry_id
         self.config = config
         self.priority_balancer = priority_balancer
+        self.charger_controller = charger_controller
         self.logger = EVSCLogger("NIGHT SMART CHARGE")
 
         # User-configured entities
-        self._charger_switch = config.get(CONF_EV_CHARGER_SWITCH)
-        self._charger_current = config.get(CONF_EV_CHARGER_CURRENT)
         self._charger_status = config.get(CONF_EV_CHARGER_STATUS)
         self._soc_home = config.get(CONF_SOC_HOME)
         self._pv_forecast_entity = config.get(CONF_PV_FORECAST)
@@ -365,11 +362,8 @@ class NightSmartCharge:
         self.logger.info(f"   EV target SOC: {ev_target}%")
         self.logger.info(f"   Home battery minimum SOC: {home_min_soc}%")
 
-        # Set charger amperage
-        await self._set_charger_amperage(amperage)
-
-        # Start charger if not already charging
-        await self._ensure_charger_on()
+        # Start charger with specified amperage
+        await self.charger_controller.start_charger(amperage, "Night charge - Battery mode")
 
         # Set internal state
         self._night_charge_active = True
@@ -415,7 +409,7 @@ class NightSmartCharge:
             self.logger.warning(f"{self.logger.STOP} Home battery threshold reached!")
             self.logger.warning(f"   Current: {home_soc}% <= Minimum: {home_min}%")
             self.logger.warning("   Stopping EV charging to protect home battery")
-            await self._stop_charging(f"Home battery protection ({home_soc}% <= {home_min}%)")
+            await self.charger_controller.stop_charger(f"Home battery protection ({home_soc}% <= {home_min}%)")
             await self._complete_night_charge()
             return
 
@@ -432,7 +426,7 @@ class NightSmartCharge:
         if ev_target_reached:
             self.logger.success(f"{self.logger.SUCCESS} EV target reached!")
             self.logger.info(f"   Current: {ev_soc}% >= Target: {ev_target}%")
-            await self._stop_charging(f"EV target SOC reached ({ev_soc}% >= {ev_target}%)")
+            await self.charger_controller.stop_charger(f"EV target SOC reached ({ev_soc}% >= {ev_target}%)")
             await self._complete_night_charge()
             return
 
@@ -453,11 +447,8 @@ class NightSmartCharge:
         self.logger.info(f"   Charger amperage: {amperage}A")
         self.logger.info(f"   EV target SOC: {ev_target}%")
 
-        # Set charger amperage
-        await self._set_charger_amperage(amperage)
-
-        # Start charger if not already charging
-        await self._ensure_charger_on()
+        # Start charger with specified amperage
+        await self.charger_controller.start_charger(amperage, "Night charge - Grid mode")
 
         # Set internal state
         self._night_charge_active = True
@@ -466,68 +457,6 @@ class NightSmartCharge:
         self.logger.success("Grid charge started successfully")
         self.logger.info(f"Will charge until EV reaches target SOC ({ev_target}%)")
         self.logger.info("Grid import detection is disabled for night charging")
-        self.logger.separator()
-
-    # ========== CHARGER CONTROL ==========
-
-    async def _set_charger_amperage(self, amperage: int) -> None:
-        """Set charger amperage."""
-        try:
-            await self.hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": self._charger_current, "value": amperage},
-                blocking=True,
-            )
-            self.logger.success(f"Charger amperage set to {amperage}A")
-        except Exception as e:
-            self.logger.error(f"Failed to set charger amperage: {e}")
-
-    async def _ensure_charger_on(self) -> None:
-        """Ensure charger is turned on."""
-        charger_state = state_helper.get_state(self.hass, self._charger_switch)
-
-        if charger_state == STATE_OFF:
-            try:
-                await self.hass.services.async_call(
-                    "switch",
-                    "turn_on",
-                    {"entity_id": self._charger_switch},
-                    blocking=True,
-                )
-                self.logger.success("Charger turned ON")
-            except Exception as e:
-                self.logger.error(f"Failed to turn on charger: {e}")
-
-    async def _stop_charging(self, reason: str) -> None:
-        """Stop EV charging with logging and verification."""
-        self.logger.separator()
-        self.logger.stop("Charger", reason)
-        self.logger.info(f"   Timestamp: {dt_util.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-        # Stop the charger
-        try:
-            await self.hass.services.async_call(
-                "switch",
-                "turn_off",
-                {"entity_id": self._charger_switch},
-                blocking=True,
-            )
-            self.logger.info(f"   Sent turn_off command to {self._charger_switch}")
-        except Exception as e:
-            self.logger.error(f"Failed to stop charger: {e}")
-            self.logger.separator()
-            return
-
-        # Verify charger stopped
-        await asyncio.sleep(2)
-        verify_state = state_helper.get_state(self.hass, self._charger_switch)
-
-        if verify_state == STATE_OFF:
-            self.logger.success(f"Charger successfully stopped (state: {verify_state})")
-        else:
-            self.logger.warning(f"Charger may still be ON (state: {verify_state})")
-
         self.logger.separator()
 
     # ========== SESSION COMPLETION ==========

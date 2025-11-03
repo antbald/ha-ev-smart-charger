@@ -38,6 +38,7 @@ class SmartChargerBlocker:
         entry_id: str,
         config: dict,
         night_smart_charge,
+        charger_controller,
         coordinator=None,
     ) -> None:
         """Initialize the Smart Charger Blocker.
@@ -47,12 +48,14 @@ class SmartChargerBlocker:
             entry_id: Config entry ID
             config: User configuration
             night_smart_charge: Night Smart Charge instance for coordination
+            charger_controller: ChargerController instance for charger operations
             coordinator: Automation coordinator for conflict resolution
         """
         self.hass = hass
         self.entry_id = entry_id
         self.config = config
         self.night_smart_charge = night_smart_charge
+        self.charger_controller = charger_controller
         self._coordinator = coordinator
         self.logger = EVSCLogger("SMART BLOCKER")
 
@@ -531,13 +534,7 @@ class SmartChargerBlocker:
         return False, "Enforcement should continue"
 
     async def _block_charging(self, reason: str) -> None:
-        """Block charging by turning off the charger switch with retry logic."""
-        charger_switch = self.config.get(CONF_EV_CHARGER_SWITCH)
-
-        if not charger_switch:
-            self.logger.error("Charger switch not configured")
-            return
-
+        """Block charging by using ChargerController to stop the charger."""
         # Request permission from coordinator
         if self._coordinator:
             allowed, coord_reason = await self._coordinator.request_charger_action(
@@ -558,109 +555,66 @@ class SmartChargerBlocker:
         self.logger.warning(f"Timestamp: {dt_util.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         # Check for potential conflicts
-        if self.night_smart_charge and self.night_smart_charge.is_night_charge_active():
+        if self.night_smart_charge and self.night_smart_charge.is_active():
             night_mode = self.night_smart_charge.get_active_mode()
             self.logger.warning(
                 f"Conflict detected: Night Smart Charge is active (mode: {night_mode})"
             )
             self.logger.warning("Smart Blocker will override Night Smart Charge")
 
-        # Retry logic with verification
-        for attempt in range(1, SMART_BLOCKER_RETRY_ATTEMPTS + 1):
-            self.logger.warning(f"Blocking attempt {attempt}/{SMART_BLOCKER_RETRY_ATTEMPTS}")
+        # Use ChargerController to stop charger
+        try:
+            await self.charger_controller.stop_charger(f"Smart Blocker: {reason}")
 
-            # Get current state before turning off
-            current_state = self.hass.states.get(charger_switch)
-            current_status = current_state.state if current_state else "unknown"
-            self.logger.warning(f"Current charger state: {current_status}")
+            # Set enforcement flag and timestamp
+            self._currently_blocking = True
+            self._enforcement_start_time = dt_util.now()
 
-            # Turn off the charger
-            await self.hass.services.async_call(
-                "switch",
-                "turn_off",
-                {"entity_id": charger_switch},
-                blocking=True,
+            self.logger.success("Charger successfully blocked")
+            self.logger.info("Enforcement: ACTIVE (continuous monitoring enabled)")
+            self.logger.info(
+                f"Enforcement timeout: {ENFORCEMENT_TIMEOUT_SECONDS / 60:.0f} minutes"
             )
-            self.logger.warning(f"Sent turn_off command to {charger_switch}")
 
-            # Wait for state to propagate
-            await asyncio.sleep(2)
+            # Send persistent notification
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "⚡ EV Smart Charger: Charging Blocked",
+                    "message": f"Charging has been automatically blocked.\n\n"
+                    f"**Reason:** {reason}\n\n"
+                    f"**Timestamp:** {dt_util.now().strftime('%H:%M:%S')}\n\n"
+                    f"To override this behavior, enable 'Forza Ricarica' or disable 'Smart Charger Blocker'.\n\n"
+                    f"**Continuous monitoring:** Any external attempt to re-enable charging will be immediately blocked.",
+                    "notification_id": f"evsc_blocked_{int(dt_util.now().timestamp())}",
+                },
+                blocking=False,
+            )
 
-            # Verify charger is actually OFF
-            verify_state = self.hass.states.get(charger_switch)
-            verify_status = verify_state.state if verify_state else "unknown"
-            self.logger.warning(f"Verification: charger state is now '{verify_status}'")
+            self.logger.separator()
 
-            if verify_status == STATE_OFF:
-                self.logger.success("Charger successfully turned OFF")
-                self.logger.info(f"Attempt: {attempt}/{SMART_BLOCKER_RETRY_ATTEMPTS}")
-                self.logger.info("Enforcement: ACTIVE (continuous monitoring enabled)")
-                self.logger.info(
-                    f"Enforcement timeout: {ENFORCEMENT_TIMEOUT_SECONDS / 60:.0f} minutes"
-                )
+        except Exception as e:
+            self.logger.error(f"Failed to block charging: {e}")
 
-                # Set enforcement flag and timestamp
-                self._currently_blocking = True
-                self._enforcement_start_time = dt_util.now()
-
-                # Send persistent notification
-                await self.hass.services.async_call(
-                    "persistent_notification",
-                    "create",
-                    {
-                        "title": "⚡ EV Smart Charger: Charging Blocked",
-                        "message": f"Charging has been automatically blocked.\n\n"
-                        f"**Reason:** {reason}\n\n"
-                        f"**Timestamp:** {dt_util.now().strftime('%H:%M:%S')}\n\n"
-                        f"To override this behavior, enable 'Forza Ricarica' or disable 'Smart Charger Blocker'.\n\n"
-                        f"**Continuous monitoring:** Any external attempt to re-enable charging will be immediately blocked.",
-                        "notification_id": f"evsc_blocked_{int(dt_util.now().timestamp())}",
-                    },
-                    blocking=False,
-                )
-
-                self.logger.separator()
-                return
-            else:
-                self.logger.error(
-                    f"Charger still ON after attempt {attempt}"
-                )
-                self.logger.error(f"Expected: {STATE_OFF}, Actual: {verify_status}")
-
-                if attempt < SMART_BLOCKER_RETRY_ATTEMPTS:
-                    retry_delay = SMART_BLOCKER_RETRY_DELAYS[attempt - 1]
-                    self.logger.error(f"Retrying in {retry_delay} seconds...")
-                    await asyncio.sleep(retry_delay)
-                else:
-                    self.logger.error("All attempts exhausted!")
-                    self.logger.error(
-                        f"Charger remains ON after {SMART_BLOCKER_RETRY_ATTEMPTS} attempts"
-                    )
-                    self.logger.error("Possible causes:")
-                    self.logger.error("1. Charger switch entity not responding to commands")
-                    self.logger.error("2. External automation overriding this action")
-                    self.logger.error("3. Charger hardware issue")
-                    self.logger.error("4. Home Assistant service call failure")
-
-                    # Send error notification
-                    await self.hass.services.async_call(
-                        "persistent_notification",
-                        "create",
-                        {
-                            "title": "⚠️ EV Smart Charger: Blocking Failed",
-                            "message": f"Failed to block charging after {SMART_BLOCKER_RETRY_ATTEMPTS} attempts.\n\n"
-                            f"**Reason:** {reason}\n\n"
-                            f"**Issue:** Charger switch did not respond to turn_off commands.\n\n"
-                            f"Please check:\n"
-                            f"- Charger switch entity is functioning\n"
-                            f"- No conflicting automations\n"
-                            f"- Charger hardware status",
-                            "notification_id": f"evsc_block_failed_{int(dt_util.now().timestamp())}",
-                        },
-                        blocking=False,
-                    )
-                    self.logger.separator()
-                    return
+            # Send error notification
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "⚠️ EV Smart Charger: Blocking Failed",
+                    "message": f"Failed to block charging.\n\n"
+                    f"**Reason:** {reason}\n\n"
+                    f"**Error:** {str(e)}\n\n"
+                    f"Please check:\n"
+                    f"- Charger switch entity is functioning\n"
+                    f"- No conflicting automations\n"
+                    f"- Charger hardware status",
+                    "notification_id": f"evsc_block_failed_{int(dt_util.now().timestamp())}",
+                },
+                blocking=False,
+            )
+            self.logger.separator()
 
 
 async def async_setup_automations(
