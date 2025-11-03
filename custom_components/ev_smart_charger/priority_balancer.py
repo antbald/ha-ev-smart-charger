@@ -55,10 +55,17 @@ class PriorityBalancer:
         """Setup: discover helper entities."""
         self.logger.info("Setting up Priority Balancer")
 
-        # Discover enabled switch
-        self._enabled_entity = entity_helper.get_helper_entity(
-            self.hass, HELPER_PRIORITY_BALANCER_ENABLED_SUFFIX, "Priority Balancer"
+        # Discover enabled switch (optional for backward compatibility)
+        self._enabled_entity = entity_helper.find_by_suffix(
+            self.hass, HELPER_PRIORITY_BALANCER_ENABLED_SUFFIX
         )
+
+        if not self._enabled_entity:
+            self.logger.warning(
+                f"Helper entity {HELPER_PRIORITY_BALANCER_ENABLED_SUFFIX} not found - "
+                f"Priority Balancer will be enabled by default. "
+                f"Restart Home Assistant to create missing helper entities."
+            )
 
         # Discover daily SOC target entities
         days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -81,7 +88,8 @@ class PriorityBalancer:
     def is_enabled(self) -> bool:
         """Check if Priority Balancer is enabled."""
         if not self._enabled_entity:
-            return False
+            # Default to enabled for backward compatibility
+            return True
         return state_helper.get_bool(self.hass, self._enabled_entity)
 
     async def calculate_priority(self) -> str:
