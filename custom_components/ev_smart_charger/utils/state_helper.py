@@ -40,8 +40,25 @@ def get_float(hass: HomeAssistant, entity_id: str, default: float = 0.0) -> floa
         return default
 
 
-def get_int(hass: HomeAssistant, entity_id: str, default: int = 0) -> int:
-    """Get entity state as int with error handling."""
+def get_int(hass: HomeAssistant, entity_id: str, default: int | None = 0) -> int | None:
+    """
+    Get entity state as int with error handling.
+
+    Args:
+        hass: Home Assistant instance
+        entity_id: Entity ID to read
+        default: Default value if read fails (can be None)
+
+    Returns:
+        Int value, default, or None
+    """
+    if default is None:
+        float_result = get_float(hass, entity_id, 0.0)
+        # If we got the fallback 0.0, check if state was actually unavailable
+        state = get_state(hass, entity_id)
+        if state in [None, "unknown", "unavailable"]:
+            return None
+        return int(float_result)
     return int(get_float(hass, entity_id, float(default)))
 
 
