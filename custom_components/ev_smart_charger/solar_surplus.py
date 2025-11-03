@@ -463,8 +463,13 @@ class SolarSurplusAutomation:
                 self.logger.info("Already at minimum level - stopping charger")
                 await self.charger_controller.stop_charger("Grid import protection - minimum level reached")
         except ValueError:
-            self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
-            await self.charger_controller.set_amperage(6, "Grid import protection - fallback to 6A")
+            # Handle 0A (charger off) or other non-standard levels
+            if current_amps == 0:
+                self.logger.warning("Charger is off (0A) - starting at minimum 6A")
+                await self.charger_controller.set_amperage(6, "Grid import protection - charger was off, starting at 6A")
+            else:
+                self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
+                await self.charger_controller.set_amperage(6, "Grid import protection - fallback to 6A")
 
     async def _handle_surplus_decrease(
         self,
@@ -502,8 +507,13 @@ class SolarSurplusAutomation:
                 self.logger.info("Already at minimum level - stopping charger")
                 await self.charger_controller.stop_charger("Surplus decrease - minimum level reached")
         except ValueError:
-            self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
-            await self.charger_controller.set_amperage(6, "Surplus decrease - fallback to 6A")
+            # Handle 0A (charger off) or other non-standard levels
+            if current_amps == 0:
+                self.logger.warning("Charger is off (0A) - starting at minimum 6A")
+                await self.charger_controller.set_amperage(6, "Surplus decrease - charger was off, starting at 6A")
+            else:
+                self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
+                await self.charger_controller.set_amperage(6, "Surplus decrease - fallback to 6A")
 
     async def _handle_surplus_increase(self, target_amps: int, current_amps: int) -> None:
         """Handle surplus increase (immediate adjustment)."""

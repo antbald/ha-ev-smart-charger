@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.const import STATE_ON
 from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_EV_CHARGER_STATUS,

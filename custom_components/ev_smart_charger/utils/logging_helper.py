@@ -29,6 +29,8 @@ class EVSCLogger:
     CLOCK = "⏰"
     BALANCE = "⚖️"
     BLOCKER = "🚫"
+    CHARGER = "🔌"
+    ALERT = "🚨"
 
     def __init__(self, component_name: str):
         """Initialize logger with component name."""

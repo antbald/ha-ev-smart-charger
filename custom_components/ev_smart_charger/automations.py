@@ -482,21 +482,22 @@ class SmartChargerBlocker:
                 self.logger.warning(f"Reason: {coord_reason}")
                 return
 
-        self.logger.separator()
-        self.logger.warning(f"{self.logger.BLOCKER} Starting blocking sequence")
-        self.logger.warning(f"Reason: {reason}")
-        self.logger.warning(f"Timestamp: {dt_util.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-        # Check for potential conflicts
-        if self.night_smart_charge and self.night_smart_charge.is_active():
-            night_mode = self.night_smart_charge.get_active_mode()
-            self.logger.warning(
-                f"Conflict detected: Night Smart Charge is active (mode: {night_mode})"
-            )
-            self.logger.warning("Smart Blocker will override Night Smart Charge")
-
         # Use ChargerController to stop charger
+        # IMPORTANT: All logging inside try-catch to prevent AttributeError from aborting blocking
         try:
+            self.logger.separator()
+            self.logger.warning(f"{self.logger.BLOCKER} Starting blocking sequence")
+            self.logger.warning(f"Reason: {reason}")
+            self.logger.warning(f"Timestamp: {dt_util.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+            # Check for potential conflicts
+            if self.night_smart_charge and self.night_smart_charge.is_active():
+                night_mode = self.night_smart_charge.get_active_mode()
+                self.logger.warning(
+                    f"Conflict detected: Night Smart Charge is active (mode: {night_mode})"
+                )
+                self.logger.warning("Smart Blocker will override Night Smart Charge")
+
             await self.charger_controller.stop_charger(f"Smart Blocker: {reason}")
 
             # Set enforcement flag and timestamp
