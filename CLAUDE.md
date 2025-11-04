@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.3.10
+**Current Version:** 1.3.11
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -737,6 +737,20 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.3.11 (2025-11-05)
+**CRITICAL FIX: Solar Surplus Nighttime Operation**
+- Fixed: Solar Surplus was running during nighttime and attempting to charge using home battery
+- Root cause: Solar Surplus periodic check ran 24/7 without nighttime detection
+- At 00:25 (nighttime): Surplus -492W → Priority EV → Battery support activated → 16A charging started
+- Result: Smart Blocker had to intervene (should never happen)
+- Solution: Added nighttime detection using `AstralTimeService.is_nighttime()`
+- Solar Surplus now ONLY operates during daytime (sunrise → sunset)
+- New check sequence: Forza Ricarica → **Nighttime** → Night Smart Charge → Profile → ...
+- Nighttime hours fully protected: sunset → sunrise fully blocked for Solar Surplus
+- Night Smart Charge handles ALL nighttime charging (starts at configured time, e.g., 01:00)
+- Technical: Added AstralTimeService to solar_surplus.py, new check #2, renumbered sections
+- Upgrade priority: 🔴 CRITICAL for users experiencing unwanted night charging
 
 ### v1.3.10 (2025-11-05)
 **CRITICAL FIX: Smart Charger Blocker After Midnight**
