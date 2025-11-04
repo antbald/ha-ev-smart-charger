@@ -53,12 +53,18 @@ def get_int(hass: HomeAssistant, entity_id: str, default: int | None = 0) -> int
         Int value, default, or None
     """
     if default is None:
-        float_result = get_float(hass, entity_id, 0.0)
-        # If we got the fallback 0.0, check if state was actually unavailable
+        # Check state first to avoid unnecessary warning logs
         state = get_state(hass, entity_id)
         if state in [None, "unknown", "unavailable"]:
             return None
-        return int(float_result)
+        # State is available, convert to int
+        try:
+            return int(float(state))
+        except (ValueError, TypeError):
+            _LOGGER.warning(
+                f"Entity {entity_id} has invalid state '{state}', returning None"
+            )
+            return None
     return int(get_float(hass, entity_id, float(default)))
 
 
