@@ -120,12 +120,14 @@ class EVSCSwitch(SwitchEntity, RestoreEntity):
         suffix: str,
         name: str,
         icon: str,
+        default_state: bool = False,
     ) -> None:
         """Initialize the switch."""
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
-        self._is_on = False
+        self._is_on = default_state
+        self._default_state = default_state
         # Set explicit entity_id to match pattern
         self.entity_id = f"switch.{DOMAIN}_{entry_id}_{suffix}"
 
@@ -151,3 +153,8 @@ class EVSCSwitch(SwitchEntity, RestoreEntity):
 
         if (last_state := await self.async_get_last_state()) is not None:
             self._is_on = last_state.state == STATE_ON
+            _LOGGER.info(f"  ↩️ Restored state: {self._is_on}")
+        else:
+            # No previous state, use default
+            self._is_on = self._default_state
+            _LOGGER.info(f"  🆕 No previous state, using default: {self._is_on}")
