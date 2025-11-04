@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.3.7
+**Current Version:** 1.3.9
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -731,10 +731,31 @@ async def _set_amperage(self, target_amperage: int):
 - **Rate Limiting:** Solar Surplus enforces 30-second minimum between checks
 - **Battery Support:** Only activates when Priority=EV (not EV_FREE, HOME, or disabled)
 - **Smart Blocker Window:** Adjusts based on Night Smart Charge enabled state
+- **Device Grouping:** All 29 helper entities are grouped under a single "EV Smart Charger" device (v1.3.8+). Each entity class has a `device_info` property that returns device identifiers, manufacturer, model, and sw_version. This enables proper organization in Home Assistant's device registry.
+- **Rate Limiting & Logging:** Solar Surplus rate limit warning logs only once per minute to prevent log spam (v1.3.9+). Immediate recalculation triggers respect 30-second minimum check interval.
 - **Charger Amperage Convention:** The charger does NOT support 0A. Valid levels are `CHARGER_AMP_LEVELS = [6, 8, 10, 13, 16, 20, 24, 32]`. Internally, `target_amps = 0` is used as a convention to mean "STOP charger" (turn off), not "set to 0A". ChargerController translates: `0 → stop_charger()`, `>= 6 → start_charger(amps)` or `set_amperage(amps)`. Below 6A, the charger must be turned OFF.
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.3.9 (2025-11-04)
+**Logging Performance Fix**
+- Fixed: "Module logging too frequently. 200 messages" warning in Home Assistant logs
+- Root cause 1: Rate limit warning logged on every check (paradox)
+- Root cause 2: Battery SOC monitor triggered immediate recalculation without rate limiting
+- Solution 1: Rate limit warning now logs only once per minute (at cycle reset)
+- Solution 2: Immediate recalculation respects SOLAR_SURPLUS_MIN_CHECK_INTERVAL (30s)
+- Technical: Modified `solar_surplus.py` lines 253-257 (rate limit) and 223-241 (SOC monitor)
+
+### v1.3.8 (2025-11-04)
+**UI Improvements & Device Grouping**
+- Added: `device_info` property to all entity classes (number, switch, select, time, sensor)
+- Fixed: Config flow total_steps inconsistency (now correctly shows "Step X of 5")
+- Result: All 29 entities now grouped under unified "EV Smart Charger" device
+- Device info includes: manufacturer="antbald", model="EV Smart Charger", sw_version
+- Icon "mdi:ev-station" already configured in manifest for HACS/device
+- Daily SOC entities already have calendar icons (mdi:calendar-monday through sunday)
+- Technical: Added VERSION import and device_info property to all platform files
 
 ### v1.3.7 (2025-11-04)
 **Fix Unnecessary Warning Logs**
