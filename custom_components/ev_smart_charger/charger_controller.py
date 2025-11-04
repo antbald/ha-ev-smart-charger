@@ -1,5 +1,6 @@
 """Centralized Charger Controller for EV Smart Charger."""
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 import async_timeout
@@ -32,6 +33,52 @@ class ChargerOperation:
         self.value = value
         self.reason = reason
         self.timestamp = datetime.now()
+
+
+@dataclass
+class OperationResult:
+    """Result of a charger operation with detailed feedback.
+
+    Attributes:
+        success: Whether the operation completed successfully
+        operation: Type of operation performed ("start", "stop", "set_amperage", "adjust_down")
+        reason: Reason for the operation
+        amperage: Target amperage (None for stop operations)
+        queued: Whether operation was queued due to rate limiting
+        error_message: Error message if operation failed (None if success)
+        timestamp: When the operation was executed
+    """
+
+    success: bool
+    operation: str
+    reason: str
+    amperage: Optional[int] = None
+    queued: bool = False
+    error_message: Optional[str] = None
+    timestamp: datetime = None
+
+    def __post_init__(self):
+        """Set timestamp if not provided."""
+        if self.timestamp is None:
+            self.timestamp = datetime.now()
+
+    def __str__(self) -> str:
+        """Human-readable representation for logging."""
+        status = "✅ SUCCESS" if self.success else "❌ FAILED"
+        details = []
+
+        if self.queued:
+            details.append("QUEUED")
+
+        if self.amperage is not None:
+            details.append(f"{self.amperage}A")
+
+        if self.error_message:
+            details.append(f"Error: {self.error_message}")
+
+        details_str = f" ({', '.join(details)})" if details else ""
+
+        return f"{status}: {self.operation}{details_str} - {self.reason}"
 
 
 class ChargerController:
@@ -94,13 +141,16 @@ class ChargerController:
             self.hass, self._charger_current, default=None
         )
 
-    async def start_charger(self, target_amps: Optional[int] = None, reason: str = ""):
+    async def start_charger(self, target_amps: Optional[int] = None, reason: str = "") -> OperationResult:
         """
         Start the charger with optional target amperage.
 
         Args:
             target_amps: Optional amperage to set (if None, uses current)
             reason: Reason for starting (for logging)
+
+        Returns:
+            OperationResult with success status and operation details
         """
         async with self._lock:
             self.logger.separator()
@@ -120,7 +170,13 @@ class ChargerController:
                     ChargerOperation("start", target_amps, reason)
                 )
                 asyncio.create_task(self._process_queue())
-                return
+                return OperationResult(
+                    success=True,
+                    operation="start",
+                    reason=reason,
+                    amperage=target_amps,
+                    queued=True
+                )
 
             try:
                 # Set amperage first if specified
@@ -146,17 +202,33 @@ class ChargerController:
                 )
                 self.logger.separator()
 
+                return OperationResult(
+                    success=True,
+                    operation="start",
+                    reason=reason,
+                    amperage=self._current_amperage
+                )
+
             except Exception as ex:
                 self.logger.error(f"Failed to start charger: {ex}")
                 self.logger.separator()
-                raise
+                return OperationResult(
+                    success=False,
+                    operation="start",
+                    reason=reason,
+                    amperage=target_amps,
+                    error_message=str(ex)
+                )
 
-    async def stop_charger(self, reason: str = ""):
+    async def stop_charger(self, reason: str = "") -> OperationResult:
         """
         Stop the charger.
 
         Args:
             reason: Reason for stopping (for logging)
+
+        Returns:
+            OperationResult with success status and operation details
         """
         async with self._lock:
             self.logger.separator()
@@ -171,7 +243,12 @@ class ChargerController:
                 )
                 await self._operation_queue.put(ChargerOperation("stop", None, reason))
                 asyncio.create_task(self._process_queue())
-                return
+                return OperationResult(
+                    success=True,
+                    operation="stop",
+                    reason=reason,
+                    queued=True
+                )
 
             try:
                 # Turn off charger
@@ -190,18 +267,32 @@ class ChargerController:
                 self.logger.success(f"{self.logger.CHARGER} Charger stopped successfully")
                 self.logger.separator()
 
+                return OperationResult(
+                    success=True,
+                    operation="stop",
+                    reason=reason
+                )
+
             except Exception as ex:
                 self.logger.error(f"Failed to stop charger: {ex}")
                 self.logger.separator()
-                raise
+                return OperationResult(
+                    success=False,
+                    operation="stop",
+                    reason=reason,
+                    error_message=str(ex)
+                )
 
-    async def set_amperage(self, target_amps: int, reason: str = ""):
+    async def set_amperage(self, target_amps: int, reason: str = "") -> OperationResult:
         """
         Set charger amperage with automatic increase/decrease logic.
 
         Args:
             target_amps: Target amperage (must be in CHARGER_AMP_LEVELS)
             reason: Reason for change (for logging)
+
+        Returns:
+            OperationResult with success status and operation details
         """
         async with self._lock:
             self.logger.separator()
@@ -223,7 +314,12 @@ class ChargerController:
             if self._current_amperage == target_amps:
                 self.logger.info(f"Already at target amperage ({target_amps}A), skipping")
                 self.logger.separator()
-                return
+                return OperationResult(
+                    success=True,
+                    operation="set_amperage",
+                    reason=f"Already at target ({target_amps}A)",
+                    amperage=target_amps
+                )
 
             # Check rate limiting
             if not await self._can_execute_operation():
@@ -235,22 +331,43 @@ class ChargerController:
                     ChargerOperation("set_amperage", target_amps, reason)
                 )
                 asyncio.create_task(self._process_queue())
-                return
+                return OperationResult(
+                    success=True,
+                    operation="set_amperage",
+                    reason=reason,
+                    amperage=target_amps,
+                    queued=True
+                )
 
             try:
                 # Determine if increase or decrease
+                operation_type = "set_amperage"
                 if target_amps > self._current_amperage:
                     await self._increase_amperage(target_amps)
                 else:
                     await self._decrease_amperage(target_amps)
+                    operation_type = "adjust_down"  # Safe decrease sequence
 
                 self._last_operation_time = datetime.now()
                 self.logger.separator()
 
+                return OperationResult(
+                    success=True,
+                    operation=operation_type,
+                    reason=reason,
+                    amperage=target_amps
+                )
+
             except Exception as ex:
                 self.logger.error(f"Failed to set amperage: {ex}")
                 self.logger.separator()
-                raise
+                return OperationResult(
+                    success=False,
+                    operation="set_amperage",
+                    reason=reason,
+                    amperage=target_amps,
+                    error_message=str(ex)
+                )
 
     async def _increase_amperage(self, target_amps: int):
         """

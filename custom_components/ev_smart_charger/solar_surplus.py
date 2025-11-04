@@ -5,7 +5,7 @@ import time
 from datetime import timedelta, datetime
 
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
 
 from .const import (
     CHARGER_AMP_LEVELS,
@@ -22,6 +22,9 @@ from .const import (
     SOLAR_SURPLUS_MIN_CHECK_INTERVAL,
     SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE,
     HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX,
+    SURPLUS_START_THRESHOLD,
+    SURPLUS_STOP_THRESHOLD,
+    SURPLUS_STABLE_DURATION,
 )
 from .utils.logging_helper import EVSCLogger
 from .utils.entity_helper import find_by_suffix
@@ -84,10 +87,16 @@ class SolarSurplusAutomation:
         # Timer for periodic checks
         self._timer_unsub = None
 
+        # SOC listener for real-time battery monitoring
+        self._soc_listener_unsub = None
+
         # State tracking
         self._last_grid_import_high = None  # Timestamp when grid import exceeded threshold
         self._last_surplus_sufficient = None  # Timestamp when surplus was last sufficient
         self._battery_support_active = False  # Flag for home battery support mode
+        self._surplus_stable_since = None  # Timestamp when surplus became stable (for hysteresis)
+        self._waiting_for_surplus_decrease = False  # Flag for surplus drop delay in EV_FREE mode
+        self._surplus_decrease_start_time = None  # Timestamp when surplus drop started
 
         # Rate limiting
         self._last_check_time = None
@@ -148,6 +157,17 @@ class SolarSurplusAutomation:
                 f"Using default values. Restart Home Assistant to create missing helper entities."
             )
 
+        # Register listener for real-time home battery SOC monitoring
+        if self._soc_home:
+            self._soc_listener_unsub = async_track_state_change_event(
+                self.hass,
+                [self._soc_home],
+                self._async_home_battery_soc_changed,
+            )
+            self.logger.info(f"Real-time SOC listener registered on {self._soc_home}")
+        else:
+            self.logger.warning("Home battery SOC sensor not configured - real-time monitoring disabled")
+
         self.logger.success("Solar Surplus automation initialized")
         await self._start_timer()
 
@@ -166,6 +186,57 @@ class SolarSurplusAutomation:
         )
 
         self.logger.info(f"Timer started with {interval_minutes} minute interval")
+
+    @callback
+    async def _async_home_battery_soc_changed(self, event) -> None:
+        """Handle home battery SOC state changes for immediate battery protection.
+
+        This listener provides real-time monitoring of home battery SOC to ensure
+        immediate deactivation of battery support when SOC drops below minimum threshold.
+
+        Without this listener, there would be up to 1 minute delay (periodic check interval)
+        between SOC dropping below minimum and battery support deactivation, potentially
+        draining the battery below the user's configured minimum.
+
+        Args:
+            event: State change event containing old_state and new_state
+        """
+        # Skip if battery support is not currently active
+        if not self._battery_support_active:
+            return
+
+        # Get new SOC value
+        new_state = event.data.get("new_state")
+        if not new_state or new_state.state in ("unknown", "unavailable"):
+            return
+
+        try:
+            new_soc = float(new_state.state)
+        except (ValueError, TypeError):
+            self.logger.warning(f"Invalid SOC value: {new_state.state}")
+            return
+
+        # Get minimum SOC threshold
+        min_soc = get_float(self.hass, self._home_battery_min_soc_entity, 20)
+
+        # Check if SOC dropped below minimum
+        if new_soc <= min_soc:
+            self.logger.warning(
+                f"{self.logger.BATTERY} Home battery SOC dropped to {new_soc:.1f}% "
+                f"(minimum: {min_soc:.0f}%) - Immediate battery support deactivation"
+            )
+
+            # Deactivate battery support immediately
+            self._battery_support_active = False
+
+            # Trigger immediate recalculation
+            # Use hass.async_create_task to avoid blocking the event handler
+            self.hass.async_create_task(self._async_periodic_check())
+        else:
+            self.logger.debug(
+                f"{self.logger.BATTERY} Home battery SOC: {new_soc:.1f}% "
+                f"(minimum: {min_soc:.0f}%, battery support active)"
+            )
 
     @callback
     async def _async_periodic_check(self, now=None) -> None:
@@ -289,11 +360,7 @@ class SolarSurplusAutomation:
         # === 8. Handle Home Battery Usage ===
         await self._handle_home_battery_usage(surplus_watts, priority)
 
-        # === 9. Calculate Target Amperage ===
-        target_amps = self._calculate_target_amperage(surplus_watts)
-        self.logger.info(f"Target amperage: {target_amps}A")
-
-        # === 10. Get Current Amperage ===
+        # === 9. Get Current Amperage (needed for hysteresis) ===
         charger_is_on = await self.charger_controller.is_charging()
         if charger_is_on:
             current_amps = await self.charger_controller.get_current_amperage() or 6
@@ -301,6 +368,10 @@ class SolarSurplusAutomation:
             current_amps = 0
 
         self.logger.info(f"Current charging: {current_amps}A (charger {'ON' if charger_is_on else 'OFF'})")
+
+        # === 10. Calculate Target Amperage (with hysteresis) ===
+        target_amps = self._calculate_target_amperage(surplus_watts, current_amps)
+        self.logger.info(f"Target amperage: {target_amps}A")
 
         # === 11. Get Configuration Values ===
         grid_threshold = get_float(self.hass, self._grid_import_threshold_entity)
@@ -340,10 +411,33 @@ class SolarSurplusAutomation:
             self.logger.separator()
             return
 
-        # EV_FREE Mode: Stop immediately if no surplus (opportunistic charging only)
+        # EV_FREE Mode: Apply delay before stopping (same as PRIORITY_EV)
         if priority == PRIORITY_EV_FREE and target_amps == 0 and charger_is_on:
-            self.logger.warning(f"EV_FREE mode: Insufficient surplus ({surplus_amps:.2f}A < 6A) - Stopping immediately")
-            await self.charger_controller.stop_charger("EV_FREE: Opportunistic charging requires sufficient surplus")
+            # Start delay countdown if not already waiting
+            if not self._waiting_for_surplus_decrease:
+                self._surplus_decrease_start_time = datetime.now()
+                self._waiting_for_surplus_decrease = True
+                self.logger.warning(
+                    f"EV_FREE mode: Insufficient surplus ({surplus_amps:.2f}A < {SURPLUS_STOP_THRESHOLD}A) - "
+                    f"Starting {surplus_drop_delay}s delay before stopping"
+                )
+                self.logger.separator()
+                return
+
+            # Check if delay elapsed
+            elapsed = (datetime.now() - self._surplus_decrease_start_time).total_seconds()
+            if elapsed < surplus_drop_delay:
+                self.logger.info(
+                    f"EV_FREE mode: Waiting for surplus drop delay ({elapsed:.1f}s / {surplus_drop_delay}s)"
+                )
+                self.logger.separator()
+                return
+
+            # Delay elapsed, stop charging
+            self.logger.warning(
+                f"EV_FREE mode: Delay elapsed - Stopping (insufficient surplus for {surplus_drop_delay}s)"
+            )
+            await self.charger_controller.stop_charger("EV_FREE: Insufficient surplus confirmed after delay")
             self._reset_state_tracking()
             self.logger.separator()
             return
@@ -406,20 +500,27 @@ class SolarSurplusAutomation:
             self.logger.info(f"Using configured amperage: {battery_support_amps}A")
             self._battery_support_active = True
 
-    def _calculate_target_amperage(self, surplus_watts: float) -> int:
-        """Calculate target amperage based on surplus or battery support mode.
+    def _calculate_target_amperage(self, surplus_watts: float, current_amperage: int = 0) -> int:
+        """Calculate target amperage with hysteresis to prevent oscillation.
 
         Args:
             surplus_watts: Current surplus in watts
+            current_amperage: Current charging amperage (0 if not charging)
 
         Returns:
             Target amperage in amps
+
+        Hysteresis Logic:
+        - Start threshold: 6.5A (SURPLUS_START_THRESHOLD)
+        - Stop threshold: 5.5A (SURPLUS_STOP_THRESHOLD)
+        - Dead band: 5.5A - 6.5A (maintain current level, no changes)
         """
         # ALWAYS calculate from surplus first
         surplus_amps = surplus_watts / VOLTAGE_EU
+        is_charging = current_amperage > 0
 
-        # If surplus is sufficient (>= 6A), use it
-        if surplus_amps >= CHARGER_AMP_LEVELS[0]:
+        # CASE 1: Surplus sufficient to START or INCREASE (>= 6.5A)
+        if surplus_amps >= SURPLUS_START_THRESHOLD:
             target = CHARGER_AMP_LEVELS[0]
             for level in CHARGER_AMP_LEVELS:
                 if level <= surplus_amps:
@@ -428,16 +529,43 @@ class SolarSurplusAutomation:
                     break
             return target
 
-        # Surplus NOT sufficient (<6A)
-        # If battery support is active, use configured amperage as fallback
+        # CASE 2: Surplus in DEAD BAND (5.5A - 6.5A)
+        # Maintain current level - don't increase, don't decrease
+        if surplus_amps >= SURPLUS_STOP_THRESHOLD:
+            if is_charging:
+                # Continue at current level (prevent oscillation)
+                self.logger.debug(
+                    f"Surplus in hysteresis band ({surplus_amps:.2f}A, "
+                    f"range {SURPLUS_STOP_THRESHOLD}-{SURPLUS_START_THRESHOLD}A) - "
+                    f"Maintaining current {current_amperage}A"
+                )
+                return current_amperage
+            else:
+                # Not charging yet - wait for surplus to exceed START threshold
+                self.logger.debug(
+                    f"Surplus in hysteresis band ({surplus_amps:.2f}A) but not charging - "
+                    f"Waiting for {SURPLUS_START_THRESHOLD}A to start"
+                )
+                # Check if battery support can activate
+                if self._battery_support_active:
+                    battery_amps = int(get_float(self.hass, self._battery_support_amperage_entity, 16))
+                    self.logger.info(
+                        f"Surplus insufficient ({surplus_amps:.1f}A), using battery support at {battery_amps}A"
+                    )
+                    return battery_amps
+                return 0
+
+        # CASE 3: Surplus below STOP threshold (< 5.5A)
+        # Stop or fallback to battery support
         if self._battery_support_active:
             battery_amps = int(get_float(self.hass, self._battery_support_amperage_entity, 16))
             self.logger.info(
-                f"Surplus insufficient ({surplus_amps:.1f}A < 6A), using battery support at {battery_amps}A"
+                f"Surplus insufficient ({surplus_amps:.1f}A < {SURPLUS_STOP_THRESHOLD}A), "
+                f"using battery support at {battery_amps}A"
             )
             return battery_amps
 
-        # No surplus, no battery support
+        # No surplus, no battery support - stop charging
         return 0
 
     async def _handle_grid_import_protection(
@@ -529,15 +657,50 @@ class SolarSurplusAutomation:
                 await self.charger_controller.set_amperage(6, "Surplus decrease - fallback to 6A")
 
     async def _handle_surplus_increase(self, target_amps: int, current_amps: int) -> None:
-        """Handle surplus increase (immediate adjustment)."""
-        self.logger.action(f"Increasing amperage from {current_amps}A to {target_amps}A (immediate)")
-        self._reset_state_tracking()
-        await self.charger_controller.set_amperage(target_amps, "Surplus increase")
+        """Handle surplus increase with stability requirement for starting from 0A.
+
+        Args:
+            target_amps: Target amperage to set
+            current_amps: Current amperage (0 if charger off)
+        """
+        # Special case: Starting from 0A (charger off) requires stable surplus
+        if current_amps == 0:
+            # Start stability tracking if not already started
+            if self._surplus_stable_since is None:
+                self._surplus_stable_since = datetime.now()
+                self.logger.info(
+                    f"Surplus sufficient ({target_amps}A available) - "
+                    f"Waiting {SURPLUS_STABLE_DURATION}s for stability before starting"
+                )
+                return
+
+            # Check stability duration
+            stable_duration = (datetime.now() - self._surplus_stable_since).total_seconds()
+            if stable_duration < SURPLUS_STABLE_DURATION:
+                self.logger.debug(
+                    f"Waiting for stable surplus: {stable_duration:.1f}s / {SURPLUS_STABLE_DURATION}s"
+                )
+                return
+
+            # Stability confirmed, start charging
+            self.logger.action(
+                f"Surplus stable for {SURPLUS_STABLE_DURATION}s - Starting at {target_amps}A"
+            )
+            self._reset_state_tracking()
+            await self.charger_controller.start_charger(target_amps, "Stable surplus confirmed")
+        else:
+            # Already charging, immediate increase (no stability check needed)
+            self.logger.action(f"Increasing amperage from {current_amps}A to {target_amps}A (immediate)")
+            self._reset_state_tracking()
+            await self.charger_controller.set_amperage(target_amps, "Surplus increase")
 
     def _reset_state_tracking(self) -> None:
         """Reset state tracking flags."""
         self._last_surplus_sufficient = None
         self._last_grid_import_high = None
+        self._surplus_stable_since = None
+        self._waiting_for_surplus_decrease = False
+        self._surplus_decrease_start_time = None
 
     async def _update_diagnostic_sensor(self, state: str, attributes: dict) -> None:
         """Update the solar surplus diagnostic sensor.
@@ -560,4 +723,9 @@ class SolarSurplusAutomation:
         if self._timer_unsub:
             self._timer_unsub()
             self._timer_unsub = None
+
+        if self._soc_listener_unsub:
+            self._soc_listener_unsub()
+            self._soc_listener_unsub = None
+
         self.logger.info("Solar Surplus automation removed")

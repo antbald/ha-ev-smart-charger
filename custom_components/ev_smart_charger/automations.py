@@ -557,27 +557,3 @@ class SmartChargerBlocker:
             self.logger.separator()
 
 
-async def async_setup_automations(
-    hass: HomeAssistant,
-    entry_id: str,
-    config: dict,
-    night_smart_charge=None,
-    coordinator=None,
-) -> dict:
-    """Set up all automations for the integration."""
-    automations = {}
-
-    # Set up Smart Charger Blocker with dependency injection
-    smart_blocker = SmartChargerBlocker(
-        hass, entry_id, config, night_smart_charge, coordinator
-    )
-    await smart_blocker.async_setup()
-    automations["smart_blocker"] = smart_blocker
-
-    return automations
-
-
-async def async_remove_automations(automations: dict) -> None:
-    """Remove all automations."""
-    for automation in automations.values():
-        await automation.async_remove()
