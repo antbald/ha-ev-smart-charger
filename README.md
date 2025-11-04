@@ -2,7 +2,7 @@
 
 A Home Assistant integration for intelligent EV charging control based on solar production, time of day, and battery levels.
 
-## Current Version: 1.0.3 🎉
+## Current Version: 1.3.3 🎉
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -619,6 +619,21 @@ cards:
       - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_smart_charger_blocker_enabled
         name: Enable Smart Blocker
         icon: mdi:solar-power
+
+  # ============= MOBILE NOTIFICATIONS =============
+  - type: entities
+    title: 📱 Mobile Notification Preferences
+    show_header_toggle: false
+    entities:
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_smart_blocker_enabled
+        name: 🚫 Smart Blocker Notifications
+        icon: mdi:bell-alert
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_priority_balancer_enabled
+        name: ⚖️ Priority Balancer Notifications
+        icon: mdi:bell-badge
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_night_charge_enabled
+        name: 🌙 Night Charge Notifications
+        icon: mdi:bell-sleep
 ```
 
 **📝 Setup Instructions:**
