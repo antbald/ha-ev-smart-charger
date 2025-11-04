@@ -10,6 +10,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     DOMAIN,
+    VERSION,
     DEFAULT_CHECK_INTERVAL,
     DEFAULT_GRID_IMPORT_THRESHOLD,
     DEFAULT_GRID_IMPORT_DELAY,
@@ -391,6 +392,7 @@ class EVSCNumber(NumberEntity, RestoreEntity):
         unit: str | None = None,
     ) -> None:
         """Initialize the number."""
+        self._entry_id = entry_id
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
@@ -401,6 +403,17 @@ class EVSCNumber(NumberEntity, RestoreEntity):
         self._value = default_value
         # Set explicit entity_id to match pattern
         self.entity_id = f"number.{DOMAIN}_{entry_id}_{suffix}"
+
+    @property
+    def device_info(self):
+        """Return device info to group all entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "EV Smart Charger",
+            "manufacturer": "antbald",
+            "model": "EV Smart Charger",
+            "sw_version": VERSION,
+        }
 
     @property
     def native_value(self) -> float:

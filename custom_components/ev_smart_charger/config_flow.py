@@ -41,7 +41,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "1",
-                "total_steps": "4"
+                "total_steps": "5"
             }
         )
 
@@ -72,7 +72,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "2",
-                "total_steps": "4"
+                "total_steps": "5"
             }
         )
 
@@ -109,7 +109,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "3",
-                "total_steps": "4"
+                "total_steps": "5"
             }
         )
 
@@ -237,7 +237,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
             description_placeholders={
                 "step": "1",
-                "total_steps": "3"
+                "total_steps": "4"
             }
         )
 
@@ -289,7 +289,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
             description_placeholders={
                 "step": "2",
-                "total_steps": "3"
+                "total_steps": "4"
             }
         )
 

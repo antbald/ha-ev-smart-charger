@@ -9,7 +9,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,12 +70,24 @@ class EVSCDiagnosticSensor(SensorEntity, RestoreEntity):
         icon: str,
     ) -> None:
         """Initialize the diagnostic sensor."""
+        self._entry_id = entry_id
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
         self._attr_native_value = "Initializing"
         # Set explicit entity_id to match pattern
         self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
+
+    @property
+    def device_info(self):
+        """Return device info to group all entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "EV Smart Charger",
+            "manufacturer": "antbald",
+            "model": "EV Smart Charger",
+            "sw_version": VERSION,
+        }
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -105,6 +117,7 @@ class EVSCPriorityStateSensor(SensorEntity, RestoreEntity):
         icon: str,
     ) -> None:
         """Initialize the priority sensor."""
+        self._entry_id = entry_id
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
@@ -112,6 +125,17 @@ class EVSCPriorityStateSensor(SensorEntity, RestoreEntity):
         self._attr_extra_state_attributes = {}
         # Set explicit entity_id to match pattern
         self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
+
+    @property
+    def device_info(self):
+        """Return device info to group all entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "EV Smart Charger",
+            "manufacturer": "antbald",
+            "model": "EV Smart Charger",
+            "sw_version": VERSION,
+        }
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -142,6 +166,7 @@ class EVSCSolarSurplusDiagnosticSensor(SensorEntity, RestoreEntity):
         icon: str,
     ) -> None:
         """Initialize the solar surplus diagnostic sensor."""
+        self._entry_id = entry_id
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
@@ -149,6 +174,17 @@ class EVSCSolarSurplusDiagnosticSensor(SensorEntity, RestoreEntity):
         self._attr_extra_state_attributes = {}
         # Set explicit entity_id to match pattern
         self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
+
+    @property
+    def device_info(self):
+        """Return device info to group all entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "EV Smart Charger",
+            "manufacturer": "antbald",
+            "model": "EV Smart Charger",
+            "sw_version": VERSION,
+        }
 
     @property
     def extra_state_attributes(self) -> dict:

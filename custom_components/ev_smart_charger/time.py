@@ -12,6 +12,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     DOMAIN,
+    VERSION,
     DEFAULT_NIGHT_CHARGE_TIME,
 )
 
@@ -61,6 +62,17 @@ class EVSCTime(RestoreEntity, TimeEntity):
         self._attr_native_value = None
         # Set explicit entity_id to match pattern
         self.entity_id = f"time.{DOMAIN}_{entry_id}_{suffix}"
+
+    @property
+    def device_info(self):
+        """Return device info to group all entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "EV Smart Charger",
+            "manufacturer": "antbald",
+            "model": "EV Smart Charger",
+            "sw_version": VERSION,
+        }
 
     @property
     def native_value(self) -> time | None:

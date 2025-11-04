@@ -220,23 +220,25 @@ class SolarSurplusAutomation:
         min_soc = get_float(self.hass, self._home_battery_min_soc_entity, 20)
 
         # Check if SOC dropped below minimum
-        if new_soc <= min_soc:
+        if new_soc <= min_soc and self._battery_support_active:
             self.logger.warning(
                 f"{self.logger.BATTERY} Home battery SOC dropped to {new_soc:.1f}% "
-                f"(minimum: {min_soc:.0f}%) - Immediate battery support deactivation"
+                f"(minimum: {min_soc:.0f}%) - Deactivating battery support"
             )
 
             # Deactivate battery support immediately
             self._battery_support_active = False
 
-            # Trigger immediate recalculation
-            # Use hass.async_create_task to avoid blocking the event handler
-            self.hass.async_create_task(self._async_periodic_check())
-        else:
-            self.logger.debug(
-                f"{self.logger.BATTERY} Home battery SOC: {new_soc:.1f}% "
-                f"(minimum: {min_soc:.0f}%, battery support active)"
-            )
+            # Trigger immediate recalculation ONLY if rate limit allows
+            # Avoid triggering if last check was too recent
+            current_time = time.time()
+            if not self._last_check_time or (current_time - self._last_check_time) >= SOLAR_SURPLUS_MIN_CHECK_INTERVAL:
+                self.hass.async_create_task(self._async_periodic_check())
+            else:
+                self.logger.debug(
+                    f"{self.logger.BATTERY} Skipping immediate check due to rate limit "
+                    f"({current_time - self._last_check_time:.1f}s since last check)"
+                )
 
     @callback
     async def _async_periodic_check(self, now=None) -> None:
@@ -250,13 +252,13 @@ class SolarSurplusAutomation:
 
         # Count checks per minute
         if self._check_count_reset_time is None or (current_time - self._check_count_reset_time) > 60:
+            # Log rate limit warning only once per minute
+            if self._check_count > SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE:
+                self.logger.warning(f"⚠️ Rate limit exceeded: {self._check_count} checks in last minute")
             self._check_count = 0
             self._check_count_reset_time = current_time
 
         self._check_count += 1
-
-        if self._check_count > SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE:
-            self.logger.warning(f"Checking very frequently: {self._check_count} checks in last minute")
 
         self.logger.separator()
         self.logger.start(f"Periodic check #{self._check_count}")

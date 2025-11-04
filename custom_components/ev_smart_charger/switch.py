@@ -9,7 +9,7 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.const import STATE_ON
 
-from .const import DOMAIN
+from .const import DOMAIN, VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,6 +123,7 @@ class EVSCSwitch(SwitchEntity, RestoreEntity):
         default_state: bool = False,
     ) -> None:
         """Initialize the switch."""
+        self._entry_id = entry_id
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
@@ -130,6 +131,17 @@ class EVSCSwitch(SwitchEntity, RestoreEntity):
         self._default_state = default_state
         # Set explicit entity_id to match pattern
         self.entity_id = f"switch.{DOMAIN}_{entry_id}_{suffix}"
+
+    @property
+    def device_info(self):
+        """Return device info to group all entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "EV Smart Charger",
+            "manufacturer": "antbald",
+            "model": "EV Smart Charger",
+            "sw_version": VERSION,
+        }
 
     @property
     def is_on(self) -> bool:

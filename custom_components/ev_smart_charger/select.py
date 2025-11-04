@@ -8,7 +8,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.select import SelectEntity
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, CHARGING_PROFILES, PROFILE_MANUAL
+from .const import DOMAIN, VERSION, CHARGING_PROFILES, PROFILE_MANUAL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ class EVSCSelect(SelectEntity, RestoreEntity):
         options: list[str],
     ) -> None:
         """Initialize the select."""
+        self._entry_id = entry_id
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
         self._attr_name = name
         self._attr_icon = icon
@@ -58,6 +59,17 @@ class EVSCSelect(SelectEntity, RestoreEntity):
         self._current_option = PROFILE_MANUAL  # Default to manual
         # Set explicit entity_id to match pattern
         self.entity_id = f"select.{DOMAIN}_{entry_id}_{suffix}"
+
+    @property
+    def device_info(self):
+        """Return device info to group all entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "EV Smart Charger",
+            "manufacturer": "antbald",
+            "model": "EV Smart Charger",
+            "sw_version": VERSION,
+        }
 
     @property
     def current_option(self) -> str:
