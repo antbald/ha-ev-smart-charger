@@ -216,18 +216,29 @@ class AstralTimeService:
             >>> now = datetime.now()
             >>> night_time = datetime(2024, 10, 31, 1, 0, 0)  # 01:00
             >>> start, end, desc = service.get_blocking_window(now, True, night_time)
-            >>> # Returns: (sunset_today, night_time, "sunset → night_charge_time")
+            >>> # Returns: (sunset_yesterday, night_time, "sunset → night_charge_time")
         """
-        # Get sunset (could be today's or yesterday's depending on time)
-        sunset_today = self.get_sunset(reference_time)
+        # Determine which sunset to use based on current time
+        # If we're in early morning (after midnight, before sunrise), use YESTERDAY's sunset
+        # Otherwise, use TODAY's sunset
 
-        if sunset_today is None:
+        sunrise_today = self.get_sunrise(reference_time)
+        if sunrise_today is None:
+            return None, None, "Unable to determine sunrise time"
+
+        # Are we before today's sunrise (early morning)?
+        if reference_time < sunrise_today:
+            # We're in the nighttime period that started with YESTERDAY's sunset
+            yesterday = reference_time - timedelta(days=1)
+            sunset = self.get_sunset(yesterday)
+        else:
+            # We're after sunrise, so use TODAY's sunset
+            sunset = self.get_sunset(reference_time)
+
+        if sunset is None:
             return None, None, "Unable to determine sunset time"
 
-        # Determine window start (sunset)
-        # If we're before today's sunset, window starts at today's sunset
-        # If we're after today's sunset, we're already in the window from today's sunset
-        window_start = sunset_today
+        window_start = sunset
 
         # Determine window end based on Night Charge configuration
         if night_charge_enabled and night_charge_time:
@@ -273,36 +284,16 @@ class AstralTimeService:
         if window_start is None or window_end is None:
             return False, f"Window calculation failed: {window_desc}"
 
-        # Handle cross-day windows (sunset today → sunrise/night_charge tomorrow)
-        # We need to check if we're in the window from yesterday OR today
+        # Simple check: is reference_time between window_start and window_end?
+        # get_blocking_window already handles the complexity of determining
+        # which sunset to use (yesterday's or today's)
 
-        # Case 1: Before today's sunset - check if in yesterday's window
-        if reference_time < window_start:
-            yesterday = reference_time - timedelta(days=1)
-            yesterday_start, yesterday_end, _ = self.get_blocking_window(
-                yesterday, night_charge_enabled, night_charge_time
-            )
+        is_blocked = window_start <= reference_time < window_end
 
-            if yesterday_start and yesterday_end:
-                # Adjust yesterday's end time to proper datetime
-                if yesterday_end < yesterday_start:
-                    # Window crosses midnight, end is actually today
-                    if reference_time < yesterday_end:
-                        return True, f"Nighttime blocking active ({window_desc})"
-
-            # Not in yesterday's window and before today's sunset = daytime
-            return False, "Daytime (before sunset)"
-
-        # Case 2: After today's sunset - we're in the blocking window
-        # Unless we've passed the window end
-        if window_end < window_start:
-            # Window crosses midnight (sunset today, sunrise/night_charge tomorrow)
+        if is_blocked:
             return True, f"Nighttime blocking active ({window_desc})"
         else:
-            # Window is same day (unusual but handle it)
-            if reference_time < window_end:
-                return True, f"Blocking active ({window_desc})"
+            if reference_time < window_start:
+                return False, "Before blocking window"
             else:
-                return False, "After blocking window"
-
-        return False, "Outside blocking window"
+                return False, "After blocking window (charging allowed)"
