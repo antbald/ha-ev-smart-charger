@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.0.3
+**Current Version:** 1.3.7
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -731,8 +731,34 @@ async def _set_amperage(self, target_amperage: int):
 - **Rate Limiting:** Solar Surplus enforces 30-second minimum between checks
 - **Battery Support:** Only activates when Priority=EV (not EV_FREE, HOME, or disabled)
 - **Smart Blocker Window:** Adjusts based on Night Smart Charge enabled state
+- **Charger Amperage Convention:** The charger does NOT support 0A. Valid levels are `CHARGER_AMP_LEVELS = [6, 8, 10, 13, 16, 20, 24, 32]`. Internally, `target_amps = 0` is used as a convention to mean "STOP charger" (turn off), not "set to 0A". ChargerController translates: `0 → stop_charger()`, `>= 6 → start_charger(amps)` or `set_amperage(amps)`. Below 6A, the charger must be turned OFF.
+- **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.3.7 (2025-11-04)
+**Fix Unnecessary Warning Logs**
+- Fixed: Eliminated false-positive warnings for unavailable amperage sensor (81+ occurrences)
+- Root cause: `get_int()` was logging warning before checking state availability
+- Solution: Reordered logic to check state FIRST, then convert
+- Impact: Cleaner logs with only genuine errors, same functionality
+- Technical: Modified `utils/state_helper.py` - `get_int()` function
+
+### v1.3.6 (2025-11-04)
+**Major Stability Improvements & Battery Protection**
+- FASE 1: Anti-Oscillation System
+  - Hysteresis implementation: start 6.5A, stop 5.5A, dead band 1.0A
+  - EV_FREE mode stabilization: 30s delay instead of immediate stop
+  - Startup stability: 15s stable surplus requirement
+- FASE 2: Real-time Battery Protection
+  - SOC listener on soc_home for immediate deactivation
+  - Eliminates up to 1-minute protection delay
+- FASE 3: Operation Result Feedback
+  - OperationResult dataclass for comprehensive tracking
+  - Enhanced ChargerController return types
+- FASE 4: Code Cleanup
+  - Removed dead code: async_setup_automations()
+- Bugs Fixed: Charger oscillation, battery over-discharge, EV_FREE immediate stop
 
 ### v1.0.3 (2025-10-30)
 **EV_FREE Mode Charging Logic Fix**
