@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.3.9
+**Current Version:** 1.3.10
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -737,6 +737,20 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.3.10 (2025-11-05)
+**CRITICAL FIX: Smart Charger Blocker After Midnight**
+- Fixed: Smart Charger Blocker was NOT blocking charging after midnight (e.g., at 00:11)
+- Root cause: `AstralTimeService.get_blocking_window` used TODAY's sunset when checking times after midnight
+- Example: At 00:11, compared with today's 18:30 (not yet occurred) instead of yesterday's 18:30 (passed)
+- Result: `00:11 < 18:30` = false → blocker thought it was daytime → charger started incorrectly
+- Solution: Check if reference_time is before sunrise:
+  - Before sunrise (early morning): Use YESTERDAY's sunset as window_start
+  - After sunrise (daytime/evening): Use TODAY's sunset as window_start
+- Now at 00:11 with night_charge_time=01:00: `yesterday_18:30 <= 00:11 < today_01:00` = TRUE ✓
+- Also simplified `is_in_blocking_window` logic (removed complex cross-day workaround)
+- Technical: Modified `utils/astral_time_service.py` - `get_blocking_window` and `is_in_blocking_window`
+- Upgrade priority: 🔴 CRITICAL for users relying on Smart Blocker for nighttime prevention
 
 ### v1.3.9 (2025-11-04)
 **Logging Performance Fix**
