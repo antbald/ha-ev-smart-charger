@@ -55,12 +55,12 @@
       },
       "notifications": {
         "title": "📱 Mobile Notifications - Step {step}/{total_steps}",
-        "description": "**Configure Mobile Notifications**\n\n📱 Get notified on your phone for important events:\n• 🚫 **Smart Blocker:** Charging interrupted outside window\n• ⚖️ **Priority Balancer:** Priority changed (EV ↔ Home ↔ EV_Free)\n• 🌙 **Night Charge:** Charging started (battery/grid mode)\n\n💡 **Select one or more mobile devices** to receive notifications with title \"BORGO\".\n\n⚠️ Leave empty to skip mobile notifications.\n\n---",
+        "description": "**🔔 Stay Informed with Smart Notifications**\n\n**Get instant alerts on your mobile devices for:**\n\n🚫 **Smart Blocker Events**\n• Charging blocked outside permitted window\n• Includes reason (nighttime, insufficient solar)\n• Continuous monitoring active\n\n⚖️ **Priority Balancer Changes**\n• Priority switched: EV ↔ Home ↔ EV_Free\n• Current SOC levels (EV & Home)\n• Daily targets status\n\n🌙 **Night Smart Charge**\n• Charging started (battery/grid mode)\n• Solar forecast information\n• Target SOC progress\n\n---\n\n💡 **How it works:**\n• Select one or more mobile devices below\n• All notifications use title **\"BORGO\"** for easy filtering\n• After setup, use dashboard switches to enable/disable per feature\n• Notifications are **enabled by default**, disable if not needed\n\n⚠️ **Optional:** Leave empty to skip mobile notifications (can configure later)",
         "data": {
-          "notify_services": "📱 Mobile Devices (Optional)"
+          "notify_services": "📱 Select Mobile Devices"
         },
         "data_description": {
-          "notify_services": "**What it does:** Sends push notifications to selected mobile devices\n**Domain:** notify (mobile_app_*)\n**Example:** `mobile_app_johns_iphone`, `mobile_app_pixel_8`\n\n💡 **Multiple devices:** Select all phones/tablets you want to notify.\n💡 **Control:** Use switches to enable/disable notifications per feature.\n💡 **Title:** All notifications use title \"BORGO\"."
+          "notify_services": "**Available:** All Home Assistant Mobile App devices\n**Examples:** mobile_app_johns_iphone, mobile_app_pixel_8\n\n✅ **Pro Tip:** Select all household devices for comprehensive monitoring"
         }
       }
     },
@@ -114,12 +114,12 @@
       },
       "notifications": {
         "title": "📱 Update Mobile Notifications - Step {step}/{total_steps}",
-        "description": "**Update Mobile Notification Settings**\n\n📱 Update which mobile devices receive notifications.\n\n⚠️ Leave empty to disable mobile notifications.\n\n---",
+        "description": "**🔔 Update Notification Devices**\n\n**Current notification types:**\n• 🚫 Smart Blocker alerts\n• ⚖️ Priority Balancer changes\n• 🌙 Night Smart Charge status\n\n💡 **Notification title:** BORGO (for filtering)\n💡 **Dashboard control:** Use switches to enable/disable per feature\n\n⚠️ **Leave empty** to disable all mobile notifications\n\n---",
         "data": {
-          "notify_services": "📱 Mobile Devices (Optional)"
+          "notify_services": "📱 Select Mobile Devices"
         },
         "data_description": {
-          "notify_services": "**Domain:** notify (mobile_app_*) | **Title:** BORGO | **Control:** Use switches per feature"
+          "notify_services": "**Available:** All Home Assistant Mobile App devices\n**Note:** Changes apply immediately to new notifications"
         }
       }
     },

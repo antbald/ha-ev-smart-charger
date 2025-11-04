@@ -52,6 +52,16 @@
         "data_description": {
           "pv_forecast": "**What it does:** Provides next-day solar production forecast\n**Domain:** sensor\n**Unit:** Kilowatt-hours (kWh)\n**Example:** `sensor.solcast_pv_forecast_forecast_today`, `sensor.forecast_solar_production`\n\n💡 **Leave empty** if you don't have a forecast sensor. Night Smart Charge will use grid mode as fallback.\n\n💡 **Popular integrations:**\n  • Solcast Solar (recommended)\n  • Forecast.Solar\n  • Custom solar forecast sensors"
         }
+      },
+      "notifications": {
+        "title": "📱 Mobile Notifications - Step {step}/{total_steps}",
+        "description": "**🔔 Stay Informed with Smart Notifications**\n\n**Get instant alerts on your mobile devices for:**\n\n🚫 **Smart Blocker Events**\n• Charging blocked outside permitted window\n• Includes reason (nighttime, insufficient solar)\n• Continuous monitoring active\n\n⚖️ **Priority Balancer Changes**\n• Priority switched: EV ↔ Home ↔ EV_Free\n• Current SOC levels (EV & Home)\n• Daily targets status\n\n🌙 **Night Smart Charge**\n• Charging started (battery/grid mode)\n• Solar forecast information\n• Target SOC progress\n\n---\n\n💡 **How it works:**\n• Select one or more mobile devices below\n• All notifications use title **\"BORGO\"** for easy filtering\n• After setup, use dashboard switches to enable/disable per feature\n• Notifications are **enabled by default**, disable if not needed\n\n⚠️ **Optional:** Leave empty to skip mobile notifications (can configure later)",
+        "data": {
+          "notify_services": "📱 Select Mobile Devices"
+        },
+        "data_description": {
+          "notify_services": "**Available:** All Home Assistant Mobile App devices\n**Examples:** mobile_app_johns_iphone, mobile_app_pixel_8\n\n✅ **Pro Tip:** Select all household devices for comprehensive monitoring"
+        }
       }
     },
     "error": {
@@ -100,6 +110,16 @@
         },
         "data_description": {
           "pv_forecast": "**Domain:** sensor | **Unit:** kWh | **Example:** sensor.solcast_pv_forecast_forecast_today"
+        }
+      },
+      "notifications": {
+        "title": "📱 Update Mobile Notifications - Step {step}/{total_steps}",
+        "description": "**🔔 Update Notification Devices**\n\n**Current notification types:**\n• 🚫 Smart Blocker alerts\n• ⚖️ Priority Balancer changes\n• 🌙 Night Smart Charge status\n\n💡 **Notification title:** BORGO (for filtering)\n💡 **Dashboard control:** Use switches to enable/disable per feature\n\n⚠️ **Leave empty** to disable all mobile notifications\n\n---",
+        "data": {
+          "notify_services": "📱 Select Mobile Devices"
+        },
+        "data_description": {
+          "notify_services": "**Available:** All Home Assistant Mobile App devices\n**Note:** Changes apply immediately to new notifications"
         }
       }
     },
