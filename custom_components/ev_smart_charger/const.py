@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.3.14"
+VERSION = "1.3.15"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========

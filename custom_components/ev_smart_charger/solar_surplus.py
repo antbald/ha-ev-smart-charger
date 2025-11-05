@@ -702,28 +702,28 @@ class SolarSurplusAutomation:
         """
         from .const import SURPLUS_INCREASE_DELAY
 
-        # Starting from 0A (charger off) requires 15s stability
+        # Starting from 0A (charger off) requires 60s stability (cloud protection)
         if current_amps == 0:
             # Start stability tracking if not already started
             if self._surplus_stable_since is None:
                 self._surplus_stable_since = datetime.now()
                 self.logger.info(
                     f"Surplus sufficient ({target_amps}A available) - "
-                    f"Waiting {SURPLUS_STABLE_DURATION}s for stability before starting"
+                    f"Waiting {SURPLUS_INCREASE_DELAY}s for stability before starting (cloud protection)"
                 )
                 return
 
             # Check stability duration
             stable_duration = (datetime.now() - self._surplus_stable_since).total_seconds()
-            if stable_duration < SURPLUS_STABLE_DURATION:
+            if stable_duration < SURPLUS_INCREASE_DELAY:
                 self.logger.debug(
-                    f"Waiting for stable surplus: {stable_duration:.1f}s / {SURPLUS_STABLE_DURATION}s"
+                    f"Waiting for stable surplus: {stable_duration:.1f}s / {SURPLUS_INCREASE_DELAY}s"
                 )
                 return
 
             # Stability confirmed, start charging
             self.logger.action(
-                f"Surplus stable for {SURPLUS_STABLE_DURATION}s - Starting at {target_amps}A"
+                f"Surplus stable for {SURPLUS_INCREASE_DELAY}s - Starting at {target_amps}A"
             )
             self._reset_state_tracking()
             await self.charger_controller.start_charger(target_amps, "Stable surplus confirmed")

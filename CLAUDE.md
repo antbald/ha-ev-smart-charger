@@ -753,6 +753,21 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.3.15 (2025-11-05)
+**Unified 60s Stability Delay for All Surplus Operations**
+- **Change**: Initial charger start (OFF → ON) now uses same 60s delay as amperage increases
+- **Rationale**: Consistent cloud protection for all surplus-based charging operations
+- **Previous Behavior** (v1.3.14):
+  - Charger OFF → ON: 15s stability delay
+  - Charger ON, increase amperage: 60s stability delay
+- **New Behavior** (v1.3.15):
+  - Charger OFF → ON: **60s stability delay** (unified)
+  - Charger ON, increase amperage: 60s stability delay (unchanged)
+  - Charger ON, decrease amperage: 30s delay (unchanged)
+- **User Impact**: More conservative charging start, prevents premature startup on brief surplus spikes
+- **Technical**: Modified `solar_surplus.py` - `_handle_surplus_increase()` now uses `SURPLUS_INCREASE_DELAY` for both OFF→ON and increases
+- **Upgrade priority**: 🟢 OPTIONAL - Further improves stability, especially for initial charge start
+
 ### v1.3.14 (2025-11-05)
 **Cloud Protection for Surplus Increase**
 - Added: 60-second stability delay before increasing charging amperage
