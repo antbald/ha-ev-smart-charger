@@ -21,6 +21,13 @@ from .const import (
     HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX,
     HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX,
     HELPER_HOME_BATTERY_MIN_SOC_SUFFIX,
+    HELPER_CAR_READY_MONDAY_SUFFIX,
+    HELPER_CAR_READY_TUESDAY_SUFFIX,
+    HELPER_CAR_READY_WEDNESDAY_SUFFIX,
+    HELPER_CAR_READY_THURSDAY_SUFFIX,
+    HELPER_CAR_READY_FRIDAY_SUFFIX,
+    HELPER_CAR_READY_SATURDAY_SUFFIX,
+    HELPER_CAR_READY_SUNDAY_SUFFIX,
 )
 from .utils.logging_helper import EVSCLogger
 from .utils import entity_helper, state_helper
@@ -72,6 +79,7 @@ class NightSmartCharge:
         self._solar_forecast_threshold_entity = None
         self._night_charge_amperage_entity = None
         self._home_battery_min_soc_entity = None
+        self._car_ready_entities = {}  # Dict: {0: monday_entity, ..., 6: sunday_entity}
 
         # Timer and state tracking
         self._timer_unsub = None
@@ -104,6 +112,25 @@ class NightSmartCharge:
         self._home_battery_min_soc_entity = entity_helper.find_by_suffix(
             self.hass, HELPER_HOME_BATTERY_MIN_SOC_SUFFIX
         )
+
+        # Discover car_ready switches for each day (v1.3.13+)
+        days_suffixes = [
+            HELPER_CAR_READY_MONDAY_SUFFIX,
+            HELPER_CAR_READY_TUESDAY_SUFFIX,
+            HELPER_CAR_READY_WEDNESDAY_SUFFIX,
+            HELPER_CAR_READY_THURSDAY_SUFFIX,
+            HELPER_CAR_READY_FRIDAY_SUFFIX,
+            HELPER_CAR_READY_SATURDAY_SUFFIX,
+            HELPER_CAR_READY_SUNDAY_SUFFIX,
+        ]
+
+        for idx, suffix in enumerate(days_suffixes):
+            entity = entity_helper.find_by_suffix(self.hass, suffix)
+            if entity:
+                self._car_ready_entities[idx] = entity
+                self.logger.info(f"Found car_ready entity for day {idx}: {entity}")
+            else:
+                self.logger.warning(f"Car ready entity not found for day {idx} (suffix: {suffix})")
 
         # Warn about missing entities (backward compatibility)
         missing_entities = []
@@ -391,6 +418,41 @@ class NightSmartCharge:
         ev_target = self.priority_balancer.get_ev_target_for_today()
         threshold = self._get_solar_threshold()
 
+        # ========== PRE-CHECK: Home Battery SOC (v1.3.13+) ==========
+        self.logger.info(f"{self.logger.BATTERY} Pre-check: Validating home battery SOC...")
+        home_soc = await self.priority_balancer.get_home_current_soc()
+
+        if home_soc <= home_min_soc:
+            # Battery below threshold!
+            self.logger.warning(
+                f"{self.logger.ALERT} Home battery below threshold: "
+                f"{home_soc}% <= {home_min_soc}%"
+            )
+
+            # Check car_ready flag for today
+            car_ready_today = self._get_car_ready_for_today()
+
+            if car_ready_today:
+                # Car needed → Fallback to GRID
+                self.logger.warning(
+                    f"{self.logger.CAR} Car ready flag is ON for today → "
+                    f"Fallback to GRID MODE to ensure EV is ready in the morning"
+                )
+                await self._start_grid_charge(pv_forecast)
+                return
+            else:
+                # Car not needed → SKIP
+                self.logger.info(
+                    f"{self.logger.CAR} Car ready flag is OFF for today → "
+                    f"Skipping night charge, will rely on tomorrow's solar surplus"
+                )
+                self.logger.info("Night charge session cancelled (waiting for solar)")
+                self.logger.separator()
+                return
+
+        self.logger.success(f"Home battery SOC check passed: {home_soc}% > {home_min_soc}%")
+        # ========== END PRE-CHECK ==========
+
         self.logger.info(f"   Charger amperage: {amperage}A")
         self.logger.info(f"   EV target SOC: {ev_target}%")
         self.logger.info(f"   Home battery minimum SOC: {home_min_soc}%")
@@ -584,6 +646,37 @@ class NightSmartCharge:
             self._home_battery_min_soc_entity,
             20.0
         )
+
+    def _get_car_ready_for_today(self) -> bool:
+        """
+        Get car_ready flag for current day (v1.3.13+).
+
+        Returns:
+            True if car needs to be ready in the morning (use grid as fallback)
+            False if car not needed (skip charging, wait for solar)
+        """
+        # Get current day (0=Monday, 6=Sunday)
+        current_day = datetime.now().weekday()
+
+        # Get entity for today
+        entity_id = self._car_ready_entities.get(current_day)
+
+        if not entity_id:
+            # Fallback: weekday=True, weekend=False
+            self.logger.warning(
+                f"Car ready entity not found for day {current_day}, "
+                f"using default (weekday=True, weekend=False)"
+            )
+            return current_day < 5  # Monday-Friday = True
+
+        # Get switch state
+        car_ready = state_helper.get_bool(self.hass, entity_id, default=True)
+
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        day_name = day_names[current_day]
+        self.logger.info(f"{self.logger.CALENDAR} Car ready flag for {day_name}: {car_ready}")
+
+        return car_ready
 
     def _log_configuration(self) -> None:
         """Log current configuration."""

@@ -100,6 +100,7 @@ The integration creates helper entities automatically via platform files:
 - `evsc_use_home_battery` - Enable/disable home battery support in Solar Surplus
 - `evsc_priority_balancer_enabled` - Enable/disable Priority Balancer
 - `evsc_night_smart_charge_enabled` - Enable/disable Night Smart Charge
+- `evsc_car_ready_monday` through `evsc_car_ready_sunday` - Daily flags for night charge fallback/skip behavior (v1.3.13+)
 
 **Numbers (`number.py`):**
 - `evsc_check_interval` - Solar Surplus recalculation interval (1-60 min, default 1)
@@ -240,17 +241,27 @@ Updates `evsc_priority_daily_state` sensor with:
 **Logic:**
 1. Check if enabled and current time >= `evsc_night_charge_time`
 2. Check PV forecast vs threshold
-3. If forecast sufficient AND `evsc_use_home_battery` ON → battery mode
+3. If forecast sufficient AND `evsc_use_home_battery` ON → battery mode (with pre-check)
 4. If forecast insufficient OR battery support OFF → grid mode
 5. Monitor SOC targets via Priority Balancer
 6. Stop when `priority_balancer.is_ev_target_reached()` returns true
 
+**Battery Mode Pre-Check (v1.3.13+):**
+- Before starting charger, validates home battery SOC
+- If home SOC <= threshold:
+  - Check car_ready flag for current day (Mon-Sun)
+  - If car_ready = TRUE → Fallback to GRID MODE (ensures car ready in morning)
+  - If car_ready = FALSE → SKIP charging (wait for solar surplus)
+- Prevents 15-second discharge before monitor detects low battery
+
 **Key Methods:**
-- `async_setup()` - Sets up time-based trigger
+- `async_setup()` - Sets up time-based trigger, discovers car_ready switches
 - `_async_time_trigger()` - Triggered at configured night charge time
+- `_start_battery_charge()` - Start battery mode with pre-check logic
 - `_battery_mode_monitor()` - Monitor battery-based charging, check targets
 - `_grid_mode_monitor()` - Monitor grid-based charging, check targets
 - `_should_activate()` - Check activation conditions
+- `_get_car_ready_for_today()` - Get car_ready flag for current weekday (v1.3.13+)
 - `is_active()` - Public method to check if Night Charge is currently active
 - **All charger operations delegated to ChargerController**
 
@@ -377,7 +388,7 @@ This allows automations to find helper entities regardless of entry_id.
 
 **Integration Metadata:**
 - `DOMAIN = "ev_smart_charger"`
-- `VERSION = "1.0.3"`
+- `VERSION = "1.3.13"`
 - `DEFAULT_NAME = "EV Smart Charger"`
 
 **Platforms:**
@@ -440,6 +451,10 @@ This allows automations to find helper entities regardless of entry_id.
 **Timeouts:**
 - `SERVICE_CALL_TIMEOUT = 10` (seconds for service calls)
 - `SMART_BLOCKER_ENFORCEMENT_TIMEOUT = 1800` (30 minutes for retry enforcement)
+
+**Car Ready Defaults (v1.3.13+):**
+- `DEFAULT_CAR_READY_WEEKDAY = True` (Monday-Friday: car needed for work)
+- `DEFAULT_CAR_READY_WEEKEND = False` (Saturday-Sunday: car not urgently needed)
 
 ## Common Development Patterns
 
@@ -737,6 +752,27 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.3.13 (2025-11-05)
+**Car Ready Flag & Battery Pre-Check**
+- Added: Daily "Car Ready" flags for intelligent night charge fallback/skip behavior
+- Added: Pre-check of home battery SOC before starting BATTERY MODE to prevent 15-second discharge
+- **Problem Fixed**: When PV forecast good but home battery already below 20% threshold, system would start charging for 15 seconds before monitor detected issue
+- **Enhancement**: User can now choose per-day behavior when battery insufficient:
+  - Car ready = TRUE (Mon-Fri default): Use GRID MODE as fallback (ensures car ready in morning)
+  - Car ready = FALSE (Sat-Sun default): SKIP charging (wait for solar surplus)
+- **New Entities** (7 switches created automatically):
+  - `switch.evsc_car_ready_monday` through `sunday`
+  - Icon: `mdi:car-clock`
+  - Defaults: Mon-Fri = TRUE (work days), Sat-Sun = FALSE (weekends)
+- **Pre-Check Logic** in `_start_battery_charge()`:
+  1. Check home battery SOC before starting charger
+  2. If SOC <= threshold AND car_ready = TRUE → Fallback to GRID MODE
+  3. If SOC <= threshold AND car_ready = FALSE → SKIP (wait for solar)
+  4. If SOC > threshold → Proceed with BATTERY MODE normally
+- **Helper Method**: `_get_car_ready_for_today()` returns boolean based on current weekday
+- **Technical**: Modified `const.py` (constants), `switch.py` (7 switches), `night_smart_charge.py` (pre-check + helper), `logging_helper.py` (CAR emoji), `manifest.json` (version)
+- **Upgrade priority**: 🟡 RECOMMENDED for users wanting flexible night charge behavior
 
 ### v1.3.12 (2025-11-05)
 **CRITICAL FIX: Night Smart Charge Restart Loop & Battery Protection**

@@ -9,7 +9,12 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.const import STATE_ON
 
-from .const import DOMAIN, VERSION
+from .const import (
+    DOMAIN,
+    VERSION,
+    DEFAULT_CAR_READY_WEEKDAY,
+    DEFAULT_CAR_READY_WEEKEND,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,6 +107,77 @@ async def async_setup_entry(
             "EVSC Notify Night Charge",
             "mdi:bell-outline",
             default_state=True
+        )
+    )
+
+    # Car Ready switches (v1.3.13+)
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_car_ready_monday",
+            "EVSC Car Ready Monday",
+            "mdi:car-clock",
+            default_state=DEFAULT_CAR_READY_WEEKDAY,
+        )
+    )
+
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_car_ready_tuesday",
+            "EVSC Car Ready Tuesday",
+            "mdi:car-clock",
+            default_state=DEFAULT_CAR_READY_WEEKDAY,
+        )
+    )
+
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_car_ready_wednesday",
+            "EVSC Car Ready Wednesday",
+            "mdi:car-clock",
+            default_state=DEFAULT_CAR_READY_WEEKDAY,
+        )
+    )
+
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_car_ready_thursday",
+            "EVSC Car Ready Thursday",
+            "mdi:car-clock",
+            default_state=DEFAULT_CAR_READY_WEEKDAY,
+        )
+    )
+
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_car_ready_friday",
+            "EVSC Car Ready Friday",
+            "mdi:car-clock",
+            default_state=DEFAULT_CAR_READY_WEEKDAY,
+        )
+    )
+
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_car_ready_saturday",
+            "EVSC Car Ready Saturday",
+            "mdi:car-clock",
+            default_state=DEFAULT_CAR_READY_WEEKEND,
+        )
+    )
+
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_car_ready_sunday",
+            "EVSC Car Ready Sunday",
+            "mdi:car-clock",
+            default_state=DEFAULT_CAR_READY_WEEKEND,
         )
     )
 

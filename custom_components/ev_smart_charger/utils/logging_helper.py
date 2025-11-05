@@ -22,6 +22,7 @@ class EVSCLogger:
     DAY = "☀️"
     BATTERY = "🔋"
     EV = "🚗"
+    CAR = "🚗"  # Alias for EV (v1.3.13+)
     HOME = "🏠"
     SOLAR = "🌞"
     GRID = "⚡"

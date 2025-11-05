@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.3.12"
+VERSION = "1.3.13"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -106,6 +106,15 @@ HELPER_HOME_MIN_SOC_FRIDAY_SUFFIX = "evsc_home_min_soc_friday"
 HELPER_HOME_MIN_SOC_SATURDAY_SUFFIX = "evsc_home_min_soc_saturday"
 HELPER_HOME_MIN_SOC_SUNDAY_SUFFIX = "evsc_home_min_soc_sunday"
 
+# Switches - Car Ready Flags (daily)
+HELPER_CAR_READY_MONDAY_SUFFIX = "evsc_car_ready_monday"
+HELPER_CAR_READY_TUESDAY_SUFFIX = "evsc_car_ready_tuesday"
+HELPER_CAR_READY_WEDNESDAY_SUFFIX = "evsc_car_ready_wednesday"
+HELPER_CAR_READY_THURSDAY_SUFFIX = "evsc_car_ready_thursday"
+HELPER_CAR_READY_FRIDAY_SUFFIX = "evsc_car_ready_friday"
+HELPER_CAR_READY_SATURDAY_SUFFIX = "evsc_car_ready_saturday"
+HELPER_CAR_READY_SUNDAY_SUFFIX = "evsc_car_ready_sunday"
+
 # Selects
 HELPER_CHARGING_PROFILE_SUFFIX = "evsc_charging_profile"
 
@@ -143,6 +152,10 @@ DEFAULT_NIGHT_CHARGE_TIME = "01:00:00"
 DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD = 20  # kWh
 DEFAULT_NIGHT_CHARGE_AMPERAGE = 16  # amps
 NIGHT_CHARGE_COOLDOWN_SECONDS = 3600  # 1 hour - prevent re-evaluation after completion
+
+# ========== DEFAULT VALUES - CAR READY FLAGS ==========
+DEFAULT_CAR_READY_WEEKDAY = True  # Monday-Friday (car needed for work)
+DEFAULT_CAR_READY_WEEKEND = False  # Saturday-Sunday (car not urgently needed)
 
 # ========== SMART BLOCKER SETTINGS ==========
 SMART_BLOCKER_ENFORCEMENT_TIMEOUT = 1800  # 30 minutes in seconds
