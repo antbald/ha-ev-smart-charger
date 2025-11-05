@@ -309,9 +309,9 @@ During setup, you'll map your existing Home Assistant entities to these roles:
 
 ### Helper Entities (Auto-Created)
 
-The integration **automatically creates 29 helper entities** when you add it:
+The integration **automatically creates 36 helper entities** when you add it:
 
-#### Switches (5)
+#### Switches (12)
 
 **1. EVSC Forza Ricarica**
 - **Entity ID:** `switch.ev_smart_charger_<entry_id>_evsc_forza_ricarica`
@@ -337,6 +337,25 @@ The integration **automatically creates 29 helper entities** when you add it:
 - **Entity ID:** `switch.ev_smart_charger_<entry_id>_evsc_night_smart_charge_enabled`
 - **Purpose:** Enable/disable Night Smart Charge automation
 - **Icon:** `mdi:moon-waning-crescent`
+
+**6-12. EVSC Car Ready [Day]** *(v1.3.13+)*
+- **Entity IDs:**
+  - `switch.ev_smart_charger_<entry_id>_evsc_car_ready_monday`
+  - `switch.ev_smart_charger_<entry_id>_evsc_car_ready_tuesday`
+  - `switch.ev_smart_charger_<entry_id>_evsc_car_ready_wednesday`
+  - `switch.ev_smart_charger_<entry_id>_evsc_car_ready_thursday`
+  - `switch.ev_smart_charger_<entry_id>_evsc_car_ready_friday`
+  - `switch.ev_smart_charger_<entry_id>_evsc_car_ready_saturday`
+  - `switch.ev_smart_charger_<entry_id>_evsc_car_ready_sunday`
+- **Purpose:** Daily flags for Night Smart Charge fallback/skip behavior when home battery below threshold
+- **Default:** ON (weekdays Mon-Fri), OFF (weekends Sat-Sun)
+- **Icon:** `mdi:car-clock`
+- **Behavior:**
+  - **ON (Car Ready):** If home battery low at night charge time → Fallback to GRID MODE (ensures car ready in morning)
+  - **OFF (Car Not Needed):** If home battery low at night charge time → SKIP charging (wait for solar surplus)
+- **Use Case:**
+  - Weekdays: Car needed for work → Flag ON → Grid fallback ensures car ready
+  - Weekends: No rush → Flag OFF → Skip charging, wait for sun
 
 #### Numbers (21)
 
@@ -559,31 +578,94 @@ cards:
         name: Enable Priority Balancer
         icon: mdi:scale-balance
 
-      # EV Daily Targets
+      # EV Daily Targets & Car Ready Flags (v1.3.13+)
       - type: divider
       - type: section
-        label: "🚗 EV Daily Targets"
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_monday
-        name: Monday
-        icon: mdi:calendar-monday
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_tuesday
-        name: Tuesday
-        icon: mdi:calendar-tuesday
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_wednesday
-        name: Wednesday
-        icon: mdi:calendar-wednesday
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_thursday
-        name: Thursday
-        icon: mdi:calendar-thursday
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_friday
-        name: Friday
-        icon: mdi:calendar-friday
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_saturday
-        name: Saturday
-        icon: mdi:calendar-saturday
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_sunday
-        name: Sunday
-        icon: mdi:calendar-sunday
+        label: "🚗 EV Daily Targets & Car Ready"
+
+      # Monday
+      - type: custom:hui-horizontal-stack-card
+        cards:
+          - type: entity
+            entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_monday
+            name: "Monday Min SOC"
+            icon: mdi:calendar-monday
+          - type: entity
+            entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_monday
+            name: "Car Ready"
+            icon: mdi:car-clock
+
+      # Tuesday
+      - type: custom:hui-horizontal-stack-card
+        cards:
+          - type: entity
+            entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_tuesday
+            name: "Tuesday Min SOC"
+            icon: mdi:calendar-tuesday
+          - type: entity
+            entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_tuesday
+            name: "Car Ready"
+            icon: mdi:car-clock
+
+      # Wednesday
+      - type: custom:hui-horizontal-stack-card
+        cards:
+          - type: entity
+            entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_wednesday
+            name: "Wednesday Min SOC"
+            icon: mdi:calendar-wednesday
+          - type: entity
+            entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_wednesday
+            name: "Car Ready"
+            icon: mdi:car-clock
+
+      # Thursday
+      - type: custom:hui-horizontal-stack-card
+        cards:
+          - type: entity
+            entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_thursday
+            name: "Thursday Min SOC"
+            icon: mdi:calendar-thursday
+          - type: entity
+            entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_thursday
+            name: "Car Ready"
+            icon: mdi:car-clock
+
+      # Friday
+      - type: custom:hui-horizontal-stack-card
+        cards:
+          - type: entity
+            entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_friday
+            name: "Friday Min SOC"
+            icon: mdi:calendar-friday
+          - type: entity
+            entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_friday
+            name: "Car Ready"
+            icon: mdi:car-clock
+
+      # Saturday
+      - type: custom:hui-horizontal-stack-card
+        cards:
+          - type: entity
+            entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_saturday
+            name: "Saturday Min SOC"
+            icon: mdi:calendar-saturday
+          - type: entity
+            entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_saturday
+            name: "Car Ready"
+            icon: mdi:car-clock
+
+      # Sunday
+      - type: custom:hui-horizontal-stack-card
+        cards:
+          - type: entity
+            entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_sunday
+            name: "Sunday Min SOC"
+            icon: mdi:calendar-sunday
+          - type: entity
+            entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_sunday
+            name: "Car Ready"
+            icon: mdi:car-clock
 
       # Home Battery Daily Targets
       - type: divider
