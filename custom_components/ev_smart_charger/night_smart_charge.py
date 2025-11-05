@@ -80,6 +80,7 @@ class NightSmartCharge:
         self._night_charge_active = False
         self._active_mode = NIGHT_CHARGE_MODE_IDLE
         self._last_window_check_time = None
+        self._last_completion_time = None  # Track when session completed
 
     async def async_setup(self) -> None:
         """Set up Night Smart Charge automation."""
@@ -184,8 +185,25 @@ class NightSmartCharge:
     @callback
     async def _async_periodic_check(self, now) -> None:
         """Periodic check every minute."""
+        from .const import NIGHT_CHARGE_COOLDOWN_SECONDS
+
         current_time = dt_util.now()
         self.logger.debug(f"Periodic check at {current_time.strftime('%H:%M:%S')}")
+
+        # Check if session recently completed (within 1 hour cooldown)
+        if self._last_completion_time:
+            time_since = (current_time - self._last_completion_time).total_seconds()
+            if time_since < NIGHT_CHARGE_COOLDOWN_SECONDS:
+                self.logger.debug(
+                    f"Session completed {time_since:.0f}s ago "
+                    f"(cooldown: {NIGHT_CHARGE_COOLDOWN_SECONDS}s) - skipping re-evaluation"
+                )
+                return
+
+        # Check if already active
+        if self.is_active():
+            self.logger.debug("Already active, skipping re-evaluation")
+            return
 
         # Check if we're in active window
         if not await self._is_in_active_window(current_time):
@@ -393,18 +411,18 @@ class NightSmartCharge:
             forecast=pv_forecast
         )
 
-        # Start continuous battery monitoring (every 1 minute)
+        # Start continuous battery monitoring (every 15 seconds for faster protection)
         if self._battery_monitor_unsub:
             self._battery_monitor_unsub()  # Cancel existing monitor if any
 
         self._battery_monitor_unsub = async_track_time_interval(
             self.hass,
             self._async_monitor_battery_charge,
-            timedelta(minutes=1),
+            timedelta(seconds=15),
         )
 
         self.logger.success("Battery charge started successfully")
-        self.logger.info("Monitoring: Continuous (every 1 minute)")
+        self.logger.info("Monitoring: Continuous (every 15 seconds)")
         self.logger.info("Will stop when:")
         self.logger.info(f"  1. EV reaches target SOC ({ev_target}%)")
         self.logger.info(f"  2. Home battery reaches minimum SOC ({home_min_soc}%)")
@@ -413,7 +431,7 @@ class NightSmartCharge:
 
     @callback
     async def _async_monitor_battery_charge(self, now) -> None:
-        """Monitor battery charge and enforce thresholds (runs every 1 minute)."""
+        """Monitor battery charge and enforce thresholds (runs every 15 seconds)."""
         # Only monitor if battery mode is active
         if not self.is_active() or self._active_mode != NIGHT_CHARGE_MODE_BATTERY:
             return
@@ -506,6 +524,10 @@ class NightSmartCharge:
             self._battery_monitor_unsub = None
             self.logger.info("Battery monitoring stopped")
 
+        # Track completion time for cooldown
+        self._last_completion_time = dt_util.now()
+        self.logger.info(f"Completion time recorded: {self._last_completion_time.strftime('%H:%M:%S')}")
+
         # Reset state flags
         previous_mode = self._active_mode
         self._night_charge_active = False
@@ -513,6 +535,7 @@ class NightSmartCharge:
 
         self.logger.success("Session completed")
         self.logger.info(f"   Previous mode: {previous_mode}")
+        self.logger.info("   1-hour cooldown period active")
         self.logger.info("   Smart Blocker will resume normal operation")
         self.logger.separator()
 

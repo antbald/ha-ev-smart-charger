@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.3.11"
+VERSION = "1.3.12"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -142,6 +142,7 @@ DEFAULT_HOME_MIN_SOC = 50  # percent (all days)
 DEFAULT_NIGHT_CHARGE_TIME = "01:00:00"
 DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD = 20  # kWh
 DEFAULT_NIGHT_CHARGE_AMPERAGE = 16  # amps
+NIGHT_CHARGE_COOLDOWN_SECONDS = 3600  # 1 hour - prevent re-evaluation after completion
 
 # ========== SMART BLOCKER SETTINGS ==========
 SMART_BLOCKER_ENFORCEMENT_TIMEOUT = 1800  # 30 minutes in seconds

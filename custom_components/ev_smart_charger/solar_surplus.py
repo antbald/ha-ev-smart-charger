@@ -277,6 +277,7 @@ class SolarSurplusAutomation:
 
         # === 2. Check Nighttime (Solar Surplus only works during daytime) ===
         from homeassistant.util import dt as dt_util
+        from .const import NIGHT_CHARGE_COOLDOWN_SECONDS
         now = dt_util.now()
 
         if self._astral_service.is_nighttime(now):
@@ -299,7 +300,26 @@ class SolarSurplusAutomation:
             self.logger.separator()
             return
 
-        # === 4. Check Charging Profile ===
+        # === 4. Check Night Smart Charge Cooldown ===
+        if self._night_smart_charge and hasattr(self._night_smart_charge, '_last_completion_time') and \
+           self._night_smart_charge._last_completion_time:
+            time_since = (now - self._night_smart_charge._last_completion_time).total_seconds()
+            if time_since < NIGHT_CHARGE_COOLDOWN_SECONDS:
+                self.logger.skip(
+                    f"Night Charge completed {time_since:.0f}s ago "
+                    f"(cooldown: {NIGHT_CHARGE_COOLDOWN_SECONDS}s) - respecting cooldown period"
+                )
+                await self._update_diagnostic_sensor(
+                    "SKIPPED: Night Charge Cooldown",
+                    {
+                        "reason": f"Cooldown active ({time_since:.0f}s / {NIGHT_CHARGE_COOLDOWN_SECONDS}s)",
+                        "last_check": datetime.now().isoformat()
+                    }
+                )
+                self.logger.separator()
+                return
+
+        # === 5. Check Charging Profile ===
         current_profile = get_state(self.hass, self._charging_profile_entity)
         if current_profile != "solar_surplus":
             self.logger.skip(f"Profile not 'solar_surplus' (current: {current_profile})")
@@ -310,7 +330,7 @@ class SolarSurplusAutomation:
             self.logger.separator()
             return
 
-        # === 5. Check Charger Status ===
+        # === 6. Check Charger Status ===
         charger_status = get_state(self.hass, self._charger_status)
         if not charger_status:
             self.logger.warning("Charger status unavailable")
@@ -324,7 +344,7 @@ class SolarSurplusAutomation:
 
         self.logger.info(f"Charger status: '{charger_status}' - proceeding")
 
-        # === 6. Validate Sensors ===
+        # === 7. Validate Sensors ===
         sensor_errors = []
         sensors_to_validate = [
             (self._fv_production, "Solar Production"),
@@ -348,7 +368,7 @@ class SolarSurplusAutomation:
             self.logger.separator()
             return
 
-        # === 7. Calculate Surplus ===
+        # === 8. Calculate Surplus ===
         fv_production = get_float(self.hass, self._fv_production)
         home_consumption = get_float(self.hass, self._home_consumption)
         grid_import = get_float(self.hass, self._grid_import)
@@ -360,7 +380,7 @@ class SolarSurplusAutomation:
         self.logger.info(f"Surplus: {surplus_watts}W ({surplus_amps:.2f}A)")
         self.logger.info(f"Grid Import: {grid_import}W")
 
-        # === 8. Priority Balancer Decision ===
+        # === 9. Priority Balancer Decision ===
         priority = None
         if self.priority_balancer.is_enabled():
             priority = await self.priority_balancer.calculate_priority()
@@ -374,10 +394,10 @@ class SolarSurplusAutomation:
         else:
             self.logger.info("Priority Balancer disabled - using fallback mode")
 
-        # === 9. Handle Home Battery Usage ===
+        # === 10. Handle Home Battery Usage ===
         await self._handle_home_battery_usage(surplus_watts, priority)
 
-        # === 10. Get Current Amperage (needed for hysteresis) ===
+        # === 11. Get Current Amperage (needed for hysteresis) ===
         charger_is_on = await self.charger_controller.is_charging()
         if charger_is_on:
             current_amps = await self.charger_controller.get_current_amperage() or 6
@@ -386,11 +406,11 @@ class SolarSurplusAutomation:
 
         self.logger.info(f"Current charging: {current_amps}A (charger {'ON' if charger_is_on else 'OFF'})")
 
-        # === 11. Calculate Target Amperage (with hysteresis) ===
+        # === 12. Calculate Target Amperage (with hysteresis) ===
         target_amps = self._calculate_target_amperage(surplus_watts, current_amps)
         self.logger.info(f"Target amperage: {target_amps}A")
 
-        # === 12. Get Configuration Values ===
+        # === 13. Get Configuration Values ===
         grid_threshold = get_float(self.hass, self._grid_import_threshold_entity)
         grid_import_delay = get_float(self.hass, self._grid_import_delay_entity)
         surplus_drop_delay = get_float(self.hass, self._surplus_drop_delay_entity)
@@ -413,7 +433,7 @@ class SolarSurplusAutomation:
             }
         )
 
-        # === 13. Apply Charging Logic ===
+        # === 14. Apply Charging Logic ===
 
         # Start charger if OFF and we have target amperage
         if not charger_is_on and target_amps > 0:
