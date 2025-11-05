@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.3.12
+**Current Version:** 1.3.14
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -752,6 +752,28 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.3.14 (2025-11-05)
+**Cloud Protection for Surplus Increase**
+- Added: 60-second stability delay before increasing charging amperage
+- **Problem Fixed**: On cloudy days, system would immediately increase amperage when surplus briefly increased, then decrease 30s later when clouds returned
+- **Old Behavior**:
+  - Charger OFF → ON: 15s stability delay ✅
+  - Charger ON, increase amperage: IMMEDIATE ❌ (caused oscillations)
+  - Charger ON, decrease amperage: 30s delay ✅
+- **New Behavior**:
+  - Charger OFF → ON: 15s stability delay ✅
+  - Charger ON, increase amperage: 60s stability delay ✅ (cloud protection)
+  - Charger ON, decrease amperage: 30s delay ✅
+- **Example Scenario Prevented**:
+  ```
+  ☁️ Cloud passes → surplus 3000W (13A) → wait 60s → if still stable, increase to 13A
+  ☀️ Cloud arrives → surplus 1400W (6A)  → wait 30s → if still low, decrease to 6A
+  ```
+- **Technical**: Added `SURPLUS_INCREASE_DELAY = 60` constant in `const.py`
+- **Modified**: `solar_surplus.py` - `_handle_surplus_increase()` now requires stability for all increases
+- **User Impact**: More stable charging in variable weather, fewer charger state changes
+- **Upgrade priority**: 🟢 OPTIONAL - Improves stability on cloudy days
 
 ### v1.3.13 (2025-11-05)
 **Car Ready Flag & Battery Pre-Check**

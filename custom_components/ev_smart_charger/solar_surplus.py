@@ -694,13 +694,15 @@ class SolarSurplusAutomation:
                 await self.charger_controller.set_amperage(6, "Surplus decrease - fallback to 6A")
 
     async def _handle_surplus_increase(self, target_amps: int, current_amps: int) -> None:
-        """Handle surplus increase with stability requirement for starting from 0A.
+        """Handle surplus increase with stability requirement.
 
         Args:
             target_amps: Target amperage to set
             current_amps: Current amperage (0 if charger off)
         """
-        # Special case: Starting from 0A (charger off) requires stable surplus
+        from .const import SURPLUS_INCREASE_DELAY
+
+        # Starting from 0A (charger off) requires 15s stability
         if current_amps == 0:
             # Start stability tracking if not already started
             if self._surplus_stable_since is None:
@@ -726,10 +728,30 @@ class SolarSurplusAutomation:
             self._reset_state_tracking()
             await self.charger_controller.start_charger(target_amps, "Stable surplus confirmed")
         else:
-            # Already charging, immediate increase (no stability check needed)
-            self.logger.action(f"Increasing amperage from {current_amps}A to {target_amps}A (immediate)")
+            # Already charging, require stability for INCREASES (cloud protection)
+            if self._surplus_stable_since is None:
+                self._surplus_stable_since = datetime.now()
+                self.logger.info(
+                    f"Surplus increase detected ({current_amps}A → {target_amps}A) - "
+                    f"Waiting {SURPLUS_INCREASE_DELAY}s for stability (cloud protection)"
+                )
+                return
+
+            # Check stability duration
+            stable_duration = (datetime.now() - self._surplus_stable_since).total_seconds()
+            if stable_duration < SURPLUS_INCREASE_DELAY:
+                self.logger.debug(
+                    f"Waiting for stable increase: {stable_duration:.1f}s / {SURPLUS_INCREASE_DELAY}s"
+                )
+                return
+
+            # Stability confirmed, increase amperage
+            self.logger.action(
+                f"Surplus stable for {SURPLUS_INCREASE_DELAY}s - "
+                f"Increasing from {current_amps}A to {target_amps}A"
+            )
             self._reset_state_tracking()
-            await self.charger_controller.set_amperage(target_amps, "Surplus increase")
+            await self.charger_controller.set_amperage(target_amps, "Stable surplus increase")
 
     def _reset_state_tracking(self) -> None:
         """Reset state tracking flags."""

@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.3.13"
+VERSION = "1.3.14"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -137,6 +137,7 @@ SURPLUS_START_THRESHOLD = 6.5  # amps - minimum surplus to START charging (with 
 SURPLUS_STOP_THRESHOLD = 5.5   # amps - minimum surplus to CONTINUE charging
 SURPLUS_HYSTERESIS_MARGIN = 1.0  # amps - dead band to prevent oscillation (6.5 - 5.5)
 SURPLUS_STABLE_DURATION = 15  # seconds - required stable surplus before starting
+SURPLUS_INCREASE_DELAY = 60  # seconds - delay before increasing amperage (cloud protection)
 
 # ========== DEFAULT VALUES - HOME BATTERY SUPPORT ==========
 DEFAULT_HOME_BATTERY_MIN_SOC = 20  # percent
