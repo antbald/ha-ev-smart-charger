@@ -105,6 +105,9 @@ class SolarSurplusAutomation:
         self._check_count = 0
         self._check_count_reset_time = None
 
+        # Sensor error tracking (prevent log spam)
+        self._sensor_error_state = {}  # {sensor_entity_id: error_message}
+
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
         """Find an entity by its suffix using EntityRegistryService."""
         entity_id = self._registry_service.find_by_suffix_filtered(suffix)
@@ -344,7 +347,7 @@ class SolarSurplusAutomation:
 
         self.logger.info(f"Charger status: '{charger_status}' - proceeding")
 
-        # === 7. Validate Sensors ===
+        # === 7. Validate Sensors (with throttled logging to prevent spam) ===
         sensor_errors = []
         sensors_to_validate = [
             (self._fv_production, "Solar Production"),
@@ -352,15 +355,33 @@ class SolarSurplusAutomation:
             (self._grid_import, "Grid Import"),
         ]
 
+        # Check each sensor and track error state changes
+        new_errors = False
         for entity_id, sensor_name in sensors_to_validate:
             is_valid, error_msg = validate_sensor(self.hass, entity_id, sensor_name)
+
             if not is_valid:
                 sensor_errors.append(error_msg)
+                # Only log if this is a NEW error or error message changed
+                if entity_id not in self._sensor_error_state or self._sensor_error_state[entity_id] != error_msg:
+                    self._sensor_error_state[entity_id] = error_msg
+                    new_errors = True
+            else:
+                # Sensor is now valid - check if it was previously in error state
+                if entity_id in self._sensor_error_state:
+                    self.logger.info(f"✅ {sensor_name} sensor recovered (was: {self._sensor_error_state[entity_id]})")
+                    del self._sensor_error_state[entity_id]
 
         if sensor_errors:
-            self.logger.error("Sensor validation failed:")
-            for error in sensor_errors:
-                self.logger.error(f"  - {error}")
+            # Only log full error details if there are NEW errors
+            if new_errors:
+                self.logger.error("Sensor validation failed:")
+                for error in sensor_errors:
+                    self.logger.error(f"  - {error}")
+            else:
+                # Existing errors - just update diagnostic sensor quietly
+                self.logger.debug(f"Sensor errors still present ({len(sensor_errors)} sensors unavailable)")
+
             await self._update_diagnostic_sensor(
                 "ERROR: Invalid sensor values",
                 {"errors": sensor_errors, "last_check": datetime.now().isoformat()}

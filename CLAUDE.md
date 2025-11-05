@@ -753,6 +753,25 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.3.16 (2025-11-05)
+**Throttled Logging for Sensor Errors**
+- **Problem Fixed**: When sensors become unavailable (e.g., `unknown` state), Solar Surplus logged errors every minute, causing log spam (200+ messages)
+- **Solution**: Implemented smart error state tracking that only logs when errors change
+- **New Behavior**:
+  - First error occurrence: Full error logged with details
+  - Subsequent occurrences: Silent (only debug level logging)
+  - Sensor recovery: Success message logged when sensor becomes available again
+- **Example**:
+  ```
+  12:35:07 - ❌ Sensor Home Consumption (sensor.xyz) state is 'unknown'  [LOGGED ONCE]
+  12:36:07 - [silent - error persists]
+  12:37:07 - [silent - error persists]
+  12:38:07 - ✅ Home Consumption sensor recovered (was: state is 'unknown')  [LOGGED]
+  ```
+- **Technical**: Added `_sensor_error_state` dictionary to track per-sensor error states
+- **User Impact**: Cleaner logs, no more Home Assistant warnings about excessive logging
+- **Upgrade priority**: 🟡 RECOMMENDED - Eliminates log spam when sensors temporarily offline
+
 ### v1.3.15 (2025-11-05)
 **Unified 60s Stability Delay for All Surplus Operations**
 - **Change**: Initial charger start (OFF → ON) now uses same 60s delay as amperage increases
