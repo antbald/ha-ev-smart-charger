@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.3.11
+**Current Version:** 1.3.12
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -737,6 +737,43 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.3.12 (2025-11-05)
+**CRITICAL FIX: Night Smart Charge Restart Loop & Battery Protection**
+- Fixed FIVE critical bugs causing charger restart loops, inadequate battery protection, and excessive logging
+- **Bug #1**: Periodic timer not cancelled after completion → restart loops
+  - `_timer_unsub` was never cancelled in `_complete_night_charge()`
+  - Periodic check continued running every minute after session completion
+  - Led to re-evaluation and restart loops
+- **Bug #2**: No cooldown protection in periodic check → race conditions
+  - `_async_periodic_check()` had no protection against re-evaluating after recent completion
+  - Created race condition: 01:00 start → 01:02 stop → 01:03 restart → 01:05 restart
+  - Both Night Charge AND Solar Surplus tried to start charger simultaneously
+- **Bug #3**: Battery monitoring too slow (1 minute) → failed protection
+  - Battery dropped 8% (20% → 12%) between 1-minute checks
+  - Slow monitoring failed to catch 20% threshold crossing in time
+  - Solution: Reduced interval from 60s to 15s (4x faster, 75% response time improvement)
+- **Bug #4**: Solar Surplus interference during cooldown
+  - Solar Surplus had no awareness of Night Charge completion state
+  - Attempted to start charger at 01:03 and 01:05 after Night Charge stopped
+  - Created interference and restart loops
+- **Bug #5**: No completion timestamp tracking
+  - System had no memory of when sessions completed
+  - Impossible to implement proper cooldown logic
+- **Solutions Implemented**:
+  - Added `_last_completion_time` attribute for timestamp tracking
+  - Added `NIGHT_CHARGE_COOLDOWN_SECONDS = 3600` (1 hour) constant
+  - Updated `_async_periodic_check()` with cooldown and active checks
+  - Updated `_complete_night_charge()` to set completion timestamp
+  - Reduced battery monitoring from 60s to 15s
+  - Added Night Charge cooldown check in Solar Surplus (new step #4)
+- **Impact**:
+  - Battery protection at 20% threshold (not 12%)
+  - No restart loops (1-hour cooldown enforced)
+  - < 50 log messages per session (vs 200+)
+  - Reliable battery protection and session management
+- **Technical**: Modified `const.py`, `night_smart_charge.py`, `solar_surplus.py`
+- **Upgrade priority**: 🔴 CRITICAL for users experiencing restart loops or battery protection failures
 
 ### v1.3.11 (2025-11-05)
 **CRITICAL FIX: Solar Surplus Nighttime Operation**
