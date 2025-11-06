@@ -58,11 +58,11 @@
         "description": "**🔔 Stay Informed with Smart Notifications**\n\n**Get instant alerts on your mobile devices for:**\n\n🚫 **Smart Blocker Events**\n• Charging blocked outside permitted window\n• Includes reason (nighttime, insufficient solar)\n• Continuous monitoring active\n\n⚖️ **Priority Balancer Changes**\n• Priority switched: EV ↔ Home ↔ EV_Free\n• Current SOC levels (EV & Home)\n• Daily targets status\n• **Smart:** Only notified when car owner is home\n\n🌙 **Night Smart Charge**\n• Charging started (battery/grid mode)\n• Solar forecast information\n• Target SOC progress\n\n---\n\n💡 **How it works:**\n• Select one or more mobile devices below\n• Select the car owner (for presence-based filtering)\n• All notifications use title **\"BORGO\"** for easy filtering\n• After setup, use dashboard switches to enable/disable per feature\n• Notifications are **enabled by default**, disable if not needed\n\n⚠️ **Optional:** Leave notify_services empty to skip notifications (can configure later)",
         "data": {
           "notify_services": "📱 Select Mobile Devices",
-          "car_owner": "👤 Car Owner"
+          "car_owner": "👤 Car Owner (Required)"
         },
         "data_description": {
-          "notify_services": "**Available:** All Home Assistant Mobile App devices\n**Examples:** mobile_app_johns_iphone, mobile_app_pixel_8\n\n✅ **Pro Tip:** Select all household devices for comprehensive monitoring",
-          "car_owner": "**Required:** Select the person entity representing the car owner\n**Domain:** person\n**Example:** person.john\n\n💡 **Smart Filtering:** Priority Balancer notifications will only be sent when this person is home. Prevents unnecessary alerts when away."
+          "notify_services": "All Home Assistant Mobile App devices available for notifications. Select one or more devices to receive alerts.",
+          "car_owner": "Select the person entity for the car owner. Priority Balancer notifications will only be sent when this person is home. This prevents unnecessary alerts when away."
         }
       }
     },
@@ -119,11 +119,11 @@
         "description": "**🔔 Update Notification Devices**\n\n**Current notification types:**\n• 🚫 Smart Blocker alerts\n• ⚖️ Priority Balancer changes (only when car owner is home)\n• 🌙 Night Smart Charge status\n\n💡 **Notification title:** BORGO (for filtering)\n💡 **Dashboard control:** Use switches to enable/disable per feature\n\n⚠️ **Leave notify_services empty** to disable all mobile notifications\n\n---",
         "data": {
           "notify_services": "📱 Select Mobile Devices",
-          "car_owner": "👤 Car Owner"
+          "car_owner": "👤 Car Owner (Required)"
         },
         "data_description": {
           "notify_services": "**Available:** All Home Assistant Mobile App devices\n**Note:** Changes apply immediately to new notifications",
-          "car_owner": "**Required:** Person entity for the car owner\n**Domain:** person\n**Smart Filtering:** Priority Balancer notifications only sent when this person is home"
+          "car_owner": "Select the person entity for the car owner. Priority Balancer notifications will only be sent when this person is home."
         }
       }
     },
