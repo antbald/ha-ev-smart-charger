@@ -493,7 +493,11 @@ class NightSmartCharge:
         self._night_charge_active = True
         self._active_mode = NIGHT_CHARGE_MODE_BATTERY
 
-        # Send mobile notification
+        # Send mobile notification with safety logging (v1.3.20)
+        current_time = dt_util.now()
+        self.logger.info(f"📱 Preparing to send BATTERY mode notification at {current_time.strftime('%H:%M:%S')}")
+        self.logger.info(f"   Window check: scheduled_time={self._get_night_charge_time()}, current={current_time.strftime('%H:%M')}")
+
         reason = f"Previsione solare sufficiente ({pv_forecast:.1f} kWh >= {threshold} kWh)"
         await self._mobile_notifier.send_night_charge_notification(
             mode=NIGHT_CHARGE_MODE_BATTERY,
@@ -651,7 +655,11 @@ class NightSmartCharge:
         self._night_charge_active = True
         self._active_mode = NIGHT_CHARGE_MODE_GRID
 
-        # Send mobile notification
+        # Send mobile notification with safety logging (v1.3.20)
+        current_time = dt_util.now()
+        self.logger.info(f"📱 Preparing to send GRID mode notification at {current_time.strftime('%H:%M:%S')}")
+        self.logger.info(f"   Window check: scheduled_time={self._get_night_charge_time()}, current={current_time.strftime('%H:%M')}")
+
         reason = f"Previsione solare insufficiente ({pv_forecast:.1f} kWh < {threshold} kWh)"
         await self._mobile_notifier.send_night_charge_notification(
             mode=NIGHT_CHARGE_MODE_GRID,

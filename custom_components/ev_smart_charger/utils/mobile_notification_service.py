@@ -54,12 +54,18 @@ class MobileNotificationService:
             _LOGGER.debug("Smart Blocker notifications disabled, skipping")
             return
 
+        # Check if car owner is home before sending notification (v1.3.20+)
+        if not self._is_car_owner_home():
+            _LOGGER.debug("Car owner not home, skipping Smart Blocker notification")
+            return
+
         message = (
             f"Ricarica interrotta EV in quanto fuori dalla finestra di ricarica\n\n"
             f"Motivo: {reason}\n"
             f"Ora: {dt_util.now().strftime('%H:%M')}"
         )
 
+        _LOGGER.info(f"Sending Smart Blocker notification at {dt_util.now().strftime('%H:%M:%S')}")
         await self._send_notification(
             message=message,
             tag="evsc_smart_blocker",
@@ -136,6 +142,11 @@ class MobileNotificationService:
             _LOGGER.debug("Night Charge notifications disabled, skipping")
             return
 
+        # Check if car owner is home before sending notification (v1.3.20+)
+        if not self._is_car_owner_home():
+            _LOGGER.debug("Car owner not home, skipping Night Charge notification")
+            return
+
         # Map mode to Italian description
         mode_map = {
             "battery": "Batteria Domestica",
@@ -152,6 +163,7 @@ class MobileNotificationService:
         message += f"Amperaggio: {amperage}A\n"
         message += f"Ora: {dt_util.now().strftime('%H:%M')}"
 
+        _LOGGER.info(f"Sending Night Charge notification ({mode} mode) at {dt_util.now().strftime('%H:%M:%S')}")
         await self._send_notification(
             message=message,
             tag="evsc_night_charge",

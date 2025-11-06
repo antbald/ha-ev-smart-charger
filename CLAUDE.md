@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.3.19
+**Current Version:** 1.3.20
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -752,6 +752,93 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.3.20 (2025-11-06)
+**Universal Presence-Based Notification Filtering + Enhanced Debugging**
+
+**Feature Overview**:
+Extends presence-based notification filtering to ALL notification types (not just Priority Balancer). When the car owner is away from home, NO notifications are sent, eliminating notification spam when you can't act on them.
+
+**Problem Solved**:
+- **Previous Behavior** (v1.3.19): Only Priority Balancer notifications filtered by presence
+- **User Impact**: Users still received Smart Blocker and Night Charge notifications when away from home
+- **New Behavior** (v1.3.20): ALL notification types filtered by car owner presence
+
+**What Changed**:
+
+**1. Universal Presence Filtering**
+- ✅ **Smart Blocker**: Now checks car owner presence before sending notifications
+- ✅ **Night Smart Charge**: Now checks car owner presence before sending notifications
+- ✅ **Priority Balancer**: Already filtered in v1.3.19 (no changes)
+
+**2. Enhanced Notification Logging**
+Added comprehensive logging to track when notifications are sent:
+- `📱 Preparing to send [MODE] notification at HH:MM:SS` - Before notification
+- `   Window check: scheduled_time=XX:XX, current=XX:XX` - Verification log
+- `Sending [TYPE] notification at HH:MM:SS` - Actual send time
+
+**3. Safety Checks**
+- Night Smart Charge now logs scheduled time vs current time before sending notifications
+- Helps diagnose delayed or spurious notifications from Home Assistant's notify service
+- Makes it easier to identify if notification delays are from HA infrastructure vs integration logic
+
+**Files Modified**:
+- [utils/mobile_notification_service.py](custom_components/ev_smart_charger/utils/mobile_notification_service.py):
+  - Lines 57-60: Added `_is_car_owner_home()` check to Smart Blocker notifications
+  - Lines 145-148: Added `_is_car_owner_home()` check to Night Charge notifications
+  - Lines 68, 166: Added INFO-level logging when notifications sent
+- [night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py):
+  - Lines 496-499: Added safety logging before BATTERY mode notification
+  - Lines 658-661: Added safety logging before GRID mode notification
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.3.20"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.3.20"
+
+**Notification Behavior Matrix**:
+
+| Notification Type | v1.3.19 | v1.3.20 |
+|-------------------|---------|---------|
+| Priority Balancer | ✅ Filtered | ✅ Filtered |
+| Smart Blocker | ❌ Always sent | ✅ Filtered |
+| Night Smart Charge | ❌ Always sent | ✅ Filtered |
+
+**User Impact**:
+- 🔇 **Zero notification spam** when away from home
+- 🔍 **Better debugging** via detailed timestamp logs
+- 🛡️ **Safety verification** - logs confirm notifications sent during valid windows
+- 🏠 **Context-aware** - only notified when you can physically respond
+
+**Technical Implementation**:
+```python
+# Smart Blocker notification (NEW in v1.3.20)
+if not self._is_car_owner_home():
+    _LOGGER.debug("Car owner not home, skipping Smart Blocker notification")
+    return
+
+# Night Charge notification (NEW in v1.3.20)
+if not self._is_car_owner_home():
+    _LOGGER.debug("Car owner not home, skipping Night Charge notification")
+    return
+
+# Enhanced logging for debugging
+current_time = dt_util.now()
+self.logger.info(f"📱 Preparing to send GRID mode notification at {current_time.strftime('%H:%M:%S')}")
+self.logger.info(f"   Window check: scheduled_time={self._get_night_charge_time()}, current={current_time.strftime('%H:%M')}")
+```
+
+**Debugging Benefits**:
+When investigating notification timing issues, logs now show:
+```
+01:05:23 - 📱 Preparing to send GRID mode notification at 01:05:23
+01:05:23 -    Window check: scheduled_time=01:00, current=01:05
+01:05:23 - Sending Night Charge notification (grid mode) at 01:05:23
+```
+
+This makes it easy to:
+- Verify notifications sent at correct time
+- Diagnose Home Assistant notify service delays
+- Confirm presence checks working correctly
+
+**Upgrade Priority**: 🟢 RECOMMENDED - Eliminates notification spam when away from home
 
 ### v1.3.19 (2025-11-06)
 **Presence-Based Notification Filtering - Smart Priority Balancer Alerts**
