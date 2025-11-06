@@ -753,6 +753,122 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.3.18 (2025-11-06)
+**Car Ready Time Support - Extend Charging Past Sunrise When Needed**
+
+**Feature Overview**:
+When the `car_ready` flag is enabled for a day, Night Smart Charge can now continue charging **past sunrise** until either the EV target SOC is reached or a configurable deadline time is hit. This ensures the car is always ready when needed, even if overnight charging wasn't sufficient.
+
+**Problem Solved**:
+- **Previous Behavior** (v1.3.17): Night charging ALWAYS stopped at sunrise, regardless of whether EV target was reached
+- **User Impact**: If overnight charging didn't reach target (slow charging, late plug-in, etc.), user had to wait for daytime Solar Surplus to resume
+- **New Behavior** (v1.3.18): When `car_ready=ON`, charging continues past sunrise until target or deadline reached
+
+**New Entity**:
+- **`time.evsc_car_ready_time`**: Configurable deadline time (default: 08:00)
+  - Sets the absolute latest time charging must stop (e.g., "I need to leave for work at 08:00")
+  - Global setting (not per-day) for simplicity
+
+**Logic Changes**:
+
+**When `car_ready=OFF` (car not urgently needed)**:
+- Maintains v1.3.17 behavior: Stop at sunrise
+- Rationale: No urgency, let Solar Surplus handle daytime charging with free solar energy
+
+**When `car_ready=ON` (car needed for morning commute)**:
+- **NEW**: Continue past sunrise until:
+  1. **EV target SOC reached** (preferred outcome), OR
+  2. **Car ready deadline time reached** (absolute cutoff)
+- Priority: deadline > EV target > sunrise (sunrise ignored when car_ready=ON)
+- **Both** BATTERY and GRID modes support this behavior
+
+**Scenario Examples**:
+
+**Scenario 1: Target Reached Before Sunrise** (No change)
+```
+01:00 AM - Start charging (GRID mode, car_ready=ON, target=80%)
+06:30 AM - EV reaches 80% → STOP (target reached)
+07:00 AM - Sunrise (already stopped)
+```
+
+**Scenario 2: Continue Past Sunrise** (NEW in v1.3.18)
+```
+01:00 AM - Start charging (BATTERY mode, car_ready=ON, target=80%, deadline=08:00)
+07:00 AM - 🌅 Sunrise, EV at 65% → CONTINUE (car_ready=ON, below target)
+07:30 AM - EV reaches 80% → STOP (target reached before deadline)
+```
+
+**Scenario 3: Deadline Forces Stop** (NEW in v1.3.18)
+```
+01:00 AM - Start charging (GRID mode, car_ready=ON, target=80%, deadline=08:00)
+03:00 AM - Late plug-in, slow charging
+07:00 AM - 🌅 Sunrise, EV at 60% → CONTINUE (car_ready=ON, below target)
+08:00 AM - EV at 72% (still below 80%) → STOP (deadline reached)
+User drives with 72% instead of 80%
+```
+
+**Scenario 4: Car Not Needed** (v1.3.17 behavior maintained)
+```
+01:00 AM - Check: car_ready=OFF → SKIP (weekend, car not needed)
+OR
+01:00 AM - Start charging (car_ready=OFF, target=80%)
+07:00 AM - 🌅 Sunrise, EV at 65% → STOP (sunrise, car not urgently needed)
+Solar Surplus continues charging during day with free solar
+```
+
+**Implementation Details**:
+
+**New Methods** ([night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py)):
+1. `_get_car_ready_time()` (line ~788): Reads deadline from time entity
+2. `_should_stop_for_deadline()` (line ~810): Implements car_ready-based stop logic
+   - Returns `(should_stop, reason)` tuple
+   - Differentiates between car_ready=ON vs OFF scenarios
+
+**Modified Methods**:
+1. `_async_monitor_battery_charge()` - Check 0 (line ~532):
+   - OLD: `if not await self._is_in_active_window(current_time)` (simple sunrise check)
+   - NEW: `should_stop, reason = await self._should_stop_for_deadline(current_time)` (smart logic)
+
+2. `_async_monitor_grid_charge()` - Check 0 (line ~594):
+   - Same pattern as BATTERY mode
+
+3. `_async_periodic_check()` - Active session validation (line ~239):
+   - Now uses `_should_stop_for_deadline()` instead of simple window check
+   - Ensures active sessions respect new stop logic
+
+**New Constants** ([const.py](custom_components/ev_smart_charger/const.py)):
+```python
+HELPER_CAR_READY_TIME_SUFFIX = "evsc_car_ready_time"
+DEFAULT_CAR_READY_TIME = "08:00:00"
+VERSION = "1.3.18"
+```
+
+**Stop Conditions Matrix**:
+
+| Mode | car_ready=OFF | car_ready=ON (target reached) | car_ready=ON (deadline reached) | car_ready=ON (both not reached) |
+|------|---------------|------------------------------|--------------------------------|--------------------------------|
+| BATTERY | Stop at sunrise | Stop at target | Stop at deadline | Continue past sunrise |
+| GRID | Stop at sunrise | Stop at target | Stop at deadline | Continue past sunrise |
+
+**Files Modified**:
+- [const.py](custom_components/ev_smart_charger/const.py): Added `HELPER_CAR_READY_TIME_SUFFIX`, `DEFAULT_CAR_READY_TIME`, updated VERSION
+- [time.py](custom_components/ev_smart_charger/time.py): Added `evsc_car_ready_time` entity
+- [night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py): New methods, modified monitoring loops
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.3.18"
+
+**User Configuration**:
+1. Set `car_ready` switches for days when car is needed (already existed in v1.3.13+)
+2. Configure `time.evsc_car_ready_time` to your "must leave by" time (new in v1.3.18)
+3. System automatically extends charging past sunrise when needed
+
+**User Impact**:
+- 🟢 **RECOMMENDED UPGRADE** - Ensures car is always ready when needed, even if overnight charging insufficient
+- No breaking changes - defaults maintain backward compatibility
+- Users with car_ready=OFF see no behavior change
+- Users with car_ready=ON get intelligent sunrise extension automatically
+
+**Upgrade Priority**: 🟢 RECOMMENDED - Significantly improves reliability for users who depend on morning readiness
+
 ### v1.3.17 (2025-11-06)
 **CRITICAL: Night Smart Charge Sunrise Termination Fix**
 - **🚨 Critical Bug Fixed**: Night charging could continue indefinitely past sunrise

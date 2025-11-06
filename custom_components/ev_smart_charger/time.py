@@ -14,6 +14,7 @@ from .const import (
     DOMAIN,
     VERSION,
     DEFAULT_NIGHT_CHARGE_TIME,
+    DEFAULT_CAR_READY_TIME,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,6 +36,17 @@ async def async_setup_entry(
             "EVSC Night Charge Time",
             "mdi:clock-time-one",
             DEFAULT_NIGHT_CHARGE_TIME,
+        )
+    )
+
+    # Car Ready Time (v1.3.18+)
+    entities.append(
+        EVSCTime(
+            entry.entry_id,
+            "evsc_car_ready_time",
+            "EVSC Car Ready Time",
+            "mdi:clock-check",
+            DEFAULT_CAR_READY_TIME,
         )
     )
 

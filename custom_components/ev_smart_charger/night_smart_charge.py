@@ -18,6 +18,7 @@ from .const import (
     NIGHT_CHARGE_MODE_IDLE,
     HELPER_NIGHT_CHARGE_ENABLED_SUFFIX,
     HELPER_NIGHT_CHARGE_TIME_SUFFIX,
+    HELPER_CAR_READY_TIME_SUFFIX,
     HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX,
     HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX,
     HELPER_HOME_BATTERY_MIN_SOC_SUFFIX,
@@ -28,6 +29,7 @@ from .const import (
     HELPER_CAR_READY_FRIDAY_SUFFIX,
     HELPER_CAR_READY_SATURDAY_SUFFIX,
     HELPER_CAR_READY_SUNDAY_SUFFIX,
+    DEFAULT_CAR_READY_TIME,
 )
 from .utils.logging_helper import EVSCLogger
 from .utils import entity_helper, state_helper
@@ -76,6 +78,7 @@ class NightSmartCharge:
         # Helper entities (discovered in async_setup)
         self._night_charge_enabled_entity = None
         self._night_charge_time_entity = None
+        self._car_ready_time_entity = None  # v1.3.18: Car ready deadline
         self._solar_forecast_threshold_entity = None
         self._night_charge_amperage_entity = None
         self._home_battery_min_soc_entity = None
@@ -103,6 +106,9 @@ class NightSmartCharge:
         )
         self._night_charge_time_entity = entity_helper.find_by_suffix(
             self.hass, HELPER_NIGHT_CHARGE_TIME_SUFFIX
+        )
+        self._car_ready_time_entity = entity_helper.find_by_suffix(
+            self.hass, HELPER_CAR_READY_TIME_SUFFIX
         )
         self._solar_forecast_threshold_entity = entity_helper.find_by_suffix(
             self.hass, HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX
@@ -230,17 +236,18 @@ class NightSmartCharge:
                 )
                 return
 
-        # Check if already active - but validate window is still open (v1.3.17 fix)
+        # Check if already active - validate stop conditions (v1.3.18)
         if self.is_active():
-            # Even if active, verify window hasn't closed (sunrise check)
-            if not await self._is_in_active_window(current_time):
+            # Validate stop conditions (deadline/sunrise based on car_ready flag)
+            should_stop, reason = await self._should_stop_for_deadline(current_time)
+            if should_stop:
                 self.logger.warning(
-                    f"{self.logger.ALERT} Active session detected OUTSIDE window - terminating"
+                    f"{self.logger.ALERT} Active session detected past stop condition - terminating"
                 )
-                await self.charger_controller.stop_charger("Night charge window ended (sunrise passed)")
+                await self.charger_controller.stop_charger(reason)
                 await self._complete_night_charge()
             else:
-                self.logger.debug("Already active and within window, skipping re-evaluation")
+                self.logger.debug("Already active and within valid window, skipping re-evaluation")
             return
 
         # Check if we're in active window
@@ -523,10 +530,11 @@ class NightSmartCharge:
         self.logger.separator()
         self.logger.info(f"{self.logger.BATTERY} Battery monitoring at {current_time.strftime('%H:%M:%S')}")
 
-        # Check 0: Sunrise termination (v1.3.17 fix)
-        if not await self._is_in_active_window(current_time):
-            self.logger.info(f"{self.logger.CALENDAR} Night charge window closed (sunrise passed)")
-            await self.charger_controller.stop_charger("Night charge window ended")
+        # Check 0: Car ready deadline / sunrise (v1.3.18)
+        should_stop, reason = await self._should_stop_for_deadline(current_time)
+        if should_stop:
+            self.logger.info(f"{self.logger.CALENDAR} Stop condition: {reason}")
+            await self.charger_controller.stop_charger(reason)
             await self._complete_night_charge()
             return
 
@@ -584,10 +592,11 @@ class NightSmartCharge:
         self.logger.separator()
         self.logger.info(f"{self.logger.GRID} Grid monitoring at {current_time.strftime('%H:%M:%S')}")
 
-        # Check 0: Sunrise termination (window closed)
-        if not await self._is_in_active_window(current_time):
-            self.logger.info(f"{self.logger.CALENDAR} Night charge window closed (sunrise passed)")
-            await self.charger_controller.stop_charger("Night charge window ended")
+        # Check 0: Car ready deadline / sunrise (v1.3.18)
+        should_stop, reason = await self._should_stop_for_deadline(current_time)
+        if should_stop:
+            self.logger.info(f"{self.logger.CALENDAR} Stop condition: {reason}")
+            await self.charger_controller.stop_charger(reason)
             await self._complete_night_charge()
             return
 
@@ -778,6 +787,67 @@ class NightSmartCharge:
         self.logger.info(f"{self.logger.CALENDAR} Car ready flag for {day_name}: {car_ready}")
 
         return car_ready
+
+    def _get_car_ready_time(self) -> datetime:
+        """
+        Get car ready deadline time for today (v1.3.18+).
+
+        Returns:
+            datetime: Today at the configured car ready time
+        """
+        time_state = state_helper.get_state(self.hass, self._car_ready_time_entity)
+        if not time_state or time_state in ("unknown", "unavailable"):
+            time_state = DEFAULT_CAR_READY_TIME
+
+        # Convert to datetime (today at specified time)
+        now = dt_util.now()
+        time_parts = time_state.split(":")
+        car_ready_time = now.replace(
+            hour=int(time_parts[0]),
+            minute=int(time_parts[1]),
+            second=int(time_parts[2]) if len(time_parts) > 2 else 0,
+            microsecond=0
+        )
+        return car_ready_time
+
+    async def _should_stop_for_deadline(self, current_time: datetime) -> tuple[bool, str]:
+        """
+        Check if charging should stop based on car ready configuration (v1.3.18+).
+
+        Logic:
+        - If car_ready=ON: Continue past sunrise until min(ev_target, deadline)
+        - If car_ready=OFF: Stop at sunrise (v1.3.17 behavior)
+
+        Args:
+            current_time: Current datetime to check against
+
+        Returns:
+            (should_stop, reason) tuple
+        """
+        car_ready_today = self._get_car_ready_for_today()
+
+        if car_ready_today:
+            # Car needed - check deadline first
+            car_ready_time = self._get_car_ready_time()
+
+            if current_time >= car_ready_time:
+                # Past deadline - stop immediately
+                return True, f"Car ready deadline reached ({car_ready_time.strftime('%H:%M')})"
+
+            # Before deadline - check EV target
+            ev_target_reached = await self.priority_balancer.is_ev_target_reached()
+            if ev_target_reached:
+                return True, "EV target reached"
+
+            # Before deadline + target not reached - CONTINUE
+            return False, ""
+        else:
+            # Car not needed - stop at sunrise
+            sunrise = self._astral_service.get_next_sunrise_after(current_time)
+            if current_time >= sunrise:
+                return True, "Sunrise reached (car not needed urgently)"
+
+            return False, ""
 
     def _log_configuration(self) -> None:
         """Log current configuration."""

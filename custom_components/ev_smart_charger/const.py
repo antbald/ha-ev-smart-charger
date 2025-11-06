@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.3.17"
+VERSION = "1.3.18"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -120,6 +120,7 @@ HELPER_CHARGING_PROFILE_SUFFIX = "evsc_charging_profile"
 
 # Time
 HELPER_NIGHT_CHARGE_TIME_SUFFIX = "evsc_night_charge_time"
+HELPER_CAR_READY_TIME_SUFFIX = "evsc_car_ready_time"
 
 # Sensors
 HELPER_DIAGNOSTIC_SENSOR_SUFFIX = "evsc_diagnostic"
@@ -152,6 +153,7 @@ DEFAULT_HOME_MIN_SOC = 50  # percent (all days)
 DEFAULT_NIGHT_CHARGE_TIME = "01:00:00"
 DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD = 20  # kWh
 DEFAULT_NIGHT_CHARGE_AMPERAGE = 16  # amps
+DEFAULT_CAR_READY_TIME = "08:00:00"  # Default deadline when car must be ready
 NIGHT_CHARGE_COOLDOWN_SECONDS = 3600  # 1 hour - prevent re-evaluation after completion
 
 # ========== DEFAULT VALUES - CAR READY FLAGS ==========
