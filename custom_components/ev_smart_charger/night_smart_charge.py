@@ -85,6 +85,7 @@ class NightSmartCharge:
         self._timer_unsub = None
         self._charger_status_unsub = None
         self._battery_monitor_unsub = None
+        self._grid_monitor_unsub = None  # Grid charge monitoring timer (v1.3.17)
         self._night_charge_active = False
         self._active_mode = NIGHT_CHARGE_MODE_IDLE
         self._last_window_check_time = None
@@ -183,6 +184,8 @@ class NightSmartCharge:
             self._charger_status_unsub()
         if self._battery_monitor_unsub:
             self._battery_monitor_unsub()
+        if self._grid_monitor_unsub:
+            self._grid_monitor_unsub()
 
         self.logger.success("Night Smart Charge removed")
 
@@ -227,9 +230,17 @@ class NightSmartCharge:
                 )
                 return
 
-        # Check if already active
+        # Check if already active - but validate window is still open (v1.3.17 fix)
         if self.is_active():
-            self.logger.debug("Already active, skipping re-evaluation")
+            # Even if active, verify window hasn't closed (sunrise check)
+            if not await self._is_in_active_window(current_time):
+                self.logger.warning(
+                    f"{self.logger.ALERT} Active session detected OUTSIDE window - terminating"
+                )
+                await self.charger_controller.stop_charger("Night charge window ended (sunrise passed)")
+                await self._complete_night_charge()
+            else:
+                self.logger.debug("Already active and within window, skipping re-evaluation")
             return
 
         # Check if we're in active window
@@ -318,12 +329,22 @@ class NightSmartCharge:
 
         # Log detailed window check (throttled to once per minute)
         if self._last_window_check_time is None or (now - self._last_window_check_time).total_seconds() >= 60:
-            self.logger.info(f"{self.logger.CLOCK} Window check:")
+            self.logger.info(f"{self.logger.CALENDAR} Window check:")
             self.logger.info(f"   Current: {now.strftime('%Y-%m-%d %H:%M:%S')}")
             self.logger.info(f"   Scheduled: {scheduled_time.strftime('%Y-%m-%d %H:%M:%S')}")
             self.logger.info(f"   Sunrise ({sunrise_label}): {sunrise.strftime('%Y-%m-%d %H:%M:%S')}")
-            self.logger.info(f"   Active: {is_active}")
+            self.logger.info(f"   Now >= Scheduled: {now >= scheduled_time}")
+            self.logger.info(f"   Now < Sunrise: {now < sunrise}")
+            self.logger.info(f"   Window Active: {is_active}")
             self._last_window_check_time = now
+        else:
+            # For frequent checks (monitoring loops), log at debug level
+            self.logger.debug(
+                f"Window check: now={now.strftime('%H:%M')}, "
+                f"scheduled={scheduled_time.strftime('%H:%M')}, "
+                f"sunrise={sunrise.strftime('%H:%M')}, "
+                f"active={is_active}"
+            )
 
         return is_active
 
@@ -502,6 +523,13 @@ class NightSmartCharge:
         self.logger.separator()
         self.logger.info(f"{self.logger.BATTERY} Battery monitoring at {current_time.strftime('%H:%M:%S')}")
 
+        # Check 0: Sunrise termination (v1.3.17 fix)
+        if not await self._is_in_active_window(current_time):
+            self.logger.info(f"{self.logger.CALENDAR} Night charge window closed (sunrise passed)")
+            await self.charger_controller.stop_charger("Night charge window ended")
+            await self._complete_night_charge()
+            return
+
         # Check 1: Home battery SOC threshold
         home_soc = await self.priority_balancer.get_home_current_soc()
         home_min = self._get_home_battery_min_soc()
@@ -538,6 +566,60 @@ class NightSmartCharge:
         self.logger.info("Monitoring will continue...")
         self.logger.separator()
 
+    @callback
+    async def _async_monitor_grid_charge(self, now) -> None:
+        """
+        Monitor grid charge and enforce stop conditions (runs every 15 seconds).
+
+        New in v1.3.17: GRID mode now has monitoring loop to check:
+        - Sunrise termination
+        - EV target SOC reached
+        - Charger status validation
+        """
+        # Only monitor if grid mode is active
+        if not self.is_active() or self._active_mode != NIGHT_CHARGE_MODE_GRID:
+            return
+
+        current_time = dt_util.now()
+        self.logger.separator()
+        self.logger.info(f"{self.logger.GRID} Grid monitoring at {current_time.strftime('%H:%M:%S')}")
+
+        # Check 0: Sunrise termination (window closed)
+        if not await self._is_in_active_window(current_time):
+            self.logger.info(f"{self.logger.CALENDAR} Night charge window closed (sunrise passed)")
+            await self.charger_controller.stop_charger("Night charge window ended")
+            await self._complete_night_charge()
+            return
+
+        # Check 1: EV target SOC reached
+        ev_target_reached = await self.priority_balancer.is_ev_target_reached()
+        ev_soc = await self.priority_balancer.get_ev_current_soc()
+        ev_target = self.priority_balancer.get_ev_target_for_today()
+
+        self.logger.sensor_value(f"{self.logger.EV} EV Battery SOC", ev_soc, "%")
+        self.logger.sensor_value("   Target", ev_target, "%")
+
+        if ev_target_reached:
+            self.logger.success(f"{self.logger.SUCCESS} EV target reached!")
+            self.logger.info(f"   Current: {ev_soc}% >= Target: {ev_target}%")
+            await self.charger_controller.stop_charger(f"EV target SOC reached ({ev_soc}% >= {ev_target}%)")
+            await self._complete_night_charge()
+            return
+
+        self.logger.info(f"   {self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - continuing charge")
+
+        # Check 2: Validate charger still charging
+        from .const import CHARGER_STATUS_CHARGING
+        charger_status = state_helper.get_state(self.hass, self._charger_status)
+
+        if charger_status != CHARGER_STATUS_CHARGING:
+            self.logger.warning(f"Charger no longer charging (status: {charger_status}) - ending grid mode")
+            await self._complete_night_charge()
+            return
+
+        self.logger.info("Monitoring will continue...")
+        self.logger.separator()
+
     # ========== GRID CHARGE MODE ==========
 
     async def _start_grid_charge(self, pv_forecast: float) -> None:
@@ -568,8 +650,21 @@ class NightSmartCharge:
             forecast=pv_forecast
         )
 
+        # Start continuous grid monitoring (v1.3.17 - NEW)
+        if self._grid_monitor_unsub:
+            self._grid_monitor_unsub()  # Cancel existing monitor if any
+
+        self._grid_monitor_unsub = async_track_time_interval(
+            self.hass,
+            self._async_monitor_grid_charge,
+            timedelta(seconds=15),
+        )
+
         self.logger.success("Grid charge started successfully")
-        self.logger.info(f"Will charge until EV reaches target SOC ({ev_target}%)")
+        self.logger.info("Monitoring: Continuous (every 15 seconds)")
+        self.logger.info("Will stop when:")
+        self.logger.info(f"  1. EV reaches target SOC ({ev_target}%)")
+        self.logger.info(f"  2. Sunrise occurs")
         self.logger.info("Grid import detection is disabled for night charging")
         self.logger.separator()
 
@@ -585,6 +680,12 @@ class NightSmartCharge:
             self._battery_monitor_unsub()
             self._battery_monitor_unsub = None
             self.logger.info("Battery monitoring stopped")
+
+        # Stop grid monitoring if active (v1.3.17)
+        if self._grid_monitor_unsub:
+            self._grid_monitor_unsub()
+            self._grid_monitor_unsub = None
+            self.logger.info("Grid monitoring stopped")
 
         # Track completion time for cooldown
         self._last_completion_time = dt_util.now()

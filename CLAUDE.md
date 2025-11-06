@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.3.14
+**Current Version:** 1.3.17
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -752,6 +752,72 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.3.17 (2025-11-06)
+**CRITICAL: Night Smart Charge Sunrise Termination Fix**
+- **🚨 Critical Bug Fixed**: Night charging could continue indefinitely past sunrise
+- **Root Cause**: Missing sunrise termination logic in both BATTERY and GRID modes
+- **Reported Issue**: User received charging notification at 08:40 AM (1.5 hours after sunrise)
+
+**Changes Made**:
+
+1. **BATTERY Mode Enhanced** ([night_smart_charge.py:516-521](custom_components/ev_smart_charger/night_smart_charge.py#L516-L521))
+   - Added sunrise check to monitoring loop (runs every 15 seconds)
+   - Now stops immediately when sunrise occurs
+   - Previous behavior: Only checked home battery SOC and EV target
+
+2. **GRID Mode Monitoring Loop Created** ([night_smart_charge.py:559-611](custom_components/ev_smart_charger/night_smart_charge.py#L559-L611))
+   - NEW: Created complete monitoring loop for GRID mode (previously had NONE)
+   - Checks every 15 seconds for:
+     - Sunrise termination
+     - EV target SOC reached
+     - Charger status validation
+   - Previous behavior: NO monitoring at all (relied on user intervention or wallbox 100% limit)
+
+3. **Periodic Check Window Re-validation** ([night_smart_charge.py:233-244](custom_components/ev_smart_charger/night_smart_charge.py#L233-L244))
+   - Active sessions now re-validated for window validity
+   - Prevents active sessions from bypassing sunrise check
+   - Previous behavior: Active sessions skipped all checks
+
+4. **Enhanced Window Validation Logging** ([night_smart_charge.py:330-349](custom_components/ev_smart_charger/night_smart_charge.py#L330-L349))
+   - Added detailed comparison logging (Now >= Scheduled, Now < Sunrise)
+   - Debug-level logging for frequent monitoring checks
+   - Helps diagnose future window-related issues
+
+**Stop Conditions Summary**:
+
+| Mode | Sunrise | EV Target | Home Battery Min | Manual/Unplug |
+|------|---------|-----------|------------------|---------------|
+| BATTERY (v1.3.16) | ❌ Missing | ✅ Yes | ✅ Yes | ✅ Yes |
+| BATTERY (v1.3.17) | ✅ **FIXED** | ✅ Yes | ✅ Yes | ✅ Yes |
+| GRID (v1.3.16) | ❌ Missing | ❌ Missing | N/A | ✅ Yes only |
+| GRID (v1.3.17) | ✅ **FIXED** | ✅ **FIXED** | N/A | ✅ Yes |
+
+**Technical Details**:
+- Added `_grid_monitor_unsub` timer for GRID mode monitoring
+- Both modes now check `_is_in_active_window()` every 15 seconds
+- Session completion properly cancels both monitoring loops
+- Grid monitoring registered in `_start_grid_charge()` (line 643-651)
+
+**Example Fixed Scenario**:
+```
+01:00 AM - GRID mode starts (forecast insufficient, car_ready=True)
+03:00 AM - EV at 50%, target 80% (still charging...)
+07:00 AM - 🌅 SUNRISE - **NOW STOPS IMMEDIATELY** (previously continued)
+```
+
+**User Impact**:
+- 🔴 **URGENT UPGRADE** - Night charging will no longer continue past sunrise
+- Prevents unexpected grid charging during day when solar available
+- Prevents overcharging when EV target already reached
+
+**Files Modified**:
+- [night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py): Added GRID monitoring loop, sunrise checks in both modes
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.3.17"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.3.17"
+
+**Related Documentation**:
+- Complete scenario analysis: [NIGHT_CHARGE_SCENARIOS.md](NIGHT_CHARGE_SCENARIOS.md)
 
 ### v1.3.16 (2025-11-05)
 **Throttled Logging for Sensor Errors**
