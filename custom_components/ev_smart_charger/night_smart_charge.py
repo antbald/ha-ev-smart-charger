@@ -12,6 +12,7 @@ from .const import (
     CONF_SOC_HOME,
     CONF_PV_FORECAST,
     CONF_NOTIFY_SERVICES,
+    CONF_CAR_OWNER,
     CHARGER_STATUS_FREE,
     NIGHT_CHARGE_MODE_BATTERY,
     NIGHT_CHARGE_MODE_GRID,
@@ -67,7 +68,7 @@ class NightSmartCharge:
         self.logger = EVSCLogger("NIGHT SMART CHARGE")
         self._astral_service = AstralTimeService(hass)
         self._mobile_notifier = MobileNotificationService(
-            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id
+            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id, config.get(CONF_CAR_OWNER)
         )
 
         # User-configured entities

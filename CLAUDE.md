@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.3.17
+**Current Version:** 1.3.19
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -752,6 +752,94 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.3.19 (2025-11-06)
+**Presence-Based Notification Filtering - Smart Priority Balancer Alerts**
+
+**Feature Overview**:
+Priority Balancer notifications are now filtered based on car owner presence at home. Notifications are only sent when the configured car owner person entity state is "home", preventing unnecessary alerts when away.
+
+**Problem Solved**:
+- **Previous Behavior** (v1.3.18): Priority Balancer sent notifications on every state change (EV/Home/EV_Free), regardless of whether anyone was home to receive them
+- **User Impact**: Notification spam when away from home, where alerts about EV/Home battery priority changes are irrelevant
+- **New Behavior** (v1.3.19): Priority Balancer notifications only sent when car owner is home
+
+**New Configuration Field**:
+- **`car_owner`**: Person entity selector in config flow (notifications step)
+  - Domain: `person`
+  - Required field (mandatory)
+  - Example: `person.john`
+  - Appears alongside `notify_services` selection
+  - Available in both initial setup and options flow reconfiguration
+
+**Logic Changes**:
+
+**MobileNotificationService Updates**:
+- Added `car_owner_entity` parameter to constructor (optional for backward compatibility)
+- New method: `_is_car_owner_home()` - checks if person.state == "home"
+- `send_priority_change_notification()` now checks presence before sending
+- If car owner not home: notification skipped with debug log entry
+- If car owner entity not configured: notifications always sent (backward compatible)
+- If car owner entity unavailable: notifications always sent (fail-safe default)
+
+**Notification Filtering Behavior**:
+- ✅ **Priority Balancer**: Filtered by car owner presence (NEW)
+- ❌ **Smart Blocker**: NOT filtered (charger blocking is critical regardless of presence)
+- ❌ **Night Smart Charge**: NOT filtered (useful to know charging started even when away)
+
+**Component Updates**:
+All three components updated to pass car owner entity to MobileNotificationService:
+1. `priority_balancer.py`: Updated constructor call with `config.get(CONF_CAR_OWNER)`
+2. `automations.py` (Smart Blocker): Updated constructor call (no filtering logic)
+3. `night_smart_charge.py`: Updated constructor call (no filtering logic)
+
+**Files Modified**:
+- `const.py`: Added `CONF_CAR_OWNER = "car_owner"` constant
+- `config_flow.py`:
+  - Imported `CONF_CAR_OWNER`
+  - Added person entity selector to notifications step (both initial and options flow)
+  - Field set as `vol.Required` (mandatory)
+- `strings.json`:
+  - Added `car_owner` field to notifications step data/descriptions
+  - Updated descriptions to mention smart filtering feature
+  - Added helpful tooltips explaining presence-based filtering
+- `utils/mobile_notification_service.py`:
+  - Added `car_owner_entity` parameter to `__init__` (optional, defaults to None)
+  - New method: `_is_car_owner_home()` with comprehensive logging
+  - Updated `send_priority_change_notification()` to check presence
+  - Backward compatible: returns True if entity not configured or unavailable
+- `priority_balancer.py`: Updated MobileNotificationService instantiation
+- `automations.py`: Updated MobileNotificationService instantiation
+- `night_smart_charge.py`: Updated MobileNotificationService instantiation
+
+**User Experience**:
+- **Setup**: Users select car owner person entity during notifications configuration
+- **Reconfiguration**: Options flow allows updating car owner selection
+- **UI Labels**: Clear descriptions explain the smart filtering feature
+- **Logging**: Debug logs show presence check results for troubleshooting
+- **Fail-Safe**: If person entity unavailable, notifications still sent (prevents silent failures)
+
+**Technical Implementation**:
+```python
+def _is_car_owner_home(self) -> bool:
+    """Check if car owner is home."""
+    if not self.car_owner_entity:
+        return True  # Backward compatibility
+
+    state = self.hass.states.get(self.car_owner_entity)
+    if not state:
+        return True  # Fail-safe
+
+    return state.state == "home"
+```
+
+**Benefits**:
+- ✅ Reduces notification noise when away from home
+- ✅ Makes Priority Balancer notifications contextually relevant
+- ✅ Required field ensures feature always configured for new users
+- ✅ Backward compatible (optional parameter with safe defaults)
+- ✅ User-controlled via person entity (leverages HA's presence detection)
+- ✅ Easy to extend to other notification types in future
 
 ### v1.3.18 (2025-11-06)
 **Car Ready Time Support - Extend Charging Past Sunrise When Needed**

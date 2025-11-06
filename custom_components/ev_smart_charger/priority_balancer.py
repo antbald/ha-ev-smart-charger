@@ -6,6 +6,7 @@ from .const import (
     CONF_SOC_CAR,
     CONF_SOC_HOME,
     CONF_NOTIFY_SERVICES,
+    CONF_CAR_OWNER,
     DEFAULT_EV_MIN_SOC_WEEKDAY,
     DEFAULT_EV_MIN_SOC_WEEKEND,
     DEFAULT_HOME_MIN_SOC,
@@ -44,7 +45,7 @@ class PriorityBalancer:
 
         # Mobile notification service
         self._mobile_notifier = MobileNotificationService(
-            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id
+            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id, config.get(CONF_CAR_OWNER)
         )
 
         # Cached state

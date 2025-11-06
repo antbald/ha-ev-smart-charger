@@ -25,7 +25,8 @@ class MobileNotificationService:
         self,
         hass: HomeAssistant,
         notify_services: list[str],
-        entry_id: str
+        entry_id: str,
+        car_owner_entity: str = None
     ):
         """
         Initialize Mobile Notification Service.
@@ -34,10 +35,12 @@ class MobileNotificationService:
             hass: Home Assistant instance
             notify_services: List of notify service names (e.g., ["mobile_app_pixel_8"])
             entry_id: Config entry ID for finding enable/disable switches
+            car_owner_entity: Person entity ID for car owner (v1.3.19+)
         """
         self.hass = hass
         self.notify_services = notify_services or []
         self.entry_id = entry_id
+        self.car_owner_entity = car_owner_entity
         self._registry_service = EntityRegistryService(hass, entry_id)
 
     async def send_smart_blocker_notification(self, reason: str) -> None:
@@ -85,6 +88,11 @@ class MobileNotificationService:
         """
         if not self._is_priority_balancer_enabled():
             _LOGGER.debug("Priority Balancer notifications disabled, skipping")
+            return
+
+        # Check if car owner is home before sending notification (v1.3.19+)
+        if not self._is_car_owner_home():
+            _LOGGER.debug("Car owner not home, skipping Priority Balancer notification")
             return
 
         # Map priority to Italian description
@@ -182,6 +190,30 @@ class MobileNotificationService:
             return True  # Default to enabled if state unavailable
 
         return state.state == STATE_ON
+
+    def _is_car_owner_home(self) -> bool:
+        """
+        Check if car owner is home (v1.3.19+).
+
+        Returns:
+            True if car owner is home or entity not configured, False otherwise
+        """
+        if not self.car_owner_entity:
+            _LOGGER.debug("Car owner entity not configured, defaulting to enabled")
+            return True  # Default to enabled if not configured (backward compatibility)
+
+        state = self.hass.states.get(self.car_owner_entity)
+        if not state:
+            _LOGGER.warning(
+                f"Car owner entity {self.car_owner_entity} not found, defaulting to enabled"
+            )
+            return True  # Default to enabled if state unavailable
+
+        is_home = state.state == "home"
+        _LOGGER.debug(
+            f"Car owner ({self.car_owner_entity}) state: {state.state}, is_home: {is_home}"
+        )
+        return is_home
 
     async def _send_notification(
         self,

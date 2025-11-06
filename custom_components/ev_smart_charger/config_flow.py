@@ -18,6 +18,7 @@ from .const import (
     CONF_GRID_IMPORT,
     CONF_PV_FORECAST,
     CONF_NOTIFY_SERVICES,
+    CONF_CAR_OWNER,
 )
 
 class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -164,6 +165,9 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     multiple=True,
                     mode=selector.SelectSelectorMode.DROPDOWN
                 )
+            ),
+            vol.Required(CONF_CAR_OWNER): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="person")
             ),
         })
 
@@ -351,6 +355,12 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
                     multiple=True,
                     mode=selector.SelectSelectorMode.DROPDOWN
                 )
+            ),
+            vol.Required(
+                CONF_CAR_OWNER,
+                default=current_data.get(CONF_CAR_OWNER)
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="person")
             ),
         })
 

@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.3.18"
+VERSION = "1.3.19"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -61,6 +61,7 @@ CONF_PV_FORECAST = "pv_forecast"
 
 # Mobile Notifications
 CONF_NOTIFY_SERVICES = "notify_services"
+CONF_CAR_OWNER = "car_owner"  # Person entity for car owner (v1.3.19+)
 
 # ========== HELPER ENTITY SUFFIXES ==========
 

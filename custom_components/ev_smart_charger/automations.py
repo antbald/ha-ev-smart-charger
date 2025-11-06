@@ -13,6 +13,7 @@ from .const import (
     CONF_EV_CHARGER_SWITCH,
     CONF_EV_CHARGER_STATUS,
     CONF_NOTIFY_SERVICES,
+    CONF_CAR_OWNER,
     CHARGER_STATUS_CHARGING,
     HELPER_NIGHT_CHARGE_TIME_SUFFIX,
     SMART_BLOCKER_ENFORCEMENT_TIMEOUT,
@@ -65,7 +66,7 @@ class SmartChargerBlocker:
         self._registry_service = EntityRegistryService(hass, entry_id)
         self._notification_service = NotificationService(hass)
         self._mobile_notifier = MobileNotificationService(
-            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id
+            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id, config.get(CONF_CAR_OWNER)
         )
         self._astral_service = AstralTimeService(hass)
 
