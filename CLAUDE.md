@@ -753,6 +753,60 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.3.21 (2025-11-07)
+**CRITICAL BUG FIX: Night Smart Charge Activation Failure**
+
+**Problem Fixed**:
+Night Smart Charge failed to activate at configured time (01:00) due to missing method implementation from v1.3.20. This caused:
+- AttributeError exception during notification logging
+- Charger never started (exception aborted execution)
+- Smart Blocker interference due to inconsistent internal state
+
+**Root Cause**:
+v1.3.20 added `_get_night_charge_time()` method calls for enhanced logging but never implemented the method itself.
+
+**Fixes Implemented**:
+
+**1. Missing Method Implementation** (CRITICAL)
+- Added `_get_night_charge_time()` helper method ([night_smart_charge.py:760-774](custom_components/ev_smart_charger/night_smart_charge.py#L760-L774))
+- Returns configured time string or fallback messages ("Not configured", "Unavailable")
+- Pattern consistent with other helper methods (`_get_night_charge_amperage()`, `_get_solar_threshold()`)
+
+**2. Exception Handling for Notification Logging** (CRITICAL)
+- Wrapped notification logging in try/except blocks
+- BATTERY mode: [night_smart_charge.py:498-512](custom_components/ev_smart_charger/night_smart_charge.py#L498-L512)
+- GRID mode: [night_smart_charge.py:683-697](custom_components/ev_smart_charger/night_smart_charge.py#L683-L697)
+- Non-critical logging failures no longer abort charging operations
+
+**3. State Cleanup on Exception** (ROBUSTNESS)
+- Added comprehensive try/except wrappers with state cleanup
+- BATTERY mode: [night_smart_charge.py:489-547](custom_components/ev_smart_charger/night_smart_charge.py#L489-L547)
+- GRID mode: [night_smart_charge.py:674-732](custom_components/ev_smart_charger/night_smart_charge.py#L674-L732)
+- Cleanup actions on failure:
+  - Reset `_night_charge_active = False`
+  - Reset `_active_mode = NIGHT_CHARGE_MODE_IDLE`
+  - Cancel monitoring timers
+  - Log error with clear message
+  - Re-raise exception for caller handling
+
+**Impact**:
+- ✅ Night Smart Charge now activates correctly at configured time
+- ✅ Notification logging failures no longer prevent charging
+- ✅ Internal state remains consistent even on failures
+- ✅ No more Smart Blocker interference from inconsistent state
+
+**Files Modified**:
+- [night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py): Added method, exception handling, state cleanup
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.3.21"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.3.21"
+
+**Additional Documentation**:
+- [NIGHT_CHARGE_BUG_ANALYSIS.md](NIGHT_CHARGE_BUG_ANALYSIS.md): Comprehensive bug analysis with timeline reconstruction
+
+**Upgrade Priority**: 🔴 CRITICAL - Fixes complete Night Smart Charge failure introduced in v1.3.20
+
+---
+
 ### v1.3.20 (2025-11-06)
 **Universal Presence-Based Notification Filtering + Enhanced Debugging**
 

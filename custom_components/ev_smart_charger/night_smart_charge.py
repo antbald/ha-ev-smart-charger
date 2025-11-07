@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from homeassistant.core import HomeAssistant, State, callback
-from homeassistant.const import STATE_ON
 from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
@@ -486,43 +485,66 @@ class NightSmartCharge:
         self.logger.info(f"   EV target SOC: {ev_target}%")
         self.logger.info(f"   Home battery minimum SOC: {home_min_soc}%")
 
-        # Start charger with specified amperage
-        await self.charger_controller.start_charger(amperage, "Night charge - Battery mode")
+        # Start charger with exception handling and state cleanup (v1.3.21)
+        try:
+            # Start charger with specified amperage
+            await self.charger_controller.start_charger(amperage, "Night charge - Battery mode")
 
-        # Set internal state
-        self._night_charge_active = True
-        self._active_mode = NIGHT_CHARGE_MODE_BATTERY
+            # Set internal state
+            self._night_charge_active = True
+            self._active_mode = NIGHT_CHARGE_MODE_BATTERY
 
-        # Send mobile notification with safety logging (v1.3.20)
-        current_time = dt_util.now()
-        self.logger.info(f"📱 Preparing to send BATTERY mode notification at {current_time.strftime('%H:%M:%S')}")
-        self.logger.info(f"   Window check: scheduled_time={self._get_night_charge_time()}, current={current_time.strftime('%H:%M')}")
+            # Send mobile notification with safety logging (v1.3.20, v1.3.21 exception handling)
+            try:
+                current_time = dt_util.now()
+                scheduled_time = self._get_night_charge_time()
+                self.logger.info(f"📱 Preparing to send BATTERY mode notification at {current_time.strftime('%H:%M:%S')}")
+                self.logger.info(f"   Window check: scheduled_time={scheduled_time}, current={current_time.strftime('%H:%M')}")
 
-        reason = f"Previsione solare sufficiente ({pv_forecast:.1f} kWh >= {threshold} kWh)"
-        await self._mobile_notifier.send_night_charge_notification(
-            mode=NIGHT_CHARGE_MODE_BATTERY,
-            reason=reason,
-            amperage=amperage,
-            forecast=pv_forecast
-        )
+                reason = f"Previsione solare sufficiente ({pv_forecast:.1f} kWh >= {threshold} kWh)"
+                await self._mobile_notifier.send_night_charge_notification(
+                    mode=NIGHT_CHARGE_MODE_BATTERY,
+                    reason=reason,
+                    amperage=amperage,
+                    forecast=pv_forecast
+                )
+            except Exception as ex:
+                self.logger.warning(f"Notification logging failed (non-critical): {ex}")
 
-        # Start continuous battery monitoring (every 15 seconds for faster protection)
-        if self._battery_monitor_unsub:
-            self._battery_monitor_unsub()  # Cancel existing monitor if any
+            # Start continuous battery monitoring (every 15 seconds for faster protection)
+            if self._battery_monitor_unsub:
+                self._battery_monitor_unsub()  # Cancel existing monitor if any
 
-        self._battery_monitor_unsub = async_track_time_interval(
-            self.hass,
-            self._async_monitor_battery_charge,
-            timedelta(seconds=15),
-        )
+            self._battery_monitor_unsub = async_track_time_interval(
+                self.hass,
+                self._async_monitor_battery_charge,
+                timedelta(seconds=15),
+            )
 
-        self.logger.success("Battery charge started successfully")
-        self.logger.info("Monitoring: Continuous (every 15 seconds)")
-        self.logger.info("Will stop when:")
-        self.logger.info(f"  1. EV reaches target SOC ({ev_target}%)")
-        self.logger.info(f"  2. Home battery reaches minimum SOC ({home_min_soc}%)")
-        self.logger.info(f"  3. Sunrise occurs")
-        self.logger.separator()
+            self.logger.success("Battery charge started successfully")
+            self.logger.info("Monitoring: Continuous (every 15 seconds)")
+            self.logger.info("Will stop when:")
+            self.logger.info(f"  1. EV reaches target SOC ({ev_target}%)")
+            self.logger.info(f"  2. Home battery reaches minimum SOC ({home_min_soc}%)")
+            self.logger.info("  3. Sunrise occurs")
+            self.logger.separator()
+
+        except Exception as ex:
+            # Critical failure during battery charge start - cleanup state (v1.3.21)
+            self.logger.error(f"Failed to start battery charge: {ex}")
+
+            # Cleanup internal state
+            self._night_charge_active = False
+            self._active_mode = NIGHT_CHARGE_MODE_IDLE
+
+            # Cancel any monitoring timers
+            if self._battery_monitor_unsub:
+                self._battery_monitor_unsub()
+                self._battery_monitor_unsub = None
+
+            self.logger.error("Battery charge start aborted - state cleaned up")
+            self.logger.separator()
+            raise  # Re-raise to allow caller to handle
 
     @callback
     async def _async_monitor_battery_charge(self, now) -> None:
@@ -648,43 +670,66 @@ class NightSmartCharge:
         self.logger.info(f"   Charger amperage: {amperage}A")
         self.logger.info(f"   EV target SOC: {ev_target}%")
 
-        # Start charger with specified amperage
-        await self.charger_controller.start_charger(amperage, "Night charge - Grid mode")
+        # Start charger with exception handling and state cleanup (v1.3.21)
+        try:
+            # Start charger with specified amperage
+            await self.charger_controller.start_charger(amperage, "Night charge - Grid mode")
 
-        # Set internal state
-        self._night_charge_active = True
-        self._active_mode = NIGHT_CHARGE_MODE_GRID
+            # Set internal state
+            self._night_charge_active = True
+            self._active_mode = NIGHT_CHARGE_MODE_GRID
 
-        # Send mobile notification with safety logging (v1.3.20)
-        current_time = dt_util.now()
-        self.logger.info(f"📱 Preparing to send GRID mode notification at {current_time.strftime('%H:%M:%S')}")
-        self.logger.info(f"   Window check: scheduled_time={self._get_night_charge_time()}, current={current_time.strftime('%H:%M')}")
+            # Send mobile notification with safety logging (v1.3.20, v1.3.21 exception handling)
+            try:
+                current_time = dt_util.now()
+                scheduled_time = self._get_night_charge_time()
+                self.logger.info(f"📱 Preparing to send GRID mode notification at {current_time.strftime('%H:%M:%S')}")
+                self.logger.info(f"   Window check: scheduled_time={scheduled_time}, current={current_time.strftime('%H:%M')}")
 
-        reason = f"Previsione solare insufficiente ({pv_forecast:.1f} kWh < {threshold} kWh)"
-        await self._mobile_notifier.send_night_charge_notification(
-            mode=NIGHT_CHARGE_MODE_GRID,
-            reason=reason,
-            amperage=amperage,
-            forecast=pv_forecast
-        )
+                reason = f"Previsione solare insufficiente ({pv_forecast:.1f} kWh < {threshold} kWh)"
+                await self._mobile_notifier.send_night_charge_notification(
+                    mode=NIGHT_CHARGE_MODE_GRID,
+                    reason=reason,
+                    amperage=amperage,
+                    forecast=pv_forecast
+                )
+            except Exception as ex:
+                self.logger.warning(f"Notification logging failed (non-critical): {ex}")
 
-        # Start continuous grid monitoring (v1.3.17 - NEW)
-        if self._grid_monitor_unsub:
-            self._grid_monitor_unsub()  # Cancel existing monitor if any
+            # Start continuous grid monitoring (v1.3.17 - NEW)
+            if self._grid_monitor_unsub:
+                self._grid_monitor_unsub()  # Cancel existing monitor if any
 
-        self._grid_monitor_unsub = async_track_time_interval(
-            self.hass,
-            self._async_monitor_grid_charge,
-            timedelta(seconds=15),
-        )
+            self._grid_monitor_unsub = async_track_time_interval(
+                self.hass,
+                self._async_monitor_grid_charge,
+                timedelta(seconds=15),
+            )
 
-        self.logger.success("Grid charge started successfully")
-        self.logger.info("Monitoring: Continuous (every 15 seconds)")
-        self.logger.info("Will stop when:")
-        self.logger.info(f"  1. EV reaches target SOC ({ev_target}%)")
-        self.logger.info(f"  2. Sunrise occurs")
-        self.logger.info("Grid import detection is disabled for night charging")
-        self.logger.separator()
+            self.logger.success("Grid charge started successfully")
+            self.logger.info("Monitoring: Continuous (every 15 seconds)")
+            self.logger.info("Will stop when:")
+            self.logger.info(f"  1. EV reaches target SOC ({ev_target}%)")
+            self.logger.info("  2. Sunrise occurs")
+            self.logger.info("Grid import detection is disabled for night charging")
+            self.logger.separator()
+
+        except Exception as ex:
+            # Critical failure during grid charge start - cleanup state (v1.3.21)
+            self.logger.error(f"Failed to start grid charge: {ex}")
+
+            # Cleanup internal state
+            self._night_charge_active = False
+            self._active_mode = NIGHT_CHARGE_MODE_IDLE
+
+            # Cancel any monitoring timers
+            if self._grid_monitor_unsub:
+                self._grid_monitor_unsub()
+                self._grid_monitor_unsub = None
+
+            self.logger.error("Grid charge start aborted - state cleaned up")
+            self.logger.separator()
+            raise  # Re-raise to allow caller to handle
 
     # ========== SESSION COMPLETION ==========
 
@@ -757,6 +802,22 @@ class NightSmartCharge:
             self._night_charge_amperage_entity,
             16
         )
+
+    def _get_night_charge_time(self) -> str:
+        """Get configured night charge start time.
+
+        Returns:
+            Time string (HH:MM:SS format) or fallback message
+        """
+        if not self._night_charge_time_entity:
+            return "Not configured"
+
+        time_state = state_helper.get_state(self.hass, self._night_charge_time_entity)
+
+        if not time_state or time_state in ("unknown", "unavailable"):
+            return "Unavailable"
+
+        return time_state
 
     def _get_home_battery_min_soc(self) -> float:
         """Get home battery minimum SOC."""
