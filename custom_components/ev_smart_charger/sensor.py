@@ -52,6 +52,17 @@ async def async_setup_entry(
         )
     )
 
+    # Create Log File Path Sensor (v1.3.25)
+    entities.append(
+        EVSCLogFilePathSensor(
+            hass,
+            entry.entry_id,
+            "evsc_log_file_path",
+            "EVSC Log File Path",
+            "mdi:file-document-outline",
+        )
+    )
+
     async_add_entities(entities)
     _LOGGER.info(f"✅ Created {len(entities)} EVSC sensors")
 
@@ -199,3 +210,70 @@ class EVSCSolarSurplusDiagnosticSensor(SensorEntity, RestoreEntity):
             self._attr_native_value = last_state.state
             if last_state.attributes:
                 self._attr_extra_state_attributes = dict(last_state.attributes)
+
+
+class EVSCLogFilePathSensor(SensorEntity):
+    """EVSC Log File Path Sensor (v1.3.25)."""
+
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        suffix: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        """Initialize the sensor."""
+        self._hass = hass
+        self._entry_id = entry_id
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
+        self._attr_name = name
+        self._attr_icon = icon
+        # Set explicit entity_id to match pattern
+        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
+
+        # Get log file path from log manager
+        self._attr_native_value = self._get_log_file_path()
+
+    def _get_log_file_path(self) -> str:
+        """Get log file path from log manager."""
+        entry_data = self._hass.data.get(DOMAIN, {}).get(self._entry_id, {})
+        log_manager = entry_data.get("log_manager")
+
+        if log_manager:
+            return log_manager.get_log_file_path()
+        else:
+            # Fallback: construct path manually during initial setup
+            return self._hass.config.path(
+                "custom_components",
+                "ev_smart_charger",
+                "logs",
+                f"evsc_{self._entry_id}.log"
+            )
+
+    @property
+    def device_info(self):
+        """Return device info to group all entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "EV Smart Charger",
+            "manufacturer": "antbald",
+            "model": "EV Smart Charger",
+            "sw_version": VERSION,
+        }
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        return {
+            "description": "Path to the file logging output (when enabled)",
+            "friendly_name": "Log File Path",
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Entity added to hass."""
+        await super().async_added_to_hass()
+        _LOGGER.info(f"✅ Log File Path sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
+        _LOGGER.info(f"  📄 Log file path: {self._attr_native_value}")

@@ -1,5 +1,7 @@
 """Centralized logging system for EVSC integration."""
 import logging
+import os
+from logging.handlers import RotatingFileHandler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +38,7 @@ class EVSCLogger:
     def __init__(self, component_name: str):
         """Initialize logger with component name."""
         self.component = component_name
+        self._file_handler = None  # Track file handler (v1.3.25)
 
     def separator(self, length: int = 64):
         """Log visual separator."""
@@ -100,3 +103,60 @@ class EVSCLogger:
     def debug(self, message: str):
         """Log debug message."""
         _LOGGER.debug(f"[{self.component}] {message}")
+
+    # ========== FILE LOGGING METHODS (v1.3.25) ==========
+
+    def enable_file_logging(self, log_file_path: str, max_bytes: int = 10485760, backup_count: int = 5):
+        """
+        Enable logging to file with rotation.
+
+        Args:
+            log_file_path: Full path to log file
+            max_bytes: Max size per file in bytes (default 10MB)
+            backup_count: Number of backup files to keep (default 5)
+        """
+        if self._file_handler:
+            # Already enabled
+            return
+
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+
+            # Create rotating file handler
+            self._file_handler = RotatingFileHandler(
+                log_file_path,
+                maxBytes=max_bytes,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
+
+            # Format: timestamp - component - level - message (with emojis)
+            formatter = logging.Formatter(
+                '%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            self._file_handler.setFormatter(formatter)
+
+            # Add handler to module logger (shared by all EVSCLogger instances)
+            _LOGGER.addHandler(self._file_handler)
+
+            self.info(f"File logging enabled: {log_file_path}")
+
+        except Exception as ex:
+            self.error(f"Failed to enable file logging: {ex}")
+
+    def disable_file_logging(self):
+        """Disable file logging."""
+        if self._file_handler:
+            try:
+                self.info("File logging disabled")
+                _LOGGER.removeHandler(self._file_handler)
+                self._file_handler.close()
+                self._file_handler = None
+            except Exception as ex:
+                self.error(f"Failed to disable file logging: {ex}")
+
+    def is_file_logging_enabled(self) -> bool:
+        """Check if file logging is active."""
+        return self._file_handler is not None

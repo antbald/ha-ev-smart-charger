@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.3.24"
+VERSION = "1.3.25"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -77,6 +77,9 @@ HELPER_NOTIFY_SMART_BLOCKER_SUFFIX = "evsc_notify_smart_blocker_enabled"
 HELPER_NOTIFY_PRIORITY_BALANCER_SUFFIX = "evsc_notify_priority_balancer_enabled"
 HELPER_NOTIFY_NIGHT_CHARGE_SUFFIX = "evsc_notify_night_charge_enabled"
 
+# File Logging Switch (v1.3.25)
+HELPER_ENABLE_FILE_LOGGING_SUFFIX = "evsc_enable_file_logging"
+
 # Numbers - Solar Surplus
 HELPER_CHECK_INTERVAL_SUFFIX = "evsc_check_interval"
 HELPER_GRID_IMPORT_THRESHOLD_SUFFIX = "evsc_grid_import_threshold"
@@ -127,6 +130,7 @@ HELPER_CAR_READY_TIME_SUFFIX = "evsc_car_ready_time"
 HELPER_DIAGNOSTIC_SENSOR_SUFFIX = "evsc_diagnostic"
 HELPER_PRIORITY_STATE_SUFFIX = "evsc_priority_daily_state"
 HELPER_SOLAR_SURPLUS_DIAGNOSTIC_SUFFIX = "evsc_solar_surplus_diagnostic"
+HELPER_LOG_FILE_PATH_SUFFIX = "evsc_log_file_path"  # v1.3.25
 
 # ========== DEFAULT VALUES - SOLAR SURPLUS ==========
 DEFAULT_CHECK_INTERVAL = 1  # minutes
@@ -182,3 +186,7 @@ CHARGER_AMPERAGE_STABILIZATION_DELAY = 1  # seconds after setting amperage
 
 # ========== TIMEOUTS ==========
 SERVICE_CALL_TIMEOUT = 10  # seconds for service calls
+
+# ========== FILE LOGGING SETTINGS (v1.3.25) ==========
+FILE_LOG_MAX_SIZE_MB = 10  # 10MB per log file
+FILE_LOG_BACKUP_COUNT = 5  # Keep 5 backup files (50MB total)

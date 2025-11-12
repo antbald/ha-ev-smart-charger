@@ -753,6 +753,173 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.3.25 (2025-11-12)
+**Toggle-Controlled File Logging System for Easy Troubleshooting**
+
+**Feature Overview**:
+Adds optional file logging system with user-friendly toggle control. When enabled, all integration activity is written to a dedicated log file (separate from Home Assistant logs), making it easy to troubleshoot issues and share logs with developers.
+
+**Problem Solved**:
+- **Previous Behavior** (v1.3.24): All integration logs mixed with other Home Assistant logs, making troubleshooting difficult
+- **User Impact**: Hard to extract relevant logs when reporting issues or debugging problems
+- **New Behavior** (v1.3.25): Dedicated log file with toggle control, easy to access and share
+
+**New Entities**:
+
+**1. Toggle Switch** (default OFF):
+- **Entity**: `switch.evsc_enable_file_logging`
+- **Name**: "EVSC Enable File Logging"
+- **Icon**: `mdi:file-document-outline`
+- **Default State**: OFF (to save storage space)
+- **Behavior**: Enables/disables file logging in real-time
+
+**2. Log File Path Sensor**:
+- **Entity**: `sensor.evsc_log_file_path`
+- **Name**: "EVSC Log File Path"
+- **Icon**: `mdi:file-document-outline`
+- **Value**: Full path to log file (e.g., `/config/custom_components/ev_smart_charger/logs/evsc_<entry_id>.log`)
+- **Attributes**:
+  - `description`: "Path to the file logging output (when enabled)"
+  - `friendly_name`: "Log File Path"
+
+**File Logging Configuration**:
+
+**Location**: `/config/custom_components/ev_smart_charger/logs/evsc_<entry_id>.log`
+
+**Rotation Settings**:
+- **Max Size per File**: 10MB
+- **Backup Files**: 5 (automatically rotated)
+- **Total Storage**: 50MB maximum (10MB × 5 backups)
+
+**Log Format**:
+```
+2025-11-12 13:45:23 - [custom_components.ev_smart_charger.solar_surplus] - INFO - ☀️ [SOLAR SURPLUS] Starting: Periodic surplus check
+2025-11-12 13:45:23 - [custom_components.ev_smart_charger.solar_surplus] - INFO - ℹ️ [SOLAR SURPLUS] Solar Production: 5000 W
+2025-11-12 13:45:23 - [custom_components.ev_smart_charger.solar_surplus] - INFO - ℹ️ [SOLAR SURPLUS] Home Consumption: 2000 W
+```
+
+**Log Content Includes**:
+- ✅ Timestamps (YYYY-MM-DD HH:MM:SS)
+- ✅ Component names
+- ✅ Log levels (INFO, DEBUG, WARNING, ERROR)
+- ✅ Emoji prefixes for visual parsing
+- ✅ All integration activity (Solar Surplus, Night Charge, Smart Blocker, Priority Balancer, Charger Controller)
+
+**Technical Implementation**:
+
+**New Files**:
+1. **[log_manager.py](custom_components/ev_smart_charger/log_manager.py)** (NEW):
+   - **Class**: `LogManager`
+   - **Purpose**: Centralized file logging orchestrator
+   - **Responsibilities**:
+     - Monitors toggle switch state changes
+     - Enables/disables file logging on all component loggers
+     - Manages log file path and rotation settings
+   - **Key Methods**:
+     - `async_setup(components)`: Discovers toggle entity, registers state listener
+     - `_apply_logging_state()`: Enables/disables logging based on toggle
+     - `_toggle_changed(event)`: Handles toggle state change events
+     - `get_log_file_path()`: Returns current log file path
+     - `async_remove()`: Cleanup on unload
+
+**Modified Files**:
+1. **[switch.py](custom_components/ev_smart_charger/switch.py)** (Lines 113-122):
+   - Added `evsc_enable_file_logging` switch entity
+
+2. **[utils/logging_helper.py](custom_components/ev_smart_charger/utils/logging_helper.py)** (Lines 107-162):
+   - Added `_file_handler` attribute to track file handler
+   - Added `enable_file_logging()` method with RotatingFileHandler
+   - Added `disable_file_logging()` method
+   - Added `is_file_logging_enabled()` method
+
+3. **[sensor.py](custom_components/ev_smart_charger/sensor.py)** (Lines 55-64, 215-279):
+   - Added `EVSCLogFilePathSensor` class
+   - Displays log file path with fallback during initialization
+
+4. **[__init__.py](custom_components/ev_smart_charger/__init__.py)** (Lines 17, 108-128, 189-192):
+   - Added LogManager import
+   - Added Phase 7.5: File logging setup
+   - Collects all EVSCLogger instances from components
+   - Creates and initializes LogManager
+   - Stores log_manager reference for cleanup
+   - Added cleanup in `async_unload_entry()`
+
+5. **[const.py](custom_components/ev_smart_charger/const.py)**:
+   - Line 5: `VERSION = "1.3.25"`
+   - Lines 80-81: Added `HELPER_ENABLE_FILE_LOGGING_SUFFIX`
+   - Line 133: Added `HELPER_LOG_FILE_PATH_SUFFIX`
+   - Lines 190-192: Added file logging settings (`FILE_LOG_MAX_SIZE_MB`, `FILE_LOG_BACKUP_COUNT`)
+
+6. **[manifest.json](custom_components/ev_smart_charger/manifest.json)**:
+   - Line 4: `"version": "1.3.25"`
+
+**User Workflow**:
+
+1. **Enable Logging**:
+   - Toggle `switch.evsc_enable_file_logging` to ON
+   - All integration activity immediately starts logging to file
+
+2. **Find Log File**:
+   - Check `sensor.evsc_log_file_path` for full path
+   - Access file via SSH, File Editor addon, or Samba share
+   - Example path: `/config/custom_components/ev_smart_charger/logs/evsc_abc123.log`
+
+3. **Share with Developer**:
+   - Download log file
+   - Attach to GitHub issue or support request
+   - Contains complete integration activity history
+
+4. **Disable Logging** (when done):
+   - Toggle `switch.evsc_enable_file_logging` to OFF
+   - File logging stops immediately
+   - Existing log files preserved
+
+**Automatic Rotation**:
+- When log reaches 10MB, automatically renamed to `evsc_<entry_id>.log.1`
+- Previous backups shifted: `.log.1` → `.log.2`, `.log.2` → `.log.3`, etc.
+- Oldest backup (`.log.5`) deleted when new backup created
+- Always maintains 5 most recent backups
+
+**Component Loggers Tracked** (5 total):
+1. ChargerController logger
+2. PriorityBalancer logger
+3. NightSmartCharge logger (if configured)
+4. SmartChargerBlocker logger (if configured)
+5. SolarSurplusAutomation logger (if configured)
+
+**Benefits**:
+- ✅ **Easy Troubleshooting**: All logs in one dedicated file
+- ✅ **Storage Efficient**: Automatic rotation, 50MB max
+- ✅ **User Control**: Toggle on/off as needed
+- ✅ **Developer Friendly**: Easy to share complete logs
+- ✅ **No Performance Impact**: Only active when enabled
+- ✅ **Zero Configuration**: Works out-of-box with sensible defaults
+
+**State Change Example**:
+```
+# User toggles switch ON
+LogManager: Found toggle entity: switch.evsc_enable_file_logging
+LogManager: Enabling file logging for 5 components
+EVSCLogger: File logging enabled: /config/custom_components/ev_smart_charger/logs/evsc_abc123.log
+
+# User toggles switch OFF
+LogManager: Disabling file logging for 5 components
+EVSCLogger: File logging disabled
+```
+
+**Files Modified**:
+- [log_manager.py](custom_components/ev_smart_charger/log_manager.py): NEW FILE (135 lines)
+- [switch.py](custom_components/ev_smart_charger/switch.py): Added toggle entity
+- [utils/logging_helper.py](custom_components/ev_smart_charger/utils/logging_helper.py): Extended with file logging methods
+- [sensor.py](custom_components/ev_smart_charger/sensor.py): Added log file path sensor
+- [__init__.py](custom_components/ev_smart_charger/__init__.py): Integrated LogManager
+- [const.py](custom_components/ev_smart_charger/const.py): Added constants and version
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): Updated version
+
+**Upgrade Priority**: 🟢 RECOMMENDED - Makes troubleshooting significantly easier
+
+---
+
 ### v1.3.24 (2025-11-12)
 **CRITICAL FIX: Solar Surplus Infinite Charging with Battery Support in PRIORITY_EV_FREE Mode**
 

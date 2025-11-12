@@ -110,6 +110,17 @@ async def async_setup_entry(
         )
     )
 
+    # File Logging switch (v1.3.25)
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_enable_file_logging",
+            "EVSC Enable File Logging",
+            "mdi:file-document-outline",
+            default_state=False  # Default OFF to save storage
+        )
+    )
+
     # Car Ready switches (v1.3.13+)
     entities.append(
         EVSCSwitch(

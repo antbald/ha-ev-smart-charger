@@ -7,13 +7,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN, PLATFORMS
+from .const import DOMAIN, PLATFORMS, VERSION
 from .automation_coordinator import AutomationCoordinator
 from .charger_controller import ChargerController
 from .priority_balancer import PriorityBalancer
 from .night_smart_charge import NightSmartCharge
 from .automations import SmartChargerBlocker
 from .solar_surplus import SolarSurplusAutomation
+from .log_manager import LogManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     _LOGGER.info("=" * 64)
-    _LOGGER.info("🚗 EV Smart Charger v1.3.5 - Starting setup")
+    _LOGGER.info(f"🚗 EV Smart Charger v{VERSION} - Starting setup")
     _LOGGER.info("=" * 64)
 
     # ========== PHASE 1: SETUP PLATFORMS (Helper Entities) ==========
@@ -104,6 +105,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.exception("Solar Surplus setup error details:")
         solar_surplus = None
 
+    # ========== PHASE 7.5: SETUP FILE LOGGING (v1.3.25) ==========
+    _LOGGER.info("📝 Phase 7.5: Setting up file logging manager")
+
+    # Collect all EVSCLogger instances from components
+    evsc_loggers = [
+        charger_controller.logger,
+        priority_balancer.logger,
+    ]
+
+    if night_smart_charge:
+        evsc_loggers.append(night_smart_charge.logger)
+    if smart_blocker:
+        evsc_loggers.append(smart_blocker.logger)
+    if solar_surplus:
+        evsc_loggers.append(solar_surplus.logger)
+
+    # Setup log manager with toggle listener
+    log_manager = LogManager(hass, entry.entry_id)
+    await log_manager.async_setup(evsc_loggers)
+
+    _LOGGER.info(f"✅ Log manager setup complete ({len(evsc_loggers)} loggers)")
+
     # ========== PHASE 8: STORE REFERENCES ==========
     _LOGGER.info("💾 Phase 8: Storing component references")
     hass.data[DOMAIN][entry.entry_id] = {
@@ -114,13 +137,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "night_smart_charge": night_smart_charge,
         "smart_blocker": smart_blocker,
         "solar_surplus": solar_surplus,
+        "log_manager": log_manager,
     }
 
     # Register update listener
     entry.async_on_unload(entry.add_update_listener(_reload_on_update))
 
     _LOGGER.info("=" * 64)
-    _LOGGER.info("✅ EV Smart Charger v1.3.5 - Setup completed successfully!")
+    _LOGGER.info(f"✅ EV Smart Charger v{VERSION} - Setup completed successfully!")
     _LOGGER.info("=" * 64)
 
     return True
@@ -161,6 +185,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if priority_balancer:
         _LOGGER.info("🗑️  Removing Priority Balancer")
         await priority_balancer.async_remove()
+
+    log_manager = entry_data.get("log_manager")
+    if log_manager:
+        _LOGGER.info("🗑️  Removing Log Manager")
+        await log_manager.async_remove()
 
     charger_controller = entry_data.get("charger_controller")
     if charger_controller:
