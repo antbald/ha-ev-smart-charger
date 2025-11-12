@@ -24,10 +24,8 @@ from .const import (
     HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX,
     SURPLUS_START_THRESHOLD,
     SURPLUS_STOP_THRESHOLD,
-    SURPLUS_STABLE_DURATION,
 )
 from .utils.logging_helper import EVSCLogger
-from .utils.entity_helper import find_by_suffix
 from .utils.state_helper import get_state, get_float, get_bool, validate_sensor
 from .utils.entity_registry_service import EntityRegistryService
 from .utils.astral_time_service import AstralTimeService
@@ -284,7 +282,7 @@ class SolarSurplusAutomation:
         now = dt_util.now()
 
         if self._astral_service.is_nighttime(now):
-            self.logger.skip(f"Nighttime - Solar Surplus only operates during daytime (sunrise to sunset)")
+            self.logger.skip("Nighttime - Solar Surplus only operates during daytime (sunrise to sunset)")
             await self._update_diagnostic_sensor(
                 "SKIPPED: Nighttime",
                 {"reason": "Solar production unavailable at night", "last_check": datetime.now().isoformat()}
@@ -411,6 +409,20 @@ class SolarSurplusAutomation:
                 self.logger.warning("Priority = HOME - Stopping EV charger")
                 await self.charger_controller.stop_charger("Home battery needs charging (Priority = HOME)")
                 self.logger.separator()
+                return
+
+            # v1.3.24: Stop opportunistic charging when both targets met
+            if priority == PRIORITY_EV_FREE:
+                if await self.charger_controller.is_charging():
+                    self.logger.info(
+                        f"{self.logger.SUCCESS} Both targets met (Priority = EV_FREE) - "
+                        "Stopping opportunistic charging"
+                    )
+                    await self.charger_controller.stop_charger(
+                        "Both EV and Home targets reached (Priority = EV_FREE)"
+                    )
+                    self._battery_support_active = False  # Force deactivation
+                    self.logger.separator()
                 return
         else:
             self.logger.info("Priority Balancer disabled - using fallback mode")
@@ -648,7 +660,7 @@ class SolarSurplusAutomation:
             self.logger.info(f"Grid import delay: {elapsed:.1f}s / {grid_import_delay}s")
             return
 
-        self.logger.warning(f"Grid import delay ELAPSED - Reducing charging")
+        self.logger.warning("Grid import delay ELAPSED - Reducing charging")
         self._last_grid_import_high = None
 
         # Gradual ramp down: one level at a time

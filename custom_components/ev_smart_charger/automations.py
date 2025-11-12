@@ -1,15 +1,13 @@
 """Automation management for EV Smart Charger."""
 from __future__ import annotations
-from datetime import datetime, timedelta
-import asyncio
+from datetime import datetime
 
 from homeassistant.core import HomeAssistant, State, callback
-from homeassistant.const import STATE_ON, STATE_OFF
+from homeassistant.const import STATE_ON
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    DOMAIN,
     CONF_EV_CHARGER_SWITCH,
     CONF_EV_CHARGER_STATUS,
     CONF_NOTIFY_SERVICES,
@@ -17,12 +15,9 @@ from .const import (
     CHARGER_STATUS_CHARGING,
     HELPER_NIGHT_CHARGE_TIME_SUFFIX,
     SMART_BLOCKER_ENFORCEMENT_TIMEOUT,
-    SMART_BLOCKER_RETRY_ATTEMPTS,
-    SMART_BLOCKER_RETRY_DELAYS,
 )
 from .automation_coordinator import PRIORITY_SMART_BLOCKER
 from .utils.logging_helper import EVSCLogger
-from .utils.entity_helper import find_by_suffix
 from .utils.state_helper import get_state
 from .utils.entity_registry_service import EntityRegistryService
 from .utils.notification_service import NotificationService
@@ -525,9 +520,9 @@ class SmartChargerBlocker:
             # Send persistent notification
             await self._notification_service.send_warning(
                 "Charging Blocked",
-                f"Charging has been automatically blocked.\n\n"
-                f"To override this behavior, enable 'Forza Ricarica' or disable 'Smart Charger Blocker'.\n\n"
-                f"**Continuous monitoring:** Any external attempt to re-enable charging will be immediately blocked.",
+                "Charging has been automatically blocked.\n\n"
+                "To override this behavior, enable 'Forza Ricarica' or disable 'Smart Charger Blocker'.\n\n"
+                "**Continuous monitoring:** Any external attempt to re-enable charging will be immediately blocked.",
                 additional_data={
                     "Reason": reason,
                     "Timestamp": dt_util.now().strftime('%H:%M:%S')
@@ -545,11 +540,11 @@ class SmartChargerBlocker:
             # Send error notification
             await self._notification_service.send_error(
                 "Blocking Failed",
-                f"Failed to block charging.\n\n"
-                f"Please check:\n"
-                f"- Charger switch entity is functioning\n"
-                f"- No conflicting automations\n"
-                f"- Charger hardware status",
+                "Failed to block charging.\n\n"
+                "Please check:\n"
+                "- Charger switch entity is functioning\n"
+                "- No conflicting automations\n"
+                "- Charger hardware status",
                 error=str(e),
                 additional_data={
                     "Reason": reason

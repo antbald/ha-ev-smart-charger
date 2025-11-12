@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.3.20
+**Current Version:** 1.3.22
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -752,6 +752,394 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.3.24 (2025-11-12)
+**CRITICAL FIX: Solar Surplus Infinite Charging with Battery Support in PRIORITY_EV_FREE Mode**
+
+**Problem Fixed**:
+Solar Surplus continued charging EV from home battery indefinitely when both EV and home battery targets were met (PRIORITY_EV_FREE state), draining home battery below its minimum threshold until manual intervention.
+
+**User Report**:
+At 13:00 (daytime), Solar Surplus started charging from home battery at 16A and never stopped, even when:
+- ✅ EV reached its daily target SOC (80%)
+- ✅ Home battery reached its daily minimum SOC (50%)
+
+System continued draining home battery until user manually stopped charging.
+
+**Root Cause**:
+Battery support logic had a **persistent state bug** during PRIORITY_EV_FREE transitions:
+
+1. When priority changed from PRIORITY_EV → PRIORITY_EV_FREE (both targets met):
+   - Battery support correctly deactivated ([solar_surplus.py:530-534](custom_components/ev_smart_charger/solar_surplus.py#L530-L534))
+   - Function returned without stopping charger
+   - Target amperage calculated as 0A (no battery support)
+
+2. But on next check cycle (1 minute later):
+   - Priority still PRIORITY_EV_FREE
+   - Battery support flag was False
+   - Home battery SOC still above minimum (e.g., 70% > 50%)
+   - **Battery support RE-ACTIVATED** ([solar_surplus.py:552-557](custom_components/ev_smart_charger/solar_surplus.py#L552-L557))
+   - Target amperage recalculated as 16A (battery support active)
+   - Charger continued at 16A
+
+3. **Infinite loop**: Every cycle battery support deactivated then immediately re-activated
+
+**Why Re-Activation Happened**:
+```python
+# Line 524-535: Deactivation logic
+if priority != PRIORITY_EV:
+    if self._battery_support_active:
+        self.logger.info("Battery support DEACTIVATING")
+        self._battery_support_active = False
+    return  # ❌ Returns, but doesn't prevent re-activation next cycle
+
+# Line 549-557: RE-ACTIVATION (next cycle, 1 minute later)
+if not self._battery_support_active:
+    # No explicit check prevents activation during PRIORITY_EV_FREE
+    self.logger.info("Battery support ACTIVATING")
+    self._battery_support_active = True  # ❌ Re-activates!
+```
+
+**The Missing Logic**:
+No explicit stop when PRIORITY_EV_FREE. System only had stop logic for:
+- PRIORITY_HOME: Stop immediately ✅ (line 408-412)
+- PRIORITY_EV_FREE + No Surplus: 30-second delay ⚠️ (only if surplus insufficient)
+- **PRIORITY_EV_FREE + Battery Support: MISSING** ❌
+
+**Fix Implemented**:
+
+**Location**: [solar_surplus.py:414-426](custom_components/ev_smart_charger/solar_surplus.py#L414-L426)
+
+Added explicit PRIORITY_EV_FREE stop logic immediately after PRIORITY_HOME check:
+
+```python
+# v1.3.24: Stop opportunistic charging when both targets met
+if priority == PRIORITY_EV_FREE:
+    if await self.charger_controller.is_charging():
+        self.logger.info(
+            f"{self.logger.SUCCESS} Both targets met (Priority = EV_FREE) - "
+            "Stopping opportunistic charging"
+        )
+        await self.charger_controller.stop_charger(
+            "Both EV and Home targets reached (Priority = EV_FREE)"
+        )
+        self._battery_support_active = False  # Force deactivation
+        self.logger.separator()
+    return  # Early return prevents battery support re-activation
+```
+
+**Why This Works**:
+- **Immediate stop**: No delays when both targets met
+- **Forced deactivation**: `battery_support_active = False` ensures clean state
+- **Early return**: Prevents execution of battery support logic (line 430+)
+- **Consistent with design**: PRIORITY_EV_FREE = opportunistic charging only (surplus-based, not battery)
+
+**Stop Conditions Matrix** (Updated):
+
+| Priority State | Surplus Available | Battery Support | Action (v1.3.24) |
+|----------------|-------------------|-----------------|------------------|
+| PRIORITY_HOME | Any | Any | **Stop immediately** (home needs energy) |
+| PRIORITY_EV_FREE | Any | Any | **Stop immediately** (both targets met) ✅ NEW |
+| PRIORITY_EV | Yes (>= 6A) | N/A | Charge from surplus |
+| PRIORITY_EV | No (< 6A) | Enabled | Charge from battery (16A) |
+| PRIORITY_EV | No (< 6A) | Disabled | Stop after 30s delay |
+| Balancer Disabled | Yes (>= 6A) | N/A | Charge from surplus |
+| Balancer Disabled | No (< 6A) | N/A | Stop after 30s delay |
+
+**Scenario Timeline** (Fixed):
+
+**Before v1.3.24** (Bug):
+```
+13:00 - EV reaches 80% target → Priority = PRIORITY_EV_FREE
+13:01 - Battery support deactivates → target_amps = 0A
+13:01 - Battery support RE-ACTIVATES → target_amps = 16A ❌
+13:02 - Still charging at 16A (infinite loop)
+13:30 - Home battery: 70% → 65% → 60% → 55% → 50% (draining)
+14:00 - Home battery: 45% (below minimum!) → User stops manually ❌
+```
+
+**After v1.3.24** (Fixed):
+```
+13:00 - EV reaches 80% target → Priority = PRIORITY_EV_FREE
+13:00 - Stop charger immediately ✅
+13:00 - Battery support forced to False ✅
+13:01 - Charger OFF (no re-activation) ✅
+Home battery protected at 70% ✅
+```
+
+**Impact**:
+- ✅ Solar Surplus stops immediately when both EV and home targets met
+- ✅ No more infinite charging from home battery
+- ✅ Home battery protected from over-discharge below minimum
+- ✅ Consistent with Priority Balancer design (EV_FREE = opportunistic only)
+- ✅ Battery support only activates when PRIORITY_EV (EV below target, home can help)
+
+**Files Modified**:
+- [solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py): Added PRIORITY_EV_FREE stop logic (13 lines)
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.3.24"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.3.24"
+
+**Testing Notes**:
+After upgrading to v1.3.24, monitor logs when EV target is reached:
+- Should see: "Both targets met (Priority = EV_FREE) - Stopping opportunistic charging"
+- Charger should stop immediately (no 30-second delay)
+- Battery support should not re-activate in subsequent checks
+
+**Related Issues**:
+- This bug only affected PRIORITY_EV_FREE mode (both targets met)
+- PRIORITY_HOME mode always worked correctly (home target not met)
+- PRIORITY_EV mode worked correctly (battery support only when EV below target)
+
+**Upgrade Priority**: 🔴 CRITICAL - Prevents home battery over-discharge when both targets met
+
+---
+
+### v1.3.23 (2025-11-12)
+**Dynamic Amperage Recovery for Night Smart Charge - Grid Import Protection**
+
+**Feature Overview**:
+Night Smart Charge BATTERY mode now implements dynamic amperage management with grid import protection and automatic recovery, matching the existing Solar Surplus behavior. This eliminates code duplication and ensures consistent amperage handling across both charging modes.
+
+**Problem Solved**:
+- **Previous Behavior** (v1.3.22): Night Charge used fixed amperage (set once at start, never adjusted)
+- **User Impact**: When grid import caused amperage reduction at 08:00, charging stayed at reduced level until manually adjusted or session ended
+- **Example Scenario**:
+  ```
+  01:00 AM - Start charging at 16A (battery mode, home battery 60%)
+  08:00 AM - Grid import spike (80W) → Reduce to 13A (manual intervention)
+  08:30 AM - Grid cleared → Charging STAYED at 13A (no recovery)
+  User expectation: Should recover to 16A when conditions improve
+  ```
+- **New Behavior** (v1.3.23): Night Charge dynamically adjusts amperage every 15 seconds:
+  - **Grid import protection**: Reduce amperage if importing from grid (30s delay, gradual reduction)
+  - **Automatic recovery**: Increase amperage when conditions improve (60s stability, gradual recovery)
+  - **Same logic as Solar Surplus**: Unified behavior across all charging modes
+
+**Architecture Changes**:
+
+**New Shared Utilities** ([utils/amperage_helper.py](custom_components/ev_smart_charger/utils/amperage_helper.py) - 277 lines):
+1. **AmperageCalculator** - Stateless amperage calculation functions:
+   - `calculate_from_surplus()` - 3-case hysteresis logic (6.5A start, 5.5A stop, 1.0A dead band)
+   - `get_next_level_down()` - One level reduction (16A → 13A → 10A → 8A → 6A → STOP)
+   - `get_next_level_up()` - One level increase with max cap (6A → 8A → 10A → 13A → 16A)
+
+2. **GridImportProtection** - Grid import detection with hysteresis:
+   - `should_reduce()` - Check if amperage should reduce (delay-based protection)
+   - `should_recover()` - Check if amperage can recover (hysteresis: reduce at 100%, recover at 50%)
+
+3. **StabilityTracker** - State management for stability periods:
+   - `start_tracking()` - Begin tracking stable conditions
+   - `is_stable()` - Check if required stability period elapsed
+   - `get_elapsed()` - Get current stability duration
+
+**Extended ChargerController** ([charger_controller.py](custom_components/ev_smart_charger/charger_controller.py)):
+1. `async def adjust_for_grid_import(reason)` → OperationResult
+   - Automatically reduces amperage by one level using `AmperageCalculator.get_next_level_down()`
+   - Stops charger if at minimum level (6A → 0A/STOP)
+   - Returns OperationResult for consistent feedback
+
+2. `async def recover_to_target(target_amps, reason)` → OperationResult
+   - Gradually recovers amperage toward target by one level using `AmperageCalculator.get_next_level_up()`
+   - If charger OFF (0A), starts at target immediately
+   - If charging (>= 6A), increases one level at a time (6A → 8A → 10A → ...)
+
+**Enhanced Night Smart Charge** ([night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py)):
+- Added `_handle_dynamic_amperage()` method (126 lines) called every 15 seconds during BATTERY mode monitoring
+- **STEP 1: Grid Import Protection** (Reduction Logic):
+  ```
+  If grid_import > threshold (default 50W):
+    1. First detection → Start 30s delay timer
+    2. After 30s → Call charger_controller.adjust_for_grid_import()
+       - 16A → 13A (one level down)
+       - Reset recovery tracker (wait 60s before recovering)
+  ```
+
+- **STEP 2: Amperage Recovery** (Increase Logic):
+  ```
+  If grid_import < 50% threshold (e.g., 25W) AND current < target:
+    1. Start stability tracker (need 60s stable for cloud protection)
+    2. After 60s stable → Call charger_controller.recover_to_target(16A)
+       - 13A → 16A (one level up)
+       - Reset tracker (wait 60s before next recovery cycle)
+  ```
+
+- Tracks state with `_grid_import_trigger_time` (when grid import first exceeded)
+- Tracks stability with `_recovery_tracker` (StabilityTracker instance, 60s requirement)
+- Added helper methods: `_get_grid_import_threshold()`, `_get_grid_import_delay()`
+
+**Logic Flow Example**:
+
+**Scenario: Night charge with grid import spike**
+```
+01:00 AM - Start charging at 16A (battery mode)
+08:00 AM - Grid import spike: 80W > 50W threshold
+       → Start 30s delay
+08:00:30 AM - Grid import still 80W → Reduce 16A → 13A
+       → Reset recovery tracker
+08:05 AM - Grid import cleared: 20W < 25W (50% threshold)
+       → Start recovery stability tracking
+08:06 AM - Still stable (60s elapsed) → Recover 13A → 16A
+       → Reset recovery tracker
+08:10 AM - EV target reached (80%) → Stop charging
+```
+
+**Comparison: Solar Surplus vs Night Charge**:
+
+| Feature | Solar Surplus | Night Charge (v1.3.23) |
+|---------|---------------|------------------------|
+| Amperage calculation | `_calculate_target_amperage()` | Uses `AmperageCalculator` shared utils |
+| Grid import protection | Custom logic (~80 lines) | Uses `ChargerController.adjust_for_grid_import()` |
+| Recovery logic | Custom logic (~60 lines) | Uses `ChargerController.recover_to_target()` |
+| Stability tracking | Inline variables | Uses `StabilityTracker` shared class |
+| Check frequency | Every 1 minute (configurable) | Every 15 seconds (fixed) |
+| Battery support | Yes (when surplus < 6A) | N/A (already using battery) |
+
+**Benefits**:
+- ✅ **No Code Duplication**: ~150 lines of amperage logic now shared via utilities
+- ✅ **Consistent Behavior**: Same grid import protection across Solar Surplus and Night Charge
+- ✅ **Automatic Recovery**: No manual intervention needed when conditions improve
+- ✅ **Gradual Adjustment**: One level at a time (prevents charger stress)
+- ✅ **Future-Proof**: Easy to extend to Night Charge GRID mode (v1.4.0 planned)
+- ✅ **Better Testing**: Shared utilities easier to unit test
+
+**Files Modified**:
+- **NEW**: [utils/amperage_helper.py](custom_components/ev_smart_charger/utils/amperage_helper.py) - 277 lines (3 classes, 10 methods)
+- [charger_controller.py](custom_components/ev_smart_charger/charger_controller.py): Added 2 convenience methods (116 lines)
+- [night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py): Added dynamic amperage logic (150+ lines)
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.3.23"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.3.23"
+
+**Configuration Used**:
+- Grid import threshold: `number.evsc_grid_import_threshold` (default 50W)
+- Grid import delay: `number.evsc_grid_import_delay` (default 30s)
+- Night charge amperage: `number.evsc_night_charge_amperage` (default 16A)
+- Entities discovered automatically from helper entity registry
+
+**Technical Implementation Details**:
+
+**Rate Limiting Behavior**:
+- ChargerController enforces 30-second minimum between operations (unchanged)
+- Dynamic amperage checks run every 15 seconds (Night Charge monitoring loop)
+- Grid import delay: 30 seconds before first reduction
+- Recovery stability: 60 seconds before first increase
+- Total minimum recovery time: 90 seconds (30s rate limit + 60s stability)
+
+**Hysteresis Implementation**:
+- Grid import **reduction** at 100% threshold (50W)
+- Grid import **recovery** at 50% threshold (25W)
+- Prevents oscillation when grid import near threshold
+- Example: Reduce at 50W, but don't recover until below 25W
+
+**Gradual Amperage Levels**:
+```python
+CHARGER_AMP_LEVELS = [6, 8, 10, 13, 16, 20, 24, 32]
+
+# Reduction example (grid import protection)
+16A → 13A → 10A → 8A → 6A → STOP
+
+# Recovery example (conditions improved)
+6A → 8A → 10A → 13A → 16A (target reached)
+```
+
+**State Management**:
+- `_grid_import_trigger_time`: `datetime | None` - When grid import first exceeded threshold
+- `_recovery_tracker`: `StabilityTracker` - Tracks 60s stability for recovery
+- Both reset on successful operation or condition change
+
+**Future Enhancements** (Not in v1.3.23):
+- v1.3.24: Refactor Solar Surplus to use `amperage_helper` utilities (reduce duplication)
+- v1.4.0: Add dynamic amperage to Night Charge GRID mode
+- Future: Configurable recovery speed (conservative/normal/aggressive)
+- Future: Advanced hysteresis with multiple thresholds
+
+**Testing Recommendations**:
+1. Monitor logs during night charge for "Dynamic amperage check" entries
+2. Verify grid import detection: "Grid import detected: XXW > 50W"
+3. Verify reduction: "Amperage reduced: 16A → 13A"
+4. Verify stability tracking: "Recovery conditions stable for XXs (need 60s)"
+5. Verify recovery: "Amperage recovered: 13A → 16A (target 16A)"
+
+**Upgrade Priority**: 🟢 RECOMMENDED - Adds automatic amperage recovery, eliminates manual adjustments
+
+---
+
+### v1.3.22 (2025-11-12)
+**CRITICAL FIX: RestoreEntity State Machine Synchronization + Sensor Robustness**
+
+**Problem Fixed**:
+Night Smart Charge failed to start overnight because `RestoreEntity` number entities restored internal values but didn't push to state machine, causing sensors to appear "unavailable" for hours. System used default target (50%) instead of configured value (65%), incorrectly determining "target already reached" and skipping charging.
+
+**Root Cause**:
+- Number entities (`EVSCNumber`) use `RestoreEntity` to persist values across HA restarts
+- `async_added_to_hass()` restored internal `self._value = 65` correctly
+- BUT didn't call `self.async_write_ha_state()` to update state machine
+- State machine kept showing "unavailable" until manual entity modification
+- All reads go through state machine (`hass.states.get()`), not internal value
+- System used `DEFAULT_EV_MIN_SOC_WEEKDAY = 50` instead of restored 65%
+
+**Symptoms**:
+```
+01:00 - Night Charge evaluation
+      - Target: 50% (default, state unavailable)
+      - EV SOC: 60%
+      - Decision: 60% >= 50% → Target reached → Skip charging
+03:00 - Still using 50% target (state still unavailable)
+08:00 - User modifies entity in UI → state writes → now reads 65%
+```
+
+**Fixes Implemented**:
+
+**1. Force State Machine Update After Restore** (CRITICAL - [number.py:443-445](custom_components/ev_smart_charger/number.py#L443-L445))
+```python
+async def async_added_to_hass(self) -> None:
+    # ... restore internal value ...
+    # NEW: Push restored value to state machine immediately
+    self.async_write_ha_state()
+```
+- Eliminates 2+ hour "unavailable" window after HA restart
+- All 29 number entities fixed (daily SOC targets, thresholds, delays, amperages)
+- Enhanced logging shows exact restoration values
+
+**2. Charger Status Validation** (MEDIUM - [night_smart_charge.py:379-389](custom_components/ev_smart_charger/night_smart_charge.py#L379-L389))
+- Check for "unavailable"/"unknown" states in addition to "charger_free"
+- Prevents charging when status sensor unavailable
+- Clear warnings: "Charger status sensor unavailable - cannot determine connection"
+
+**3. Target SOC Unavailable Warnings** (HIGH - [priority_balancer.py:218-239](custom_components/ev_smart_charger/priority_balancer.py#L218-L239))
+- Explicit state checking before reading target values
+- Warns when using temporary defaults: "Entity ... state is unavailable, using temporary default 50%"
+- Helps diagnose state restoration issues
+- User visibility into when defaults vs configured values used
+
+**4. Startup Validation Check** (DEFENSIVE - [night_smart_charge.py:362-385](custom_components/ev_smart_charger/night_smart_charge.py#L362-L385))
+- Pre-flight check for critical sensor availability before evaluation
+- Lists unavailable sensors with details
+- Delays evaluation until sensors ready (retries every minute)
+- Prevents decisions based on incomplete data
+
+**Impact**:
+- ✅ Night Smart Charge activates correctly after HA restart
+- ✅ Reads configured targets (65%) instead of defaults (50%)
+- ✅ Clear diagnostic logs for troubleshooting sensor issues
+- ✅ Robust handling of temporarily unavailable sensors
+- ✅ No more "false target reached" decisions
+
+**Files Modified**:
+- [number.py](custom_components/ev_smart_charger/number.py): Added `async_write_ha_state()` after restoration
+- [night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py): Charger status validation + startup check
+- [priority_balancer.py](custom_components/ev_smart_charger/priority_balancer.py): Explicit unavailable state handling
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.3.22"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.3.22"
+
+**Testing Notes**:
+After HA restart, check logs for:
+- "✅ Restored number.evsc_ev_min_soc_tuesday = 65.0"
+- At 01:00: "Target EV SOC: 65%" (not 50%)
+- If unavailable: "⚠️ Entity ... state is unavailable, using temporary default"
+
+**Upgrade Priority**: 🔴 CRITICAL - Fixes Night Smart Charge overnight failure after HA restart
+
+---
 
 ### v1.3.21 (2025-11-07)
 **CRITICAL BUG FIX: Night Smart Charge Activation Failure**

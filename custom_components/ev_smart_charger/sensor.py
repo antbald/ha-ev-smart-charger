@@ -1,7 +1,6 @@
 """Sensor platform for EV Smart Charger diagnostics."""
 from __future__ import annotations
 import logging
-from datetime import datetime
 
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry

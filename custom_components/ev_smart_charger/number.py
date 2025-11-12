@@ -21,7 +21,6 @@ from .const import (
     DEFAULT_EV_MIN_SOC_WEEKEND,
     DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD,
     DEFAULT_NIGHT_CHARGE_AMPERAGE,
-    DEFAULT_HOME_MIN_SOC,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -434,5 +433,13 @@ class EVSCNumber(NumberEntity, RestoreEntity):
         if (last_state := await self.async_get_last_state()) is not None:
             try:
                 self._value = float(last_state.state)
+                _LOGGER.info(f"✅ Restored {self.entity_id} = {self._value}")
             except (ValueError, TypeError):
                 self._value = self._attr_native_min_value
+                _LOGGER.warning(f"⚠️ Failed to restore {self.entity_id}, using default {self._value}")
+        else:
+            _LOGGER.info(f"ℹ️ No previous state for {self.entity_id}, using default {self._value}")
+
+        # CRITICAL FIX (v1.3.22): Push restored value to state machine immediately
+        # Without this, state remains "unavailable" for hours until manual modification
+        self.async_write_ha_state()

@@ -1,7 +1,6 @@
 """Automation Coordinator to prevent conflicts between automations."""
 from __future__ import annotations
 import logging
-from datetime import datetime
 from homeassistant.core import HomeAssistant
 from homeassistant.const import STATE_ON
 from homeassistant.util import dt as dt_util

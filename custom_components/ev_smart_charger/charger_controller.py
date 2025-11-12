@@ -1,12 +1,11 @@
 """Centralized Charger Controller for EV Smart Charger."""
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 import async_timeout
 
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     CONF_EV_CHARGER_SWITCH,
@@ -368,6 +367,123 @@ class ChargerController:
                     amperage=target_amps,
                     error_message=str(ex)
                 )
+
+    async def adjust_for_grid_import(self, reason: str = "Grid import detected") -> OperationResult:
+        """
+        Reduce charging amperage by one level for grid import protection.
+
+        Uses AmperageCalculator.get_next_level_down() to safely step down
+        one level (e.g., 16A → 13A → 10A → 8A → 6A → 0A/STOP).
+
+        Args:
+            reason: Reason for reduction (for logging)
+
+        Returns:
+            OperationResult with success status and operation details
+
+        Example:
+            >>> result = await controller.adjust_for_grid_import("Grid import: 80W")
+            >>> if result.success:
+            ...     print(f"Reduced to {result.amperage}A")
+        """
+        from .utils.amperage_helper import AmperageCalculator
+
+        async with self._lock:
+            self.logger.separator()
+            self.logger.start(f"{self.logger.CHARGER} Grid Import Protection")
+            self.logger.info(f"Reason: {reason}")
+
+            # Get current amperage
+            await self._refresh_state()
+            current_amps = self._current_amperage or 0
+
+            self.logger.info(f"Current amperage: {current_amps}A")
+
+            # Calculate next level down
+            next_amps = AmperageCalculator.get_next_level_down(current_amps)
+
+            if next_amps == 0:
+                # At minimum level, must stop
+                self.logger.action(
+                    "At minimum level",
+                    f"Reducing from {current_amps}A → Stopping charger"
+                )
+                return await self.stop_charger(reason)
+
+            # Reduce to next level
+            self.logger.action(
+                f"{self.logger.EV} Reducing amperage",
+                f"{current_amps}A → {next_amps}A (one level down)"
+            )
+
+            return await self.set_amperage(next_amps, reason)
+
+    async def recover_to_target(
+        self,
+        target_amps: int,
+        reason: str = "Conditions improved"
+    ) -> OperationResult:
+        """
+        Gradually recover charging amperage toward target by one level.
+
+        Uses AmperageCalculator.get_next_level_up() to safely step up
+        one level at a time (e.g., 6A → 8A → 10A → 13A → 16A).
+
+        Args:
+            target_amps: Maximum amperage to recover to
+            reason: Reason for recovery (for logging)
+
+        Returns:
+            OperationResult with success status and operation details
+
+        Example:
+            >>> # Current: 6A, Target: 16A, Result: 8A (one step)
+            >>> result = await controller.recover_to_target(16, "Grid import cleared")
+            >>> if result.success:
+            ...     print(f"Recovered to {result.amperage}A")
+        """
+        from .utils.amperage_helper import AmperageCalculator
+
+        async with self._lock:
+            self.logger.separator()
+            self.logger.start(f"{self.logger.CHARGER} Amperage Recovery")
+            self.logger.info(f"Target: {target_amps}A")
+            self.logger.info(f"Reason: {reason}")
+
+            # Get current amperage
+            await self._refresh_state()
+            current_amps = self._current_amperage or 0
+
+            self.logger.info(f"Current amperage: {current_amps}A")
+
+            # Check if already at or above target
+            if current_amps >= target_amps:
+                self.logger.info(f"Already at/above target ({current_amps}A >= {target_amps}A)")
+                self.logger.separator()
+                return OperationResult(
+                    success=True,
+                    operation="recover_to_target",
+                    reason=f"Already at target ({current_amps}A)",
+                    amperage=current_amps
+                )
+
+            # If charger OFF, start at target (immediate recovery)
+            if current_amps == 0:
+                self.logger.action(
+                    "Charger OFF",
+                    f"Starting charger at target {target_amps}A"
+                )
+                return await self.start_charger(target_amps, reason)
+
+            # Calculate next level up (gradual recovery)
+            next_amps = AmperageCalculator.get_next_level_up(current_amps, target_amps)
+
+            self.logger.action(
+                f"{self.logger.EV} Recovering amperage",
+                f"{current_amps}A → {next_amps}A (one level up, target {target_amps}A)"
+            )
+
+            return await self.set_amperage(next_amps, reason)
 
     async def _increase_amperage(self, target_amps: int):
         """

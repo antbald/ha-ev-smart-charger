@@ -210,14 +210,33 @@ class PriorityBalancer:
         today = datetime.now().strftime("%A").lower()
         entity_id = entities_dict.get(today)
 
+        # Entity not configured - use weekend/weekday default
         if not entity_id:
-            # Fallback to default
-            if default_weekend and today in ["saturday", "sunday"]:
-                return default_weekend
-            return default_weekday
+            default_value = default_weekend if (default_weekend and today in ["saturday", "sunday"]) else default_weekday
+            return default_value
 
-        target = state_helper.get_int(self.hass, entity_id, default_weekday)
-        return target
+        # v1.3.22: Get state directly to check availability
+        state = state_helper.get_state(self.hass, entity_id)
+
+        # State not yet restored/available
+        if state in [None, "unknown", "unavailable"]:
+            default_value = default_weekend if (default_weekend and today in ["saturday", "sunday"]) else default_weekday
+            self.logger.warning(
+                f"⚠️ Entity {entity_id} state is {state}, using temporary default {default_value}%"
+            )
+            self.logger.warning(
+                f"   If this persists, check entity state in Developer Tools → States"
+            )
+            return default_value
+
+        # Parse valid state
+        try:
+            target = int(float(state))
+            return target
+        except (ValueError, TypeError) as e:
+            default_value = default_weekend if (default_weekend and today in ["saturday", "sunday"]) else default_weekday
+            self.logger.error(f"❌ Invalid state for {entity_id}: {state} - {e}")
+            return default_value
 
     def get_ev_target_for_today(self) -> int:
         """Get EV target SOC for current day."""

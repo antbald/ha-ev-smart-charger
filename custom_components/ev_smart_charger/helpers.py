@@ -3,15 +3,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.components.input_boolean import InputBoolean
-from homeassistant.components.input_number import InputNumber, NumberMode
+from homeassistant.components.input_number import NumberMode
 from homeassistant.const import STATE_ON, STATE_OFF
 
 from .const import (
-    DOMAIN,
     HELPER_FORZA_RICARICA,
     HELPER_SMART_BLOCKER_ENABLED,
     HELPER_SOLAR_THRESHOLD,

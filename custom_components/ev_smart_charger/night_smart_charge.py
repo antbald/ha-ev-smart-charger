@@ -10,6 +10,7 @@ from .const import (
     CONF_EV_CHARGER_STATUS,
     CONF_SOC_HOME,
     CONF_PV_FORECAST,
+    CONF_GRID_IMPORT,
     CONF_NOTIFY_SERVICES,
     CONF_CAR_OWNER,
     CHARGER_STATUS_FREE,
@@ -22,6 +23,8 @@ from .const import (
     HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX,
     HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX,
     HELPER_HOME_BATTERY_MIN_SOC_SUFFIX,
+    HELPER_GRID_IMPORT_THRESHOLD_SUFFIX,
+    HELPER_GRID_IMPORT_DELAY_SUFFIX,
     HELPER_CAR_READY_MONDAY_SUFFIX,
     HELPER_CAR_READY_TUESDAY_SUFFIX,
     HELPER_CAR_READY_WEDNESDAY_SUFFIX,
@@ -74,6 +77,7 @@ class NightSmartCharge:
         self._charger_status = config.get(CONF_EV_CHARGER_STATUS)
         self._soc_home = config.get(CONF_SOC_HOME)
         self._pv_forecast_entity = config.get(CONF_PV_FORECAST)
+        self._grid_import = config.get(CONF_GRID_IMPORT)  # v1.3.23: Grid import sensor
 
         # Helper entities (discovered in async_setup)
         self._night_charge_enabled_entity = None
@@ -82,6 +86,8 @@ class NightSmartCharge:
         self._solar_forecast_threshold_entity = None
         self._night_charge_amperage_entity = None
         self._home_battery_min_soc_entity = None
+        self._grid_import_threshold_entity = None  # v1.3.23: Grid import max threshold
+        self._grid_import_delay_entity = None  # v1.3.23: Grid import protection delay
         self._car_ready_entities = {}  # Dict: {0: monday_entity, ..., 6: sunday_entity}
 
         # Timer and state tracking
@@ -93,6 +99,11 @@ class NightSmartCharge:
         self._active_mode = NIGHT_CHARGE_MODE_IDLE
         self._last_window_check_time = None
         self._last_completion_time = None  # Track when session completed
+
+        # v1.3.23: Dynamic amperage management state
+        from .utils.amperage_helper import StabilityTracker
+        self._grid_import_trigger_time = None  # When grid import first exceeded threshold
+        self._recovery_tracker = StabilityTracker()  # Track stability for recovery (60s)
 
     async def async_setup(self) -> None:
         """Set up Night Smart Charge automation."""
@@ -118,6 +129,12 @@ class NightSmartCharge:
         )
         self._home_battery_min_soc_entity = entity_helper.find_by_suffix(
             self.hass, HELPER_HOME_BATTERY_MIN_SOC_SUFFIX
+        )
+        self._grid_import_threshold_entity = entity_helper.find_by_suffix(
+            self.hass, HELPER_GRID_IMPORT_THRESHOLD_SUFFIX
+        )
+        self._grid_import_delay_entity = entity_helper.find_by_suffix(
+            self.hass, HELPER_GRID_IMPORT_DELAY_SUFFIX
         )
 
         # Discover car_ready switches for each day (v1.3.13+)
@@ -359,6 +376,31 @@ class NightSmartCharge:
 
     async def _evaluate_and_charge(self) -> None:
         """Main decision logic for Night Smart Charge."""
+        # v1.3.22: Pre-flight check for critical sensor availability
+        today = datetime.now().strftime("%A").lower()
+        ev_target_entity = self.priority_balancer._ev_min_soc_entities.get(today)
+
+        critical_sensors = {
+            "Charger Status": self._charger_status,
+            "EV SOC": self._soc_car,
+            f"EV Target ({today.capitalize()})": ev_target_entity,
+        }
+
+        unavailable = []
+        for name, entity_id in critical_sensors.items():
+            if entity_id:
+                state = state_helper.get_state(self.hass, entity_id)
+                if state in ["unavailable", "unknown", None]:
+                    unavailable.append(f"{name}: {entity_id} (state={state})")
+
+        if unavailable:
+            self.logger.warning("⚠️ Critical sensors unavailable - delaying evaluation:")
+            for item in unavailable:
+                self.logger.warning(f"   • {item}")
+            self.logger.warning("Will retry at next periodic check (1 minute)")
+            self.logger.separator()
+            return
+
         # Step 1: Check if Priority Balancer is enabled
         self.logger.info(f"{self.logger.BALANCE} Step 1: Check Priority Balancer")
 
@@ -376,8 +418,15 @@ class NightSmartCharge:
         charger_status = state_helper.get_state(self.hass, self._charger_status)
         self.logger.info(f"   Charger status: {charger_status}")
 
-        if not charger_status or charger_status == CHARGER_STATUS_FREE:
-            self.logger.skip("Charger not connected")
+        # v1.3.22: Check for invalid/unavailable states
+        if not charger_status or charger_status in ["unavailable", "unknown", CHARGER_STATUS_FREE]:
+            if charger_status in ["unavailable", "unknown"]:
+                self.logger.warning(f"{self.logger.ALERT} Charger status sensor {charger_status} - cannot determine connection")
+                reason = f"sensor {charger_status}"
+            else:
+                reason = "not connected"
+
+            self.logger.skip(f"Charger {reason}")
             self.logger.separator()
             return
 
@@ -548,7 +597,14 @@ class NightSmartCharge:
 
     @callback
     async def _async_monitor_battery_charge(self, now) -> None:
-        """Monitor battery charge and enforce thresholds (runs every 15 seconds)."""
+        """
+        Monitor battery charge with dynamic amperage management (v1.3.23).
+
+        Runs every 15 seconds to check:
+        - Stop conditions (deadline, home battery min, EV target)
+        - Grid import protection (reduce amperage if importing)
+        - Amperage recovery (increase when conditions improve)
+        """
         # Only monitor if battery mode is active
         if not self.is_active() or self._active_mode != NIGHT_CHARGE_MODE_BATTERY:
             return
@@ -598,6 +654,10 @@ class NightSmartCharge:
             return
 
         self.logger.info(f"   {self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - continuing charge")
+
+        # Check 3: Dynamic amperage management (v1.3.23)
+        await self._handle_dynamic_amperage()
+
         self.logger.info("Monitoring will continue...")
         self.logger.separator()
 
@@ -731,6 +791,135 @@ class NightSmartCharge:
             self.logger.separator()
             raise  # Re-raise to allow caller to handle
 
+    # ========== DYNAMIC AMPERAGE MANAGEMENT (v1.3.23) ==========
+
+    async def _handle_dynamic_amperage(self) -> None:
+        """
+        Handle dynamic amperage adjustments during BATTERY mode.
+
+        Logic:
+        1. Check grid import (reduce if importing from grid)
+        2. Check recovery conditions (increase if stable and below target)
+
+        Uses ChargerController convenience methods:
+        - adjust_for_grid_import() - Gradual reduction
+        - recover_to_target() - Gradual recovery
+        """
+        from .utils.amperage_helper import GridImportProtection
+
+        # Get current amperage
+        current_amps = await self.charger_controller.get_current_amperage()
+        if current_amps is None:
+            self.logger.warning("Cannot read current amperage, skipping dynamic adjustment")
+            return
+
+        # Get configuration
+        target_amps = self._get_night_charge_amperage()
+        grid_threshold = self._get_grid_import_threshold()
+        grid_delay = self._get_grid_import_delay()
+
+        # Read grid import
+        grid_import = state_helper.get_float(self.hass, self._grid_import, default=0.0)
+
+        self.logger.info(f"{self.logger.CHARGER} Dynamic amperage check:")
+        self.logger.info(f"   Current: {current_amps}A, Target: {target_amps}A")
+        self.logger.info(f"   Grid import: {grid_import:.0f}W (threshold: {grid_threshold:.0f}W)")
+
+        # STEP 1: Check grid import protection (REDUCTION)
+        should_reduce = GridImportProtection.should_reduce(
+            grid_import=grid_import,
+            threshold=grid_threshold,
+            delay_seconds=grid_delay,
+            last_trigger_time=self._grid_import_trigger_time,
+        )
+
+        if should_reduce:
+            # First detection or delay elapsed
+            if self._grid_import_trigger_time is None:
+                # First detection - start tracking
+                self._grid_import_trigger_time = datetime.now()
+                self.logger.warning(
+                    f"{self.logger.ALERT} Grid import detected: {grid_import:.0f}W > {grid_threshold:.0f}W"
+                )
+                self.logger.info(f"   Waiting {grid_delay}s before reducing amperage...")
+                self._recovery_tracker.reset()  # Reset recovery tracker
+                return
+
+            # Delay elapsed - reduce amperage
+            self.logger.warning(
+                f"{self.logger.ALERT} Grid import persistent: {grid_import:.0f}W > {grid_threshold:.0f}W "
+                f"({grid_delay}s elapsed)"
+            )
+
+            result = await self.charger_controller.adjust_for_grid_import(
+                reason=f"Grid import protection ({grid_import:.0f}W > {grid_threshold:.0f}W)"
+            )
+
+            if result.success:
+                self.logger.success(f"Amperage reduced: {current_amps}A → {result.amperage}A")
+                self._grid_import_trigger_time = None  # Reset for next detection
+                self._recovery_tracker.reset()  # Reset recovery tracker
+            else:
+                self.logger.error(f"Failed to reduce amperage: {result.error_message}")
+
+            return
+
+        # Grid import normal - reset trigger
+        if self._grid_import_trigger_time is not None:
+            self.logger.info(f"   Grid import cleared (was above threshold)")
+            self._grid_import_trigger_time = None
+
+        # STEP 2: Check recovery conditions (INCREASE)
+        if current_amps >= target_amps:
+            # Already at target
+            self.logger.info(f"   At target amperage ({current_amps}A)")
+            self._recovery_tracker.reset()
+            return
+
+        # Check if conditions allow recovery
+        can_recover = GridImportProtection.should_recover(
+            grid_import=grid_import,
+            threshold=grid_threshold,
+            hysteresis_factor=0.5,  # Recover at 50% of threshold
+        )
+
+        if not can_recover:
+            recovery_threshold = grid_threshold * 0.5
+            self.logger.info(
+                f"   Cannot recover yet: grid {grid_import:.0f}W >= {recovery_threshold:.0f}W "
+                f"(50% threshold)"
+            )
+            self._recovery_tracker.reset()
+            return
+
+        # Conditions good - track stability (60s required)
+        self._recovery_tracker.start_tracking()
+        elapsed = self._recovery_tracker.get_elapsed()
+
+        if not self._recovery_tracker.is_stable(60):
+            self.logger.info(
+                f"   Recovery conditions stable for {elapsed:.0f}s (need 60s for cloud protection)"
+            )
+            return
+
+        # Stable for 60s - recover one level
+        self.logger.info(
+            f"{self.logger.SUCCESS} Conditions stable for 60s, recovering amperage..."
+        )
+
+        result = await self.charger_controller.recover_to_target(
+            target_amps=target_amps,
+            reason=f"Conditions improved (grid {grid_import:.0f}W, stable 60s)"
+        )
+
+        if result.success:
+            self.logger.success(
+                f"Amperage recovered: {current_amps}A → {result.amperage}A (target {target_amps}A)"
+            )
+            self._recovery_tracker.reset()  # Reset for next recovery cycle
+        else:
+            self.logger.error(f"Failed to recover amperage: {result.error_message}")
+
     # ========== SESSION COMPLETION ==========
 
     async def _complete_night_charge(self) -> None:
@@ -825,6 +1014,22 @@ class NightSmartCharge:
             self.hass,
             self._home_battery_min_soc_entity,
             20.0
+        )
+
+    def _get_grid_import_threshold(self) -> float:
+        """Get grid import threshold (v1.3.23)."""
+        return state_helper.get_float(
+            self.hass,
+            self._grid_import_threshold_entity,
+            50.0
+        )
+
+    def _get_grid_import_delay(self) -> int:
+        """Get grid import protection delay in seconds (v1.3.23)."""
+        return state_helper.get_int(
+            self.hass,
+            self._grid_import_delay_entity,
+            30
         )
 
     def _get_car_ready_for_today(self) -> bool:
