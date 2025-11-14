@@ -11,6 +11,8 @@ from .const import (
     DEFAULT_EV_MIN_SOC_WEEKEND,
     DEFAULT_HOME_MIN_SOC,
     HELPER_PRIORITY_BALANCER_ENABLED_SUFFIX,
+    HELPER_TODAY_EV_TARGET_SUFFIX,
+    HELPER_TODAY_HOME_TARGET_SUFFIX,
     PRIORITY_EV,
     PRIORITY_HOME,
     PRIORITY_EV_FREE,
@@ -42,6 +44,8 @@ class PriorityBalancer:
         self._enabled_entity = None
         self._ev_min_soc_entities = {}
         self._home_min_soc_entities = {}
+        self._today_ev_target_sensor = None  # v1.3.26
+        self._today_home_target_sensor = None  # v1.3.26
 
         # Mobile notification service
         self._mobile_notifier = MobileNotificationService(
@@ -83,6 +87,19 @@ class PriorityBalancer:
             self._home_min_soc_entities[day] = entity_helper.find_by_suffix(
                 self.hass, home_suffix
             )
+
+        # Discover today's target sensors (v1.3.26)
+        self._today_ev_target_sensor = entity_helper.find_by_suffix(
+            self.hass, HELPER_TODAY_EV_TARGET_SUFFIX
+        )
+        self._today_home_target_sensor = entity_helper.find_by_suffix(
+            self.hass, HELPER_TODAY_HOME_TARGET_SUFFIX
+        )
+
+        if self._today_ev_target_sensor:
+            self.logger.info(f"Discovered Today EV Target sensor: {self._today_ev_target_sensor}")
+        if self._today_home_target_sensor:
+            self.logger.info(f"Discovered Today Home Target sensor: {self._today_home_target_sensor}")
 
         self.logger.success("Priority Balancer setup complete")
 
@@ -305,7 +322,7 @@ class PriorityBalancer:
         home_target: int,
         today: str,
     ):
-        """Update priority state sensor."""
+        """Update priority state sensor and today's target sensors (v1.3.26)."""
         sensor_entity = entity_helper.find_by_suffix(
             self.hass, "evsc_priority_daily_state"
         )
@@ -315,7 +332,7 @@ class PriorityBalancer:
             return
 
         try:
-            # Update sensor state and attributes
+            # Update priority state sensor
             self.hass.states.async_set(
                 sensor_entity,
                 priority,
@@ -330,6 +347,29 @@ class PriorityBalancer:
                     "last_update": datetime.now().isoformat(),
                 },
             )
+
+            # Update today's EV target sensor (v1.3.26)
+            if self._today_ev_target_sensor:
+                self.hass.states.async_set(
+                    self._today_ev_target_sensor,
+                    ev_target,
+                    {
+                        "day": today.capitalize(),
+                        "unit_of_measurement": "%",
+                    },
+                )
+
+            # Update today's Home target sensor (v1.3.26)
+            if self._today_home_target_sensor:
+                self.hass.states.async_set(
+                    self._today_home_target_sensor,
+                    home_target,
+                    {
+                        "day": today.capitalize(),
+                        "unit_of_measurement": "%",
+                    },
+                )
+
         except Exception as e:
             self.logger.error(f"Failed to update priority sensor: {e}")
 

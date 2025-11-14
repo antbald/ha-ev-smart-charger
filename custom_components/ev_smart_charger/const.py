@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.3.25"
+VERSION = "1.3.26"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -131,6 +131,8 @@ HELPER_DIAGNOSTIC_SENSOR_SUFFIX = "evsc_diagnostic"
 HELPER_PRIORITY_STATE_SUFFIX = "evsc_priority_daily_state"
 HELPER_SOLAR_SURPLUS_DIAGNOSTIC_SUFFIX = "evsc_solar_surplus_diagnostic"
 HELPER_LOG_FILE_PATH_SUFFIX = "evsc_log_file_path"  # v1.3.25
+HELPER_TODAY_EV_TARGET_SUFFIX = "evsc_today_ev_target"  # v1.3.26
+HELPER_TODAY_HOME_TARGET_SUFFIX = "evsc_today_home_target"  # v1.3.26
 
 # ========== DEFAULT VALUES - SOLAR SURPLUS ==========
 DEFAULT_CHECK_INTERVAL = 1  # minutes

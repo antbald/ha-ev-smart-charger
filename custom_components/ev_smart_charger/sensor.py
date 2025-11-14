@@ -63,6 +63,26 @@ async def async_setup_entry(
         )
     )
 
+    # Create Today EV Target Sensor (v1.3.26)
+    entities.append(
+        EVSCTodayEVTargetSensor(
+            entry.entry_id,
+            "evsc_today_ev_target",
+            "EVSC Today EV Target",
+            "mdi:battery-charging-80",
+        )
+    )
+
+    # Create Today Home Target Sensor (v1.3.26)
+    entities.append(
+        EVSCTodayHomeTargetSensor(
+            entry.entry_id,
+            "evsc_today_home_target",
+            "EVSC Today Home Target",
+            "mdi:home-battery",
+        )
+    )
+
     async_add_entities(entities)
     _LOGGER.info(f"✅ Created {len(entities)} EVSC sensors")
 
@@ -277,3 +297,109 @@ class EVSCLogFilePathSensor(SensorEntity):
         await super().async_added_to_hass()
         _LOGGER.info(f"✅ Log File Path sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
         _LOGGER.info(f"  📄 Log file path: {self._attr_native_value}")
+
+
+class EVSCTodayEVTargetSensor(SensorEntity, RestoreEntity):
+    """EVSC Today EV Target Sensor - shows today's EV SOC target (v1.3.26)."""
+
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        entry_id: str,
+        suffix: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        """Initialize the sensor."""
+        self._entry_id = entry_id
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_native_value = None
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_extra_state_attributes = {}
+        # Set explicit entity_id to match pattern
+        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
+
+    @property
+    def device_info(self):
+        """Return device info to group all entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "EV Smart Charger",
+            "manufacturer": "antbald",
+            "model": "EV Smart Charger",
+            "sw_version": VERSION,
+        }
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        return self._attr_extra_state_attributes
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+        _LOGGER.info(f"✅ Today EV Target sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
+
+        if (last_state := await self.async_get_last_state()) is not None:
+            try:
+                self._attr_native_value = float(last_state.state) if last_state.state not in [None, "unknown", "unavailable"] else None
+            except (ValueError, TypeError):
+                self._attr_native_value = None
+            if last_state.attributes:
+                self._attr_extra_state_attributes = dict(last_state.attributes)
+
+
+class EVSCTodayHomeTargetSensor(SensorEntity, RestoreEntity):
+    """EVSC Today Home Target Sensor - shows today's Home battery SOC target (v1.3.26)."""
+
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        entry_id: str,
+        suffix: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        """Initialize the sensor."""
+        self._entry_id = entry_id
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_native_value = None
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_extra_state_attributes = {}
+        # Set explicit entity_id to match pattern
+        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
+
+    @property
+    def device_info(self):
+        """Return device info to group all entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "EV Smart Charger",
+            "manufacturer": "antbald",
+            "model": "EV Smart Charger",
+            "sw_version": VERSION,
+        }
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        return self._attr_extra_state_attributes
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+        _LOGGER.info(f"✅ Today Home Target sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
+
+        if (last_state := await self.async_get_last_state()) is not None:
+            try:
+                self._attr_native_value = float(last_state.state) if last_state.state not in [None, "unknown", "unavailable"] else None
+            except (ValueError, TypeError):
+                self._attr_native_value = None
+            if last_state.attributes:
+                self._attr_extra_state_attributes = dict(last_state.attributes)
