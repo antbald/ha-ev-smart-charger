@@ -13,6 +13,7 @@ from .const import (
     HELPER_PRIORITY_BALANCER_ENABLED_SUFFIX,
     HELPER_TODAY_EV_TARGET_SUFFIX,
     HELPER_TODAY_HOME_TARGET_SUFFIX,
+    HELPER_CACHED_EV_SOC_SUFFIX,
     PRIORITY_EV,
     PRIORITY_HOME,
     PRIORITY_EV_FREE,
@@ -37,7 +38,8 @@ class PriorityBalancer:
         self.logger = EVSCLogger("PRIORITY BALANCER")
 
         # User-mapped entities
-        self._soc_car = config.get(CONF_SOC_CAR)
+        self._soc_car_source = config.get(CONF_SOC_CAR)  # Cloud sensor (original)
+        self._soc_car = None  # Cached sensor (discovered in async_setup) - v1.4.0
         self._soc_home = config.get(CONF_SOC_HOME)
 
         # Helper entities (discovered in async_setup)
@@ -86,6 +88,23 @@ class PriorityBalancer:
             home_suffix = f"evsc_home_min_soc_{day}"
             self._home_min_soc_entities[day] = entity_helper.find_by_suffix(
                 self.hass, home_suffix
+            )
+
+        # Discover cached EV SOC sensor (v1.4.0)
+        self._soc_car = entity_helper.find_by_suffix(
+            self.hass, HELPER_CACHED_EV_SOC_SUFFIX
+        )
+
+        if not self._soc_car:
+            self.logger.warning(
+                f"Cached EV SOC sensor not found - falling back to direct source. "
+                f"This should only happen on first setup before restart."
+            )
+            self._soc_car = self._soc_car_source  # Fallback to cloud sensor
+        else:
+            self.logger.info(
+                f"✅ Using cached EV SOC sensor: {self._soc_car} "
+                f"(source: {self._soc_car_source})"
             )
 
         # Discover today's target sensors (v1.3.26)

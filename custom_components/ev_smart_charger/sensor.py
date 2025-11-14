@@ -8,7 +8,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, VERSION
+from .const import DOMAIN, VERSION, CONF_SOC_CAR
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,6 +80,18 @@ async def async_setup_entry(
             "evsc_today_home_target",
             "EVSC Today Home Target",
             "mdi:home-battery",
+        )
+    )
+
+    # Create Cached EV SOC Sensor (v1.4.0)
+    entities.append(
+        EVSCCachedEVSOCSensor(
+            hass,
+            entry.entry_id,
+            entry.data.get(CONF_SOC_CAR),  # Source cloud sensor
+            "evsc_cached_ev_soc",
+            "EVSC Cached EV SOC",
+            "mdi:car-battery",
         )
     )
 
@@ -401,5 +413,69 @@ class EVSCTodayHomeTargetSensor(SensorEntity, RestoreEntity):
                 self._attr_native_value = float(last_state.state) if last_state.state not in [None, "unknown", "unavailable"] else None
             except (ValueError, TypeError):
                 self._attr_native_value = None
+            if last_state.attributes:
+                self._attr_extra_state_attributes = dict(last_state.attributes)
+
+
+class EVSCCachedEVSOCSensor(SensorEntity, RestoreEntity):
+    """EVSC Cached EV SOC Sensor - reliable cache for cloud-based EV SOC sensor (v1.4.0)."""
+
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        source_entity: str,
+        suffix: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        """Initialize the cached sensor."""
+        self._hass = hass
+        self._entry_id = entry_id
+        self._source_entity = source_entity
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_native_value = None
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_extra_state_attributes = {
+            "source_entity": source_entity,
+            "last_valid_update": None,
+            "is_cached": False,
+        }
+        # Set explicit entity_id to match pattern
+        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
+
+    @property
+    def device_info(self):
+        """Return device info to group all entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry_id)},
+            "name": "EV Smart Charger",
+            "manufacturer": "antbald",
+            "model": "EV Smart Charger",
+            "sw_version": VERSION,
+        }
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        return self._attr_extra_state_attributes
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+        _LOGGER.info(f"✅ Cached EV SOC sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
+        _LOGGER.info(f"  🔗 Source sensor: {self._source_entity}")
+
+        if (last_state := await self.async_get_last_state()) is not None:
+            try:
+                self._attr_native_value = float(last_state.state) if last_state.state not in [None, "unknown", "unavailable"] else None
+                _LOGGER.info(f"  🔄 Restored cached SOC: {self._attr_native_value}%")
+            except (ValueError, TypeError):
+                self._attr_native_value = None
+                _LOGGER.warning(f"  ⚠️ Failed to restore cached SOC from: {last_state.state}")
             if last_state.attributes:
                 self._attr_extra_state_attributes = dict(last_state.attributes)

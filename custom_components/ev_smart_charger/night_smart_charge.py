@@ -382,7 +382,7 @@ class NightSmartCharge:
 
         critical_sensors = {
             "Charger Status": self._charger_status,
-            "EV SOC": self._soc_car,
+            "EV SOC (cached)": self.priority_balancer._soc_car,  # v1.4.0 - show cached sensor
             f"EV Target ({today.capitalize()})": ev_target_entity,
         }
 

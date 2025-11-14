@@ -10,6 +10,7 @@ from homeassistant.helpers import entity_registry as er
 from .const import DOMAIN, PLATFORMS, VERSION
 from .automation_coordinator import AutomationCoordinator
 from .charger_controller import ChargerController
+from .ev_soc_monitor import EVSOCMonitor
 from .priority_balancer import PriorityBalancer
 from .night_smart_charge import NightSmartCharge
 from .automations import SmartChargerBlocker
@@ -54,6 +55,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as e:
         _LOGGER.error(f"❌ Failed to set up Charger Controller: {e}")
         _LOGGER.exception("Charger Controller setup error details:")
+        return False
+
+    # ========== PHASE 2.5: CREATE EV SOC MONITOR (Cache Reliability Layer) ==========
+    _LOGGER.info("⏳ Phase 2.5: Creating EV SOC Monitor (cache reliability)")
+    ev_soc_monitor = EVSOCMonitor(hass, entry.entry_id, entry.data)
+    try:
+        await ev_soc_monitor.async_setup()
+        _LOGGER.info("✅ EV SOC Monitor setup complete")
+    except Exception as e:
+        _LOGGER.error(f"❌ Failed to set up EV SOC Monitor: {e}")
+        _LOGGER.exception("EV SOC Monitor setup error details:")
         return False
 
     # ========== PHASE 3: CREATE AUTOMATION COORDINATOR ==========
@@ -132,6 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "config": entry.data,
         "charger_controller": charger_controller,
+        "ev_soc_monitor": ev_soc_monitor,
         "coordinator": coordinator,
         "priority_balancer": priority_balancer,
         "night_smart_charge": night_smart_charge,
@@ -190,6 +203,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if log_manager:
         _LOGGER.info("🗑️  Removing Log Manager")
         await log_manager.async_remove()
+
+    ev_soc_monitor = entry_data.get("ev_soc_monitor")
+    if ev_soc_monitor:
+        _LOGGER.info("🗑️  Removing EV SOC Monitor")
+        await ev_soc_monitor.async_remove()
 
     charger_controller = entry_data.get("charger_controller")
     if charger_controller:

@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.3.26"
+VERSION = "1.4.0"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -133,6 +133,7 @@ HELPER_SOLAR_SURPLUS_DIAGNOSTIC_SUFFIX = "evsc_solar_surplus_diagnostic"
 HELPER_LOG_FILE_PATH_SUFFIX = "evsc_log_file_path"  # v1.3.25
 HELPER_TODAY_EV_TARGET_SUFFIX = "evsc_today_ev_target"  # v1.3.26
 HELPER_TODAY_HOME_TARGET_SUFFIX = "evsc_today_home_target"  # v1.3.26
+HELPER_CACHED_EV_SOC_SUFFIX = "evsc_cached_ev_soc"  # v1.4.0
 
 # ========== DEFAULT VALUES - SOLAR SURPLUS ==========
 DEFAULT_CHECK_INTERVAL = 1  # minutes
@@ -192,3 +193,6 @@ SERVICE_CALL_TIMEOUT = 10  # seconds for service calls
 # ========== FILE LOGGING SETTINGS (v1.3.25) ==========
 FILE_LOG_MAX_SIZE_MB = 10  # 10MB per log file
 FILE_LOG_BACKUP_COUNT = 5  # Keep 5 backup files (50MB total)
+
+# ========== EV SOC MONITOR SETTINGS (v1.4.0) ==========
+EV_SOC_MONITOR_INTERVAL = 5  # seconds - polling frequency for cloud sensor reliability
