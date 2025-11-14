@@ -333,7 +333,7 @@ class NightSmartCharge:
 
         # Parse time string using TimeParsingService
         try:
-            scheduled_time = TimeParsingService.time_string_to_datetime(time_state, now)
+            scheduled_time = TimeParsingService.time_string_to_next_occurrence(time_state, now)
         except (ValueError, TypeError, IndexError) as e:
             self.logger.error(f"Invalid time configuration: {time_state} - {e}")
             return False
