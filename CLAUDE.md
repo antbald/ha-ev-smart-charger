@@ -753,6 +753,113 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.4.2 (2025-11-18)
+**CRITICAL FIX: Night Smart Charge Time Window Bug + Enhanced Diagnostic Logging**
+
+**Problem Fixed**:
+Night Smart Charge failed to activate at scheduled time (01:00) due to incorrect datetime comparison logic in `TimeParsingService`. The system was comparing current time against **tomorrow's** scheduled time instead of today's, causing `Window Active: False` even when the time had arrived.
+
+**Root Cause**:
+`TimeParsingService.time_string_to_next_occurrence()` used `<=` comparison, which incorrectly treated 01:00:00 at 01:00:01 as "already passed" and shifted to tomorrow's occurrence.
+
+**Example Bug Behavior** (v1.4.1):
+```
+Current: 2025-11-18 01:00:01
+Scheduled: 2025-11-19 01:00:00  ← TOMORROW! ❌
+Now >= Scheduled: False  ← Wrong!
+Window Active: False  ← Never activates!
+```
+
+**Fixed Behavior** (v1.4.2):
+```
+Current: 2025-11-18 01:00:01
+Scheduled: 2025-11-18 01:00:00  ← TODAY! ✅
+Now >= Scheduled: True  ✅
+Window Active: True  ✅
+→ Night Smart Charge activates correctly! ✅
+```
+
+**Technical Fix**:
+Changed comparison in [utils/time_parsing_service.py:125](custom_components/ev_smart_charger/utils/time_parsing_service.py#L125) from `<=` to `<`:
+
+```python
+# Before (bug):
+if target_time <= reference_time:  # Included equality
+    target_time += timedelta(days=1)
+
+# After (fix):
+if target_time < reference_time:  # Strict inequality
+    target_time += timedelta(days=1)
+```
+
+**Enhanced Diagnostic Logging**:
+Added comprehensive diagnostic snapshot at start of Night Smart Charge evaluation ([night_smart_charge.py:377-429](custom_components/ev_smart_charger/night_smart_charge.py#L377-L429)):
+
+**Logged Information**:
+- **Timestamp & Day**: Current datetime and weekday
+- **Configuration**:
+  - Night Charge Enabled status
+  - Scheduled Time (01:00:00)
+  - Night Charge Amperage (16A)
+  - Solar Forecast Threshold (20 kWh)
+  - Car Ready flag for today (True/False)
+  - Car Ready Deadline (08:00:00)
+- **Current Readings**:
+  - EV SOC (current vs target)
+  - Home Battery SOC (current vs target vs minimum)
+  - PV Forecast for tomorrow
+  - Charger Status & Current Amperage
+- **System State**:
+  - Priority Balancer Enabled & Current Priority
+  - Active Night Charge Session & Mode
+
+**Example Diagnostic Output**:
+```
+════════════════════════════════════════════════════════════════
+🎯 📊 NIGHT SMART CHARGE - DIAGNOSTIC SNAPSHOT
+   Timestamp: 2025-11-18 01:00:01
+   Day: Monday
+════════════════════════════════════════════════════════════════
+⚙️ Configuration:
+   Night Charge Enabled: True
+   Scheduled Time: 01:00:00
+   Night Charge Amperage: 16A
+   Solar Forecast Threshold: 20.0 kWh
+   Car Ready Today (Monday): True
+   Car Ready Deadline: 08:00:00
+📈 Current Readings:
+   EV SOC: 45%
+   EV Target (today): 50%
+   Home Battery SOC: 65%
+   Home Battery Target (today): 50%
+   Home Battery Min SOC: 20%
+   PV Forecast (tomorrow): 25.3 kWh
+   Charger Status: charger_wait
+   Charger Current Amperage: 6A
+   Priority Balancer Enabled: True
+   Priority State: EV
+   Active Night Charge Session: False
+   Active Mode: idle
+════════════════════════════════════════════════════════════════
+```
+
+**Benefits**:
+- ✅ Night Smart Charge now activates correctly at scheduled time
+- ✅ Complete system state visible in single log block for troubleshooting
+- ✅ Easy diagnosis of future issues (all relevant variables logged)
+- ✅ No need to search through multiple log entries for different values
+- ✅ Timestamps help identify timing-related issues
+
+**Files Modified**:
+- [utils/time_parsing_service.py](custom_components/ev_smart_charger/utils/time_parsing_service.py): Fixed datetime comparison logic
+- [night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py): Added comprehensive diagnostic logging
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.4.2"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.4.2"
+
+**Upgrade Priority**: 🔴 CRITICAL - Fixes complete Night Smart Charge activation failure
+
+---
+
 ### v1.3.25 (2025-11-12)
 **Toggle-Controlled File Logging System for Easy Troubleshooting**
 

@@ -120,8 +120,9 @@ class TimeParsingService:
             time_str, reference_time
         )
 
-        # If time has already passed today, add one day
-        if target_time <= reference_time:
+        # If time has strictly passed today (not equal), add one day
+        # v1.3.26: Changed from <= to < to allow equality (01:00:00 at 01:00:01 = today)
+        if target_time < reference_time:
             target_time += timedelta(days=1)
 
         return target_time

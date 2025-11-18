@@ -376,8 +376,59 @@ class NightSmartCharge:
 
     async def _evaluate_and_charge(self) -> None:
         """Main decision logic for Night Smart Charge."""
+        # v1.4.2: Diagnostic snapshot at evaluation start
+        now = dt_util.now()
+        today = now.strftime("%A").lower()
+
+        self.logger.separator()
+        self.logger.info(f"{self.logger.DECISION} 📊 NIGHT SMART CHARGE - DIAGNOSTIC SNAPSHOT")
+        self.logger.info(f"   Timestamp: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+        self.logger.info(f"   Day: {today.capitalize()}")
+        self.logger.separator()
+
+        # Configuration values
+        self.logger.info("⚙️ Configuration:")
+        self.logger.info(f"   Night Charge Enabled: {entity_helper.is_entity_on(self.hass, self._enabled_entity) if self._enabled_entity else 'N/A'}")
+        self.logger.info(f"   Scheduled Time: {self._get_night_charge_time()}")
+        self.logger.info(f"   Night Charge Amperage: {self._get_night_charge_amperage()}A")
+        self.logger.info(f"   Solar Forecast Threshold: {self._get_solar_threshold()} kWh")
+        self.logger.info(f"   Car Ready Today ({today.capitalize()}): {self._get_car_ready_for_today()}")
+        self.logger.info(f"   Car Ready Deadline: {self._get_car_ready_time()}")
+
+        # Current readings
+        self.logger.info("📈 Current Readings:")
+        ev_soc = await self.priority_balancer.get_ev_current_soc()
+        home_soc = await self.priority_balancer.get_home_current_soc()
+        ev_target = self.priority_balancer.get_ev_target_for_today()
+        home_target = self.priority_balancer.get_home_target_for_today()
+        pv_forecast = await self._get_pv_forecast()
+
+        self.logger.info(f"   EV SOC: {ev_soc}%")
+        self.logger.info(f"   EV Target (today): {ev_target}%")
+        self.logger.info(f"   Home Battery SOC: {home_soc}%")
+        self.logger.info(f"   Home Battery Target (today): {home_target}%")
+        self.logger.info(f"   Home Battery Min SOC: {self._get_home_battery_min_soc()}%")
+        self.logger.info(f"   PV Forecast (tomorrow): {pv_forecast} kWh")
+
+        # Charger status
+        charger_status = state_helper.get_state(self.hass, self._charger_status)
+        charger_amperage = state_helper.get_int(self.hass, self._charger_current, default=0)
+        self.logger.info(f"   Charger Status: {charger_status}")
+        self.logger.info(f"   Charger Current Amperage: {charger_amperage}A")
+
+        # Priority Balancer state
+        priority_enabled = self.priority_balancer.is_enabled()
+        priority_state = self.priority_balancer.get_current_priority() if priority_enabled else "N/A"
+        self.logger.info(f"   Priority Balancer Enabled: {priority_enabled}")
+        self.logger.info(f"   Priority State: {priority_state}")
+
+        # Active session state
+        self.logger.info(f"   Active Night Charge Session: {self.is_active()}")
+        self.logger.info(f"   Active Mode: {self._active_mode}")
+
+        self.logger.separator()
+
         # v1.3.22: Pre-flight check for critical sensor availability
-        today = datetime.now().strftime("%A").lower()
         ev_target_entity = self.priority_balancer._ev_min_soc_entities.get(today)
 
         critical_sensors = {
