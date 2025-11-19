@@ -753,8 +753,32 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.4.3 (2025-11-19)
+**HOTFIX: Correct Git Tag for v1.4.2 Fix**
+
+**Problem Fixed**:
+The v1.4.2 git tag was pointing to the wrong commit (created before the actual fix was committed), causing HACS users to still download the buggy version even though the fix was in the repository.
+
+**Root Cause**:
+During v1.4.2 release process, the git tag was created pointing to commit `1784165` instead of the correct commit `b3bc3da` which contains the actual time window fix.
+
+**Solution**:
+Created v1.4.3 release with correct git tag pointing to the commit containing the fix:
+- Time parsing comparison changed from `<=` to `<` in [utils/time_parsing_service.py:125](custom_components/ev_smart_charger/utils/time_parsing_service.py#L125)
+- Enhanced diagnostic logging at Night Smart Charge evaluation start
+- All fixes from v1.4.2 are included and working
+
+**Files Modified**:
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.4.3"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.4.3"
+- [CLAUDE.md](CLAUDE.md): Added v1.4.3 changelog entry
+
+**Upgrade Priority**: 🔴 CRITICAL - HACS users must upgrade to v1.4.3 to get the actual fix
+
+---
+
 ### v1.4.2 (2025-11-18)
-**CRITICAL FIX: Night Smart Charge Time Window Bug + Enhanced Diagnostic Logging**
+**CRITICAL FIX: Night Smart Charge Time Window Bug + Enhanced Diagnostic Logging** ⚠️ GIT TAG ISSUE - USE v1.4.3 INSTEAD
 
 **Problem Fixed**:
 Night Smart Charge failed to activate at scheduled time (01:00) due to incorrect datetime comparison logic in `TimeParsingService`. The system was comparing current time against **tomorrow's** scheduled time instead of today's, causing `Window Active: False` even when the time had arrived.
