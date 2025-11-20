@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.4.3"
+VERSION = "1.4.4"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -163,6 +163,10 @@ DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD = 20  # kWh
 DEFAULT_NIGHT_CHARGE_AMPERAGE = 16  # amps
 DEFAULT_CAR_READY_TIME = "08:00:00"  # Default deadline when car must be ready
 NIGHT_CHARGE_COOLDOWN_SECONDS = 3600  # 1 hour - prevent re-evaluation after completion
+
+# ========== NIGHT SMART CHARGE WINDOW ACTIVATION SETTINGS (v1.4.4) ==========
+ACTIVATION_GRACE_BEFORE_MINUTES = 2  # Activate 2 minutes before scheduled time (handles clock drift)
+ACTIVATION_GRACE_AFTER_MINUTES = 5   # Continue accepting activation up to 5 minutes after scheduled time
 
 # ========== DEFAULT VALUES - CAR READY FLAGS ==========
 DEFAULT_CAR_READY_WEEKDAY = True  # Monday-Friday (car needed for work)

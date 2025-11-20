@@ -105,6 +105,12 @@ class NightSmartCharge:
         self._grid_import_trigger_time = None  # When grid import first exceeded threshold
         self._recovery_tracker = StabilityTracker()  # Track stability for recovery (60s)
 
+        # v1.4.4: Robust window check state machine
+        self._session_state = "ready"  # ready|active|completed_today|cooldown
+        self._activation_date = None  # Date when last activated (prevents re-activation same day)
+        self._last_completion_date = None  # Date when last completed
+        self._last_diagnostic_log_time = None  # For throttling diagnostic logs
+
     async def async_setup(self) -> None:
         """Set up Night Smart Charge automation."""
         self.logger.separator()
@@ -305,14 +311,14 @@ class NightSmartCharge:
 
     async def _is_in_active_window(self, now: datetime) -> bool:
         """
-        Check if current time is between scheduled time and sunrise.
+        ROBUST window check with hybrid approach (v1.4.4).
 
-        Uses TimeParsingService for time parsing and AstralTimeService for sunrise.
-
-        Logic:
-        - Scheduled time is typically after midnight (e.g., 01:00)
-        - Active if: now >= scheduled_time AND now < sunrise
-        - Handles sunrise calculation for today vs tomorrow
+        Features:
+        - Grace period (±2-5 minutes) for clock drift tolerance
+        - Hysteresis (stay active once activated)
+        - Date-based completion tracking (prevents re-activation same day)
+        - State machine (ready|active|completed_today|cooldown)
+        - Comprehensive diagnostic logging
 
         Args:
             now: Current datetime
@@ -320,7 +326,35 @@ class NightSmartCharge:
         Returns:
             True if in active window
         """
-        # Get scheduled time configuration
+        from .const import ACTIVATION_GRACE_BEFORE_MINUTES, ACTIVATION_GRACE_AFTER_MINUTES
+
+        # === STEP 1: State-based protection ===
+        if self._session_state == "completed_today":
+            if self._last_completion_date != now.date():
+                # New day - reset to ready
+                self._session_state = "ready"
+                self.logger.info("🔄 New day detected - reset to ready state")
+            else:
+                self.logger.debug("Already completed today - inactive")
+                return False
+
+        if self._session_state == "cooldown":
+            if self._cooldown_expired(now):
+                self._session_state = "ready"
+                self.logger.info("✅ Cooldown expired - ready for activation")
+            else:
+                elapsed = (now - self._last_completion_time).total_seconds()
+                from .const import NIGHT_CHARGE_COOLDOWN_SECONDS
+                remaining = NIGHT_CHARGE_COOLDOWN_SECONDS - elapsed
+                self.logger.debug(f"Cooldown active - {remaining:.0f}s remaining")
+                return False
+
+        # === STEP 2: Hysteresis - stay active once activated ===
+        if self._session_state == "active":
+            self.logger.debug("Already active - maintaining state (hysteresis)")
+            return True
+
+        # === STEP 3: Time range validation with grace period ===
         if not self._night_charge_time_entity:
             self.logger.warning("Night charge time entity not configured")
             return False
@@ -331,44 +365,63 @@ class NightSmartCharge:
             self.logger.warning("Time entity unavailable for window check")
             return False
 
-        # Parse time string using TimeParsingService
+        # Get scheduled time for TODAY (not next occurrence)
         try:
-            scheduled_time = TimeParsingService.time_string_to_next_occurrence(time_state, now)
+            scheduled_time = self._get_scheduled_time_for_today(now, time_state)
         except (ValueError, TypeError, IndexError) as e:
             self.logger.error(f"Invalid time configuration: {time_state} - {e}")
             return False
 
-        # Get next sunrise using AstralTimeService
+        # Get next sunrise
         sunrise = self._astral_service.get_next_sunrise_after(now)
 
         if not sunrise:
             self.logger.warning("Could not determine sunrise time")
             return False
 
-        # Determine sunrise label for logging
-        sunrise_label = "today" if sunrise.date() == now.date() else "tomorrow"
+        # Grace window: activate 2 min before → 5 min after scheduled time
+        grace_start = scheduled_time - timedelta(minutes=ACTIVATION_GRACE_BEFORE_MINUTES)
+        grace_end = scheduled_time + timedelta(minutes=ACTIVATION_GRACE_AFTER_MINUTES)
 
-        # Check if we're in the active window
-        is_active = now >= scheduled_time and now < sunrise
+        # Check activation conditions
+        in_grace = grace_start <= now < grace_end
+        past_scheduled = now >= scheduled_time
+        before_sunrise = now < sunrise
 
-        # Log detailed window check (throttled to once per minute)
-        if self._last_window_check_time is None or (now - self._last_window_check_time).total_seconds() >= 60:
-            self.logger.info(f"{self.logger.CALENDAR} Window check:")
+        is_active = (in_grace or (past_scheduled and before_sunrise))
+
+        # === STEP 4: Comprehensive diagnostic logging (throttled) ===
+        if self._last_diagnostic_log_time is None or (now - self._last_diagnostic_log_time).total_seconds() >= 60:
+            self.logger.separator()
+            self.logger.info(f"{self.logger.CALENDAR} 🔍 WINDOW CHECK DIAGNOSTIC")
             self.logger.info(f"   Current: {now.strftime('%Y-%m-%d %H:%M:%S')}")
-            self.logger.info(f"   Scheduled: {scheduled_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            self.logger.info(f"   Sunrise ({sunrise_label}): {sunrise.strftime('%Y-%m-%d %H:%M:%S')}")
-            self.logger.info(f"   Now >= Scheduled: {now >= scheduled_time}")
-            self.logger.info(f"   Now < Sunrise: {now < sunrise}")
-            self.logger.info(f"   Window Active: {is_active}")
-            self._last_window_check_time = now
+            self.logger.info(f"   Scheduled (today): {scheduled_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            self.logger.info(f"   Grace window: [{grace_start.strftime('%H:%M')} - {grace_end.strftime('%H:%M')}]")
+            self.logger.info(f"   Sunrise: {sunrise.strftime('%Y-%m-%d %H:%M:%S')}")
+            self.logger.info(f"   Session state: {self._session_state}")
+            self.logger.info(f"   Last activation date: {self._activation_date}")
+            self.logger.info(f"   Last completion date: {self._last_completion_date}")
+            self.logger.info("   ─────────────────────")
+            self.logger.info(f"   In grace window: {in_grace}")
+            self.logger.info(f"   Past scheduled: {past_scheduled}")
+            self.logger.info(f"   Before sunrise: {before_sunrise}")
+            self.logger.info(f"   Window ACTIVE: {is_active}")
+            self.logger.separator()
+            self._last_diagnostic_log_time = now
         else:
-            # For frequent checks (monitoring loops), log at debug level
+            # Frequent checks - debug level
             self.logger.debug(
                 f"Window check: now={now.strftime('%H:%M')}, "
                 f"scheduled={scheduled_time.strftime('%H:%M')}, "
-                f"sunrise={sunrise.strftime('%H:%M')}, "
-                f"active={is_active}"
+                f"grace=[{grace_start.strftime('%H:%M')}-{grace_end.strftime('%H:%M')}], "
+                f"state={self._session_state}, active={is_active}"
             )
+
+        # === STEP 5: State transition ===
+        if is_active and self._session_state == "ready":
+            self.logger.info(f"{self.logger.SUCCESS} Activation window detected - marking as ACTIVE")
+            self._session_state = "active"
+            self._activation_date = now.date()
 
         return is_active
 
@@ -992,6 +1045,7 @@ class NightSmartCharge:
 
         # Track completion time for cooldown
         self._last_completion_time = dt_util.now()
+        self._last_completion_date = self._last_completion_time.date()  # v1.4.4: Date tracking
         self.logger.info(f"Completion time recorded: {self._last_completion_time.strftime('%H:%M:%S')}")
 
         # Reset state flags
@@ -999,9 +1053,15 @@ class NightSmartCharge:
         self._night_charge_active = False
         self._active_mode = NIGHT_CHARGE_MODE_IDLE
 
+        # v1.4.4: Update state machine
+        self._session_state = "completed_today"
+        self.logger.info(f"Session state: {self._session_state}")
+
         self.logger.success("Session completed")
         self.logger.info(f"   Previous mode: {previous_mode}")
+        self.logger.info(f"   Completion date: {self._last_completion_date}")
         self.logger.info("   1-hour cooldown period active")
+        self.logger.info("   Will not re-activate today")
         self.logger.info("   Smart Blocker will resume normal operation")
         self.logger.separator()
 
@@ -1082,6 +1142,44 @@ class NightSmartCharge:
             self._grid_import_delay_entity,
             30
         )
+
+    def _get_scheduled_time_for_today(self, now: datetime, time_str: str) -> datetime:
+        """
+        Get scheduled time for TODAY (not next occurrence).
+
+        This is the correct function for window checks, which need to know
+        if we're past the scheduled time TODAY, not when the next occurrence will be.
+
+        Args:
+            now: Current datetime
+            time_str: Time string in "HH:MM:SS" format
+
+        Returns:
+            Datetime for TODAY at the scheduled time
+
+        Example:
+            At 01:00:33 with scheduled time "01:00:00":
+            - Returns: 2025-11-20 01:00:00 (TODAY)
+            - NOT: 2025-11-21 01:00:00 (tomorrow)
+        """
+        return TimeParsingService.time_string_to_datetime(time_str, now)
+
+    def _cooldown_expired(self, now: datetime) -> bool:
+        """
+        Check if cooldown period has expired (v1.4.4).
+
+        Args:
+            now: Current datetime
+
+        Returns:
+            True if cooldown expired or not active
+        """
+        if not self._last_completion_time:
+            return True
+
+        from .const import NIGHT_CHARGE_COOLDOWN_SECONDS
+        elapsed = (now - self._last_completion_time).total_seconds()
+        return elapsed >= NIGHT_CHARGE_COOLDOWN_SECONDS
 
     def _get_car_ready_for_today(self) -> bool:
         """
