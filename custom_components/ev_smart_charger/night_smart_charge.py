@@ -441,7 +441,7 @@ class NightSmartCharge:
 
         # Configuration values
         self.logger.info("⚙️ Configuration:")
-        self.logger.info(f"   Night Charge Enabled: {entity_helper.is_entity_on(self.hass, self._enabled_entity) if self._enabled_entity else 'N/A'}")
+        self.logger.info(f"   Night Charge Enabled: {entity_helper.is_entity_on(self.hass, self._night_charge_enabled_entity) if self._night_charge_enabled_entity else 'N/A'}")
         self.logger.info(f"   Scheduled Time: {self._get_night_charge_time()}")
         self.logger.info(f"   Night Charge Amperage: {self._get_night_charge_amperage()}A")
         self.logger.info(f"   Solar Forecast Threshold: {self._get_solar_threshold()} kWh")
