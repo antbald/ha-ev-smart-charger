@@ -1,4 +1,5 @@
 """Astral Time Service for centralized sunset/sunrise calculations."""
+from __future__ import annotations
 from datetime import datetime, timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.sun import get_astral_event_date

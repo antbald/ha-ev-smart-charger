@@ -1,6 +1,7 @@
-"""Priority Balancer component for EV Smart Charger integration."""
+from __future__ import annotations
 from datetime import datetime
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_SOC_CAR,
@@ -143,7 +144,7 @@ class PriorityBalancer:
         self.logger.separator()
 
         # Get today
-        today = datetime.now().strftime("%A").lower()
+        today = dt_util.now().strftime("%A").lower()
         self.logger.sensor_value(f"{self.logger.CALENDAR} Today", today.capitalize())
 
         # Get current SOCs
@@ -243,7 +244,7 @@ class PriorityBalancer:
         Returns:
             Target SOC for today
         """
-        today = datetime.now().strftime("%A").lower()
+        today = dt_util.now().strftime("%A").lower()
         entity_id = entities_dict.get(today)
 
         # Entity not configured - use weekend/weekday default
@@ -363,7 +364,7 @@ class PriorityBalancer:
                     "current_home_soc": round(home_soc, 1),
                     "target_home_soc": home_target,
                     "reason": reason,
-                    "last_update": datetime.now().isoformat(),
+                    "last_update": dt_util.now().isoformat(),
                 },
             )
 

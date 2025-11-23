@@ -1,4 +1,5 @@
 """Entity helper utilities for EVSC integration."""
+from __future__ import annotations
 from homeassistant.core import HomeAssistant
 
 
@@ -58,3 +59,20 @@ def get_helper_entity(hass: HomeAssistant, suffix: str, component_name: str) -> 
     if not entity_id:
         raise ValueError(f"[{component_name}] Helper entity not found: {suffix}")
     return entity_id
+
+
+def is_entity_on(hass: HomeAssistant, entity_id: str) -> bool:
+    """
+    Check if entity is on.
+
+    Args:
+        hass: Home Assistant instance
+        entity_id: Entity ID to check
+
+    Returns:
+        True if state is 'on', False otherwise
+    """
+    if not entity_id:
+        return False
+    state = hass.states.get(entity_id)
+    return state.state == "on" if state else False

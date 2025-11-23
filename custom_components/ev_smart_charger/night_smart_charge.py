@@ -7,12 +7,13 @@ from homeassistant.helpers.event import async_track_time_interval, async_track_s
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_CAR_OWNER,
     CONF_EV_CHARGER_STATUS,
     CONF_SOC_HOME,
     CONF_PV_FORECAST,
     CONF_GRID_IMPORT,
     CONF_NOTIFY_SERVICES,
-    CONF_CAR_OWNER,
+    CONF_EV_CHARGER_CURRENT,
     CHARGER_STATUS_FREE,
     NIGHT_CHARGE_MODE_BATTERY,
     NIGHT_CHARGE_MODE_GRID,
@@ -75,6 +76,7 @@ class NightSmartCharge:
 
         # User-configured entities
         self._charger_status = config.get(CONF_EV_CHARGER_STATUS)
+        self._charger_current = config.get(CONF_EV_CHARGER_CURRENT)
         self._soc_home = config.get(CONF_SOC_HOME)
         self._pv_forecast_entity = config.get(CONF_PV_FORECAST)
         self._grid_import = config.get(CONF_GRID_IMPORT)  # v1.3.23: Grid import sensor
@@ -373,7 +375,7 @@ class NightSmartCharge:
             return False
 
         # Get next sunrise
-        sunrise = self._astral_service.get_next_sunrise_after(now)
+        sunrise = self._astral_service.get_next_sunrise_after(scheduled_time)
 
         if not sunrise:
             self.logger.warning("Could not determine sunrise time")
@@ -440,13 +442,28 @@ class NightSmartCharge:
         self.logger.separator()
 
         # Configuration values
-        self.logger.info("⚙️ Configuration:")
-        self.logger.info(f"   Night Charge Enabled: {entity_helper.is_entity_on(self.hass, self._night_charge_enabled_entity) if self._night_charge_enabled_entity else 'N/A'}")
-        self.logger.info(f"   Scheduled Time: {self._get_night_charge_time()}")
-        self.logger.info(f"   Night Charge Amperage: {self._get_night_charge_amperage()}A")
-        self.logger.info(f"   Solar Forecast Threshold: {self._get_solar_threshold()} kWh")
-        self.logger.info(f"   Car Ready Today ({today.capitalize()}): {self._get_car_ready_for_today()}")
-        self.logger.info(f"   Car Ready Deadline: {self._get_car_ready_time()}")
+        try:
+            self.logger.info("⚙️ Configuration:")
+            
+            # Safe retrieval of values
+            is_enabled = state_helper.get_bool(self.hass, self._night_charge_enabled_entity) if self._night_charge_enabled_entity else False
+            scheduled_time = self._get_night_charge_time()
+            amperage = self._get_night_charge_amperage()
+            solar_threshold = self._get_solar_threshold()
+            
+            # Get car ready status (this method logs internally too)
+            car_ready_today = self._get_car_ready_for_today()
+            car_ready_deadline = self._get_car_ready_time()
+
+            self.logger.info(f"   Night Charge Enabled: {is_enabled}")
+            self.logger.info(f"   Scheduled Time: {scheduled_time}")
+            self.logger.info(f"   Night Charge Amperage: {amperage}A")
+            self.logger.info(f"   Solar Forecast Threshold: {solar_threshold} kWh")
+            self.logger.info(f"   Car Ready Today ({today.capitalize()}): {car_ready_today}")
+            self.logger.info(f"   Car Ready Deadline: {car_ready_deadline}")
+        except Exception as e:
+            self.logger.error(f"Error logging configuration: {e}")
+            # Continue execution even if logging fails
 
         # Current readings
         self.logger.info("📈 Current Readings:")

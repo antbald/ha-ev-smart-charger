@@ -1,0 +1,51 @@
+/Users/antoniobaldassarre/ha-ev-smart-charger/.venv/lib/python3.9/site-packages/homeassistant/requirements.py:10: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
+/Users/antoniobaldassarre/ha-ev-smart-charger/.venv/lib/python3.9/site-packages/coverage/inorout.py:520: CoverageWarning: Module custom_components.ev_smart_charger was never imported. (module-not-imported)
+  self.warn(f"Module {pkg} was never imported.", slug="module-not-imported")
+/Users/antoniobaldassarre/ha-ev-smart-charger/.venv/lib/python3.9/site-packages/coverage/control.py:825: CoverageWarning: No data was collected. (no-data-collected)
+  self._warn("No data was collected.", slug="no-data-collected")
+/Users/antoniobaldassarre/ha-ev-smart-charger/.venv/lib/python3.9/site-packages/pytest_cov/plugin.py:294: CovReportWarning: Failed to generate report: No data to report.
+
+  self.cov_controller.finish()
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-7.2.0, pluggy-1.6.0
+rootdir: /Users/antoniobaldassarre/ha-ev-smart-charger, configfile: pytest.ini
+plugins: asyncio-0.20.2, xdist-2.5.0, homeassistant-custom-component-0.12.49, anyio-4.11.0, sugar-0.9.5, unordered-0.5.2, timeout-2.1.0, requests-mock-1.10.0, respx-0.20.1, pytest_freezer-0.4.6, socket-0.5.1, forked-1.6.0, test-groups-1.0.3, cov-3.0.0, aiohttp-1.0.4
+asyncio: mode=auto
+collected 0 items / 1 error
+WARNING: Failed to generate report: No data to report.
+
+
+==================================== ERRORS ====================================
+______________ ERROR collecting tests/test_night_smart_charge.py _______________
+ImportError while importing test module '/Users/antoniobaldassarre/ha-ev-smart-charger/tests/test_night_smart_charge.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/importlib/__init__.py:127: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests/test_night_smart_charge.py:5: in <module>
+    from custom_components.ev_smart_charger.night_smart_charge import NightSmartCharge
+E   ModuleNotFoundError: No module named 'custom_components.ev_smart_charger'
+=============================== warnings summary ===============================
+.venv/lib/python3.9/site-packages/pytest_cov/plugin.py:256
+  /Users/antoniobaldassarre/ha-ev-smart-charger/.venv/lib/python3.9/site-packages/pytest_cov/plugin.py:256: PytestDeprecationWarning: The hookimpl CovPlugin.pytest_configure_node uses old-style configuration options (marks or attributes).
+  Please use the pytest.hookimpl(optionalhook=True) decorator instead
+   to configure the hooks.
+   See https://docs.pytest.org/en/latest/deprecations.html#configuring-hook-specs-impls-using-markers
+    def pytest_configure_node(self, node):
+
+.venv/lib/python3.9/site-packages/pytest_cov/plugin.py:265
+  /Users/antoniobaldassarre/ha-ev-smart-charger/.venv/lib/python3.9/site-packages/pytest_cov/plugin.py:265: PytestDeprecationWarning: The hookimpl CovPlugin.pytest_testnodedown uses old-style configuration options (marks or attributes).
+  Please use the pytest.hookimpl(optionalhook=True) decorator instead
+   to configure the hooks.
+   See https://docs.pytest.org/en/latest/deprecations.html#configuring-hook-specs-impls-using-markers
+    def pytest_testnodedown(self, node, error):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------- coverage: platform darwin, python 3.9.6-final-0 -----------
+
+=========================== short test summary info ============================
+ERROR tests/test_night_smart_charge.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+========================= 2 warnings, 1 error in 0.05s =========================

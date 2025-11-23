@@ -1,4 +1,4 @@
-"""Automation management for EV Smart Charger."""
+"""Automations for EV Smart Charger."""
 from __future__ import annotations
 from datetime import datetime
 

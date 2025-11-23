@@ -1,4 +1,4 @@
-"""Automation Coordinator to prevent conflicts between automations."""
+"""Automation Coordinator for EV Smart Charger."""
 from __future__ import annotations
 import logging
 from homeassistant.core import HomeAssistant

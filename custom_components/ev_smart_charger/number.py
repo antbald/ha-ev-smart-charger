@@ -1,4 +1,4 @@
-"""Number platform for EV Smart Charger helper entities."""
+"""Number entities for EV Smart Charger."""
 from __future__ import annotations
 import logging
 

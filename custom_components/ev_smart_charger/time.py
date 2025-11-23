@@ -1,4 +1,4 @@
-"""Time platform for EV Smart Charger."""
+"""Time entities for EV Smart Charger."""
 from __future__ import annotations
 
 import logging

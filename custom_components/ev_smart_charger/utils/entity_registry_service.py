@@ -1,4 +1,5 @@
 """Entity Registry Service for centralized entity discovery."""
+from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 

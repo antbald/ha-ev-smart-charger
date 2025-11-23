@@ -1,4 +1,4 @@
-"""Solar Surplus Charging Profile automation."""
+"""Solar Surplus management for EV Smart Charger."""
 from __future__ import annotations
 
 import time
