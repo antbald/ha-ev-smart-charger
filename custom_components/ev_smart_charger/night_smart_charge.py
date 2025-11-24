@@ -657,12 +657,13 @@ class NightSmartCharge:
 
         # Start charger with exception handling and state cleanup (v1.3.21)
         try:
-            # Start charger with specified amperage
-            await self.charger_controller.start_charger(amperage, "Night charge - Battery mode")
-
-            # Set internal state
+            # Set internal state BEFORE starting charger to prevent race condition with Smart Blocker
+            # The Smart Blocker listens to the switch turn_on event, so we must be "active" before that happens.
             self._night_charge_active = True
             self._active_mode = NIGHT_CHARGE_MODE_BATTERY
+
+            # Start charger with specified amperage
+            await self.charger_controller.start_charger(amperage, "Night charge - Battery mode")
 
             # Send mobile notification with safety logging (v1.3.20, v1.3.21 exception handling)
             try:
@@ -853,12 +854,13 @@ class NightSmartCharge:
 
         # Start charger with exception handling and state cleanup (v1.3.21)
         try:
-            # Start charger with specified amperage
-            await self.charger_controller.start_charger(amperage, "Night charge - Grid mode")
-
-            # Set internal state
+            # Set internal state BEFORE starting charger to prevent race condition with Smart Blocker
+            # The Smart Blocker listens to the switch turn_on event, so we must be "active" before that happens.
             self._night_charge_active = True
             self._active_mode = NIGHT_CHARGE_MODE_GRID
+
+            # Start charger with specified amperage
+            await self.charger_controller.start_charger(amperage, "Night charge - Grid mode")
 
             # Send mobile notification with safety logging (v1.3.20, v1.3.21 exception handling)
             try:
