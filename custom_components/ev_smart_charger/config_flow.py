@@ -195,7 +195,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 state = self.hass.states.get(energy_target)
                 if state is None:
                     errors["energy_forecast_target"] = "entity_not_found"
-                elif state.domain != "input_number":
+                elif state.domain not in ("input_number", "number"):
                     errors["energy_forecast_target"] = "invalid_domain"
 
             if not errors:
@@ -221,7 +221,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Range(min=MIN_BATTERY_CAPACITY, max=MAX_BATTERY_CAPACITY)
             ),
             vol.Optional(CONF_ENERGY_FORECAST_TARGET): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="input_number")
+                selector.EntitySelectorConfig(domain=["input_number", "number"])
             ),
         })
 
@@ -433,7 +433,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
                 state = self.hass.states.get(energy_target)
                 if state is None:
                     errors["energy_forecast_target"] = "entity_not_found"
-                elif state.domain != "input_number":
+                elif state.domain not in ("input_number", "number"):
                     errors["energy_forecast_target"] = "invalid_domain"
 
             if not errors:
@@ -468,7 +468,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
                 CONF_ENERGY_FORECAST_TARGET,
                 default=energy_target
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="input_number")
+                selector.EntitySelectorConfig(domain=["input_number", "number"])
             ),
         })
 
