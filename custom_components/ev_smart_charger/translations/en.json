@@ -62,10 +62,25 @@
         "data_description": {
           "notify_services": "**Available:** All Home Assistant Mobile App devices\n**Examples:** mobile_app_johns_iphone, mobile_app_pixel_8\n\n✅ **Pro Tip:** Select all household devices for comprehensive monitoring"
         }
+      },
+      "external_connectors": {
+        "title": "🔗 External Connectors - Step {step}/{total_steps}",
+        "description": "**📊 Energy Forecast Calculation**\n\n⚡ **Energy Forecast** automatically calculates the energy required for night charging:\n\n**How it works:**\n• 📐 Formula: `Energy (kWh) = (Target SOC % - Current SOC %) × Battery Capacity / 100`\n• 💾 Saves the value to an `input_number` sensor of your choice\n• ⏱️ Calculated at the start of each night charge session (BATTERY or GRID mode)\n• 🔒 Fixed value (not updated during charging)\n\n**Example:**\n• Current SOC: 45% | Target: 80% | Capacity: 75 kWh\n• Calculated Energy: **(80 - 45) × 75 / 100 = 26.25 kWh**\n\n💡 **Useful for:**\n• Energy planning\n• Integration with energy management systems\n• Tracking charging efficiency\n\n⚠️ **Optional:** Leave target sensor empty to skip this feature\n\n---",
+        "data": {
+          "battery_capacity": "🔋 EV Battery Capacity (kWh)",
+          "energy_forecast_target": "📊 Forecast Target Sensor (Optional)"
+        },
+        "data_description": {
+          "battery_capacity": "**Total capacity of your EV battery in kWh**\n**Range:** 10-200 kWh\n**Examples:**\n  • Tesla Model 3 LR: 75 kWh\n  • VW ID.3: 58 kWh\n  • Nissan Leaf: 40 kWh\n\n💡 Used to calculate the energy needed to reach daily SOC target.",
+          "energy_forecast_target": "**`input_number` sensor where to save calculated energy**\n**Domain:** input_number\n**Unit:** kWh\n\n💡 **How to create:**\n  1. Settings → Devices & Services → Helpers\n  2. Create Helper → Number\n  3. Name: \"Night Charge Energy Forecast\"\n  4. Min: 0 | Max: 200 | Step: 0.1 | Unit: kWh\n\n💡 **Leave empty** to disable energy forecast feature."
+        }
       }
     },
     "error": {
-      "required": "This field is required"
+      "required": "This field is required",
+      "invalid_battery_capacity": "Battery capacity must be between 10 and 200 kWh",
+      "entity_not_found": "Entity not found in system",
+      "invalid_domain": "Entity must be of type input_number"
     }
   },
   "options": {
@@ -121,10 +136,25 @@
         "data_description": {
           "notify_services": "**Available:** All Home Assistant Mobile App devices\n**Note:** Changes apply immediately to new notifications"
         }
+      },
+      "external_connectors": {
+        "title": "🔗 Update External Connectors",
+        "description": "**📊 Modify Energy Forecast Configuration**\n\nUpdate the EV battery capacity and target sensor for energy forecast calculation.\n\n⚠️ **Optional:** Leave target sensor empty to disable the feature\n\n---",
+        "data": {
+          "battery_capacity": "🔋 EV Battery Capacity (kWh)",
+          "energy_forecast_target": "📊 Forecast Target Sensor (Optional)"
+        },
+        "data_description": {
+          "battery_capacity": "**Range:** 10-200 kWh | **Used to calculate required energy**",
+          "energy_forecast_target": "**Domain:** input_number | **Unit:** kWh | **Leave empty to disable**"
+        }
       }
     },
     "error": {
-      "required": "This field is required"
+      "required": "This field is required",
+      "invalid_battery_capacity": "Battery capacity must be between 10 and 200 kWh",
+      "entity_not_found": "Entity not found in system",
+      "invalid_domain": "Entity must be of type input_number"
     }
   }
 }

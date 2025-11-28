@@ -14,6 +14,8 @@ from .const import (
     CONF_GRID_IMPORT,
     CONF_NOTIFY_SERVICES,
     CONF_EV_CHARGER_CURRENT,
+    CONF_BATTERY_CAPACITY,
+    CONF_ENERGY_FORECAST_TARGET,
     CHARGER_STATUS_FREE,
     NIGHT_CHARGE_MODE_BATTERY,
     NIGHT_CHARGE_MODE_GRID,
@@ -662,6 +664,9 @@ class NightSmartCharge:
             self._night_charge_active = True
             self._active_mode = NIGHT_CHARGE_MODE_BATTERY
 
+            # Calcola e salva energy forecast (non bloccante) (v1.4.8+)
+            await self._calculate_and_save_energy_forecast(NIGHT_CHARGE_MODE_BATTERY)
+
             # Start charger with specified amperage
             await self.charger_controller.start_charger(amperage, "Night charge - Battery mode")
 
@@ -858,6 +863,9 @@ class NightSmartCharge:
             # The Smart Blocker listens to the switch turn_on event, so we must be "active" before that happens.
             self._night_charge_active = True
             self._active_mode = NIGHT_CHARGE_MODE_GRID
+
+            # Calcola e salva energy forecast (non bloccante) (v1.4.8+)
+            await self._calculate_and_save_energy_forecast(NIGHT_CHARGE_MODE_GRID)
 
             # Start charger with specified amperage
             await self.charger_controller.start_charger(amperage, "Night charge - Grid mode")
@@ -1291,6 +1299,99 @@ class NightSmartCharge:
                 return True, "Sunrise reached (car not needed urgently)"
 
             return False, ""
+
+    async def _calculate_and_save_energy_forecast(self, mode: str) -> None:
+        """
+        Calcola la previsione energetica e salva nel sensore target (v1.4.8+).
+
+        Formula: Energia (kWh) = (Target SOC % - Current SOC %) × Capacità Batteria (kWh) / 100
+
+        Args:
+            mode: Modalità di ricarica (BATTERY o GRID) per logging
+        """
+        # Controlla se la funzionalità è configurata
+        battery_capacity = self.config.get(CONF_BATTERY_CAPACITY)
+        energy_target_entity = self.config.get(CONF_ENERGY_FORECAST_TARGET)
+
+        if not battery_capacity or not energy_target_entity:
+            self.logger.debug(
+                "Energy forecast non configurato (battery_capacity o sensore target mancante), skip"
+            )
+            return
+
+        try:
+            # Ottieni SOC corrente e target
+            current_soc = await self.priority_balancer.get_ev_current_soc()
+            target_soc = self.priority_balancer.get_ev_target_for_today()
+
+            if current_soc is None:
+                self.logger.warning(
+                    "⚠️ Impossibile calcolare energy forecast: SOC corrente EV non disponibile"
+                )
+                return
+
+            if target_soc is None:
+                self.logger.warning(
+                    "⚠️ Impossibile calcolare energy forecast: Target SOC EV non disponibile"
+                )
+                return
+
+            # Calcola energia necessaria
+            soc_delta = target_soc - current_soc
+
+            # Gestisci edge cases
+            if soc_delta <= 0:
+                self.logger.info(
+                    f"📊 Energy forecast: EV già al target o sopra "
+                    f"(corrente={current_soc}%, target={target_soc}%), imposto 0 kWh"
+                )
+                energy_required = 0.0
+            else:
+                energy_required = (soc_delta * battery_capacity) / 100.0
+
+                # Sanity check: energia non deve superare capacità
+                if energy_required > battery_capacity:
+                    self.logger.warning(
+                        f"⚠️ Energia calcolata ({energy_required:.2f} kWh) supera "
+                        f"capacità batteria ({battery_capacity} kWh), limito alla capacità"
+                    )
+                    energy_required = battery_capacity
+
+            # Valida che il sensore target esista
+            target_state = self.hass.states.get(energy_target_entity)
+            if target_state is None:
+                self.logger.warning(
+                    f"⚠️ Sensore target energy forecast ({energy_target_entity}) "
+                    f"non trovato, impossibile salvare previsione"
+                )
+                return
+
+            # Salva nel sensore target
+            self.hass.states.async_set(
+                energy_target_entity,
+                round(energy_required, 2),  # Arrotonda a 2 decimali
+                {
+                    "unit_of_measurement": "kWh",
+                    "friendly_name": "Night Charge Energy Forecast",
+                    "calculation_time": dt_util.now().isoformat(),
+                    "current_soc": current_soc,
+                    "target_soc": target_soc,
+                    "battery_capacity": battery_capacity,
+                    "mode": mode,
+                }
+            )
+
+            # Log successo
+            self.logger.info(
+                f"📊 Energy forecast calcolato e salvato: {energy_required:.2f} kWh "
+                f"(corrente={current_soc}%, target={target_soc}%, capacità={battery_capacity} kWh)"
+            )
+
+        except Exception as ex:
+            # Errore non critico, log warning ma non bloccare la ricarica
+            self.logger.warning(
+                f"⚠️ Errore nel calcolo energy forecast: {ex}. La ricarica procederà normalmente."
+            )
 
     def _log_configuration(self) -> None:
         """Log current configuration."""

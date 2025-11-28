@@ -19,6 +19,11 @@ from .const import (
     CONF_PV_FORECAST,
     CONF_NOTIFY_SERVICES,
     CONF_CAR_OWNER,
+    CONF_BATTERY_CAPACITY,
+    CONF_ENERGY_FORECAST_TARGET,
+    DEFAULT_BATTERY_CAPACITY,
+    MIN_BATTERY_CAPACITY,
+    MAX_BATTERY_CAPACITY,
 )
 
 class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -42,7 +47,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "1",
-                "total_steps": "5"
+                "total_steps": "6"
             }
         )
 
@@ -73,7 +78,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "2",
-                "total_steps": "5"
+                "total_steps": "6"
             }
         )
 
@@ -110,7 +115,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "3",
-                "total_steps": "5"
+                "total_steps": "6"
             }
         )
 
@@ -135,7 +140,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "4",
-                "total_steps": "5"
+                "total_steps": "6"
             }
         )
 
@@ -144,16 +149,9 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            # Merge all data and create entry
-            data = {
-                **self.init_info,
-                **self.charger_info,
-                **self.sensor_info,
-                **self.pv_forecast_info,
-                **user_input
-            }
-            title = self.init_info.get(CONF_NAME, DEFAULT_NAME)
-            return self.async_create_entry(title=title, data=data)
+            # Store notifications info and move to external connectors step
+            self.notifications_info = user_input
+            return await self.async_step_external_connectors()
 
         # Discover available mobile notify services
         notify_services = self._get_mobile_notify_services()
@@ -177,7 +175,63 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "step": "5",
-                "total_steps": "5"
+                "total_steps": "6"
+            }
+        )
+
+    async def async_step_external_connectors(self, user_input: dict[str, Any] | None = None):
+        """Handle external connectors configuration step (energy forecast)."""
+        errors = {}
+
+        if user_input is not None:
+            # Validazione capacità batteria
+            battery_capacity = user_input.get(CONF_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY)
+            if battery_capacity < MIN_BATTERY_CAPACITY or battery_capacity > MAX_BATTERY_CAPACITY:
+                errors["battery_capacity"] = "invalid_battery_capacity"
+
+            # Validazione sensore target (opzionale)
+            energy_target = user_input.get(CONF_ENERGY_FORECAST_TARGET)
+            if energy_target:
+                state = self.hass.states.get(energy_target)
+                if state is None:
+                    errors["energy_forecast_target"] = "entity_not_found"
+                elif state.domain != "input_number":
+                    errors["energy_forecast_target"] = "invalid_domain"
+
+            if not errors:
+                # Merge all data and create entry
+                data = {
+                    **self.init_info,
+                    **self.charger_info,
+                    **self.sensor_info,
+                    **self.pv_forecast_info,
+                    **self.notifications_info,
+                    **user_input
+                }
+                title = self.init_info.get(CONF_NAME, DEFAULT_NAME)
+                return self.async_create_entry(title=title, data=data)
+
+        # Schema con defaults
+        schema = vol.Schema({
+            vol.Required(
+                CONF_BATTERY_CAPACITY,
+                default=DEFAULT_BATTERY_CAPACITY
+            ): vol.All(
+                vol.Coerce(float),
+                vol.Range(min=MIN_BATTERY_CAPACITY, max=MAX_BATTERY_CAPACITY)
+            ),
+            vol.Optional(CONF_ENERGY_FORECAST_TARGET): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="input_number")
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="external_connectors",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "step": "6",
+                "total_steps": "6"
             }
         )
 
@@ -241,7 +295,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
             description_placeholders={
                 "step": "1",
-                "total_steps": "4"
+                "total_steps": "5"
             }
         )
 
@@ -293,7 +347,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
             description_placeholders={
                 "step": "2",
-                "total_steps": "4"
+                "total_steps": "5"
             }
         )
 
@@ -321,25 +375,16 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
             description_placeholders={
                 "step": "3",
-                "total_steps": "4"
+                "total_steps": "5"
             }
         )
 
     async def async_step_notifications(self, user_input: dict[str, Any] | None = None):
         """Manage mobile notification services options."""
         if user_input is not None:
-            # Merge all data and update entry
-            data = {
-                **self.config_entry.data,
-                **self.charger_info,
-                **self.sensor_info,
-                **self.pv_forecast_info,
-                **user_input
-            }
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data=data
-            )
-            return self.async_create_entry(title="", data={})
+            # Store notifications info and move to external connectors step
+            self.notifications_info = user_input
+            return await self.async_step_external_connectors()
 
         # Get current values
         current_data = self.config_entry.data
@@ -369,7 +414,71 @@ class EVSCOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
             description_placeholders={
                 "step": "4",
-                "total_steps": "4"
+                "total_steps": "5"
+            }
+        )
+
+    async def async_step_external_connectors(self, user_input: dict[str, Any] | None = None):
+        """Handle external connectors reconfiguration (energy forecast)."""
+        errors = {}
+
+        if user_input is not None:
+            # Stessa validazione del flow iniziale
+            battery_capacity = user_input.get(CONF_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY)
+            if battery_capacity < MIN_BATTERY_CAPACITY or battery_capacity > MAX_BATTERY_CAPACITY:
+                errors["battery_capacity"] = "invalid_battery_capacity"
+
+            energy_target = user_input.get(CONF_ENERGY_FORECAST_TARGET)
+            if energy_target:
+                state = self.hass.states.get(energy_target)
+                if state is None:
+                    errors["energy_forecast_target"] = "entity_not_found"
+                elif state.domain != "input_number":
+                    errors["energy_forecast_target"] = "invalid_domain"
+
+            if not errors:
+                # Merge all data and update entry
+                data = {
+                    **self.config_entry.data,
+                    **self.charger_info,
+                    **self.sensor_info,
+                    **self.pv_forecast_info,
+                    **self.notifications_info,
+                    **user_input
+                }
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=data
+                )
+                return self.async_create_entry(title="", data={})
+
+        # Valori correnti
+        current_data = self.config_entry.data
+        battery_capacity = current_data.get(CONF_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY)
+        energy_target = current_data.get(CONF_ENERGY_FORECAST_TARGET)
+
+        schema = vol.Schema({
+            vol.Required(
+                CONF_BATTERY_CAPACITY,
+                default=battery_capacity
+            ): vol.All(
+                vol.Coerce(float),
+                vol.Range(min=MIN_BATTERY_CAPACITY, max=MAX_BATTERY_CAPACITY)
+            ),
+            vol.Optional(
+                CONF_ENERGY_FORECAST_TARGET,
+                default=energy_target
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="input_number")
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="external_connectors",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "step": "5",
+                "total_steps": "5"
             }
         )
 

@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.4.7"
+VERSION = "1.4.8"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -62,6 +62,15 @@ CONF_PV_FORECAST = "pv_forecast"
 # Mobile Notifications
 CONF_NOTIFY_SERVICES = "notify_services"
 CONF_CAR_OWNER = "car_owner"  # Person entity for car owner (v1.3.19+)
+
+# Energy Forecast Configuration (v1.4.8+)
+CONF_BATTERY_CAPACITY = "battery_capacity"
+CONF_ENERGY_FORECAST_TARGET = "energy_forecast_target"
+
+# Energy Forecast Defaults
+DEFAULT_BATTERY_CAPACITY = 50.0  # kWh
+MIN_BATTERY_CAPACITY = 10.0
+MAX_BATTERY_CAPACITY = 200.0
 
 # ========== HELPER ENTITY SUFFIXES ==========
 

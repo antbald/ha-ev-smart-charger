@@ -64,10 +64,25 @@
           "notify_services": "All Home Assistant Mobile App devices available for notifications. Select one or more devices to receive alerts.",
           "car_owner": "Select the person entity for the car owner. Priority Balancer notifications will only be sent when this person is home. This prevents unnecessary alerts when away."
         }
+      },
+      "external_connectors": {
+        "title": "🔗 Connettori esterni - Step {step}/{total_steps}",
+        "description": "**📊 Calcolo Previsione Energetica**\n\n⚡ **Energy Forecast** calcola automaticamente l'energia necessaria per la ricarica notturna:\n\n**Come funziona:**\n• 📐 Formula: `Energia (kWh) = (Target SOC % - Current SOC %) × Capacità Batteria / 100`\n• 💾 Salva il valore in un sensore `input_number` a tua scelta\n• ⏱️ Calcolato all'avvio di ogni sessione notturna (BATTERY o GRID mode)\n• 🔒 Valore fisso (non aggiornato durante la carica)\n\n**Esempio:**\n• Current SOC: 45% | Target: 80% | Capacità: 75 kWh\n• Energia calcolata: **(80 - 45) × 75 / 100 = 26.25 kWh**\n\n💡 **Utile per:**\n• Pianificazione energetica\n• Integrazione con sistemi di energy management\n• Monitoraggio efficienza ricarica\n\n⚠️ **Opzionale:** Lascia vuoto il sensore target per saltare questa funzionalità\n\n---",
+        "data": {
+          "battery_capacity": "🔋 Capacità Batteria EV (kWh)",
+          "energy_forecast_target": "📊 Sensore Target Previsione (Opzionale)"
+        },
+        "data_description": {
+          "battery_capacity": "**Capacità totale della batteria del tuo veicolo elettrico in kWh**\n**Range:** 10-200 kWh\n**Esempi:**\n  • Tesla Model 3 LR: 75 kWh\n  • VW ID.3: 58 kWh\n  • Nissan Leaf: 40 kWh\n\n💡 Usato per calcolare l'energia necessaria per raggiungere il target SOC giornaliero.",
+          "energy_forecast_target": "**Sensore `input_number` dove salvare l'energia calcolata**\n**Domain:** input_number\n**Unità:** kWh\n\n💡 **Come crearlo:**\n  1. Settings → Devices & Services → Helpers\n  2. Create Helper → Number\n  3. Nome: \"Energia Ricarica Notturna\"\n  4. Min: 0 | Max: 200 | Step: 0.1 | Unit: kWh\n\n💡 **Lascia vuoto** per non usare la funzionalità di energy forecast."
+        }
       }
     },
     "error": {
-      "required": "This field is required"
+      "required": "This field is required",
+      "invalid_battery_capacity": "La capacità della batteria deve essere tra 10 e 200 kWh",
+      "entity_not_found": "Entità non trovata nel sistema",
+      "invalid_domain": "L'entità deve essere di tipo input_number"
     }
   },
   "options": {
@@ -125,10 +140,25 @@
           "notify_services": "**Available:** All Home Assistant Mobile App devices\n**Note:** Changes apply immediately to new notifications",
           "car_owner": "Select the person entity for the car owner. Priority Balancer notifications will only be sent when this person is home."
         }
+      },
+      "external_connectors": {
+        "title": "🔗 Aggiorna Connettori esterni",
+        "description": "**📊 Modifica Configurazione Energy Forecast**\n\nAggiorna la capacità della batteria EV e il sensore target per il calcolo della previsione energetica.\n\n⚠️ **Opzionale:** Lascia vuoto il sensore target per disabilitare la funzionalità\n\n---",
+        "data": {
+          "battery_capacity": "🔋 Capacità Batteria EV (kWh)",
+          "energy_forecast_target": "📊 Sensore Target Previsione (Opzionale)"
+        },
+        "data_description": {
+          "battery_capacity": "**Range:** 10-200 kWh | **Usato per calcolare l'energia necessaria**",
+          "energy_forecast_target": "**Domain:** input_number | **Unità:** kWh | **Lascia vuoto per disabilitare**"
+        }
       }
     },
     "error": {
-      "required": "This field is required"
+      "required": "This field is required",
+      "invalid_battery_capacity": "La capacità della batteria deve essere tra 10 e 200 kWh",
+      "entity_not_found": "Entità non trovata nel sistema",
+      "invalid_domain": "L'entità deve essere di tipo input_number"
     }
   }
 }
