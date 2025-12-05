@@ -79,6 +79,7 @@ class NightSmartCharge:
         # User-configured entities
         self._charger_status = config.get(CONF_EV_CHARGER_STATUS)
         self._charger_current = config.get(CONF_EV_CHARGER_CURRENT)
+        self._charger_switch = config.get(CONF_EV_CHARGER_SWITCH)  # v1.4.11: Fixed missing initialization
         self._soc_home = config.get(CONF_SOC_HOME)
         self._pv_forecast_entity = config.get(CONF_PV_FORECAST)
         self._grid_import = config.get(CONF_GRID_IMPORT)  # v1.3.23: Grid import sensor
@@ -433,248 +434,266 @@ class NightSmartCharge:
 
     async def _evaluate_and_charge(self) -> None:
         """Main decision logic for Night Smart Charge."""
-        # v1.4.2: Diagnostic snapshot at evaluation start
-        now = dt_util.now()
-        today = now.strftime("%A").lower()
-
-        self.logger.separator()
-        self.logger.info(f"{self.logger.DECISION} 📊 NIGHT SMART CHARGE - DIAGNOSTIC SNAPSHOT")
-        self.logger.info(f"   Timestamp: {now.strftime('%Y-%m-%d %H:%M:%S')}")
-        self.logger.info(f"   Day: {today.capitalize()}")
-        self.logger.separator()
-
-        # Configuration values
+        # v1.4.11: Comprehensive exception handling to prevent silent failures
         try:
-            self.logger.info("⚙️ Configuration:")
-            
-            # Safe retrieval of values
-            is_enabled = state_helper.get_bool(self.hass, self._night_charge_enabled_entity) if self._night_charge_enabled_entity else False
-            scheduled_time = self._get_night_charge_time()
-            amperage = self._get_night_charge_amperage()
-            solar_threshold = self._get_solar_threshold()
-            
-            # Get car ready status (this method logs internally too)
+            # v1.4.2: Diagnostic snapshot at evaluation start
+            now = dt_util.now()
+            today = now.strftime("%A").lower()
+
+            self.logger.separator()
+            self.logger.info(f"{self.logger.DECISION} 📊 NIGHT SMART CHARGE - DIAGNOSTIC SNAPSHOT")
+            self.logger.info(f"   Timestamp: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+            self.logger.info(f"   Day: {today.capitalize()}")
+            self.logger.separator()
+
+            # Configuration values
+            try:
+                self.logger.info("⚙️ Configuration:")
+
+                # Safe retrieval of values
+                is_enabled = state_helper.get_bool(self.hass, self._night_charge_enabled_entity) if self._night_charge_enabled_entity else False
+                scheduled_time = self._get_night_charge_time()
+                amperage = self._get_night_charge_amperage()
+                solar_threshold = self._get_solar_threshold()
+
+                # Get car ready status (this method logs internally too)
+                car_ready_today = self._get_car_ready_for_today()
+                car_ready_deadline = self._get_car_ready_time()
+
+                self.logger.info(f"   Night Charge Enabled: {is_enabled}")
+                self.logger.info(f"   Scheduled Time: {scheduled_time}")
+                self.logger.info(f"   Night Charge Amperage: {amperage}A")
+                self.logger.info(f"   Solar Forecast Threshold: {solar_threshold} kWh")
+                self.logger.info(f"   Car Ready Today ({today.capitalize()}): {car_ready_today}")
+                self.logger.info(f"   Car Ready Deadline: {car_ready_deadline}")
+            except Exception as e:
+                self.logger.error(f"Error logging configuration: {e}")
+                # Continue execution even if logging fails
+
+            # Current readings
+            self.logger.info("📈 Current Readings:")
+            ev_soc = await self.priority_balancer.get_ev_current_soc()
+            home_soc = await self.priority_balancer.get_home_current_soc()
+            ev_target = self.priority_balancer.get_ev_target_for_today()
+            home_target = self.priority_balancer.get_home_target_for_today()
+            pv_forecast = await self._get_pv_forecast()
+
+            self.logger.info(f"   EV SOC: {ev_soc}%")
+            self.logger.info(f"   EV Target (today): {ev_target}%")
+            self.logger.info(f"   Home Battery SOC: {home_soc}%")
+            self.logger.info(f"   Home Battery Target (today): {home_target}%")
+            self.logger.info(f"   Home Battery Min SOC: {self._get_home_battery_min_soc()}%")
+            self.logger.info(f"   PV Forecast (tomorrow): {pv_forecast} kWh")
+
+            # Charger status
+            charger_status = state_helper.get_state(self.hass, self._charger_status)
+            charger_amperage = state_helper.get_int(self.hass, self._charger_current, default=0)
+            self.logger.info(f"   Charger Status: {charger_status}")
+            self.logger.info(f"   Charger Current Amperage: {charger_amperage}A")
+
+            # Priority Balancer state
+            priority_enabled = self.priority_balancer.is_enabled()
+            priority_state = self.priority_balancer.get_current_priority() if priority_enabled else "N/A"
+            self.logger.info(f"   Priority Balancer Enabled: {priority_enabled}")
+            self.logger.info(f"   Priority State: {priority_state}")
+
+            # Active session state
+            self.logger.info(f"   Active Night Charge Session: {self.is_active()}")
+            self.logger.info(f"   Active Mode: {self._active_mode}")
+
+            self.logger.separator()
+
+            # v1.4.10: Enhanced pre-flight check with car_ready emergency override
             car_ready_today = self._get_car_ready_for_today()
-            car_ready_deadline = self._get_car_ready_time()
+            ev_target_entity = self.priority_balancer._ev_min_soc_entities.get(today)
 
-            self.logger.info(f"   Night Charge Enabled: {is_enabled}")
-            self.logger.info(f"   Scheduled Time: {scheduled_time}")
-            self.logger.info(f"   Night Charge Amperage: {amperage}A")
-            self.logger.info(f"   Solar Forecast Threshold: {solar_threshold} kWh")
-            self.logger.info(f"   Car Ready Today ({today.capitalize()}): {car_ready_today}")
-            self.logger.info(f"   Car Ready Deadline: {car_ready_deadline}")
-        except Exception as e:
-            self.logger.error(f"Error logging configuration: {e}")
-            # Continue execution even if logging fails
-
-        # Current readings
-        self.logger.info("📈 Current Readings:")
-        ev_soc = await self.priority_balancer.get_ev_current_soc()
-        home_soc = await self.priority_balancer.get_home_current_soc()
-        ev_target = self.priority_balancer.get_ev_target_for_today()
-        home_target = self.priority_balancer.get_home_target_for_today()
-        pv_forecast = await self._get_pv_forecast()
-
-        self.logger.info(f"   EV SOC: {ev_soc}%")
-        self.logger.info(f"   EV Target (today): {ev_target}%")
-        self.logger.info(f"   Home Battery SOC: {home_soc}%")
-        self.logger.info(f"   Home Battery Target (today): {home_target}%")
-        self.logger.info(f"   Home Battery Min SOC: {self._get_home_battery_min_soc()}%")
-        self.logger.info(f"   PV Forecast (tomorrow): {pv_forecast} kWh")
-
-        # Charger status
-        charger_status = state_helper.get_state(self.hass, self._charger_status)
-        charger_amperage = state_helper.get_int(self.hass, self._charger_current, default=0)
-        self.logger.info(f"   Charger Status: {charger_status}")
-        self.logger.info(f"   Charger Current Amperage: {charger_amperage}A")
-
-        # Priority Balancer state
-        priority_enabled = self.priority_balancer.is_enabled()
-        priority_state = self.priority_balancer.get_current_priority() if priority_enabled else "N/A"
-        self.logger.info(f"   Priority Balancer Enabled: {priority_enabled}")
-        self.logger.info(f"   Priority State: {priority_state}")
-
-        # Active session state
-        self.logger.info(f"   Active Night Charge Session: {self.is_active()}")
-        self.logger.info(f"   Active Mode: {self._active_mode}")
-
-        self.logger.separator()
-
-        # v1.4.10: Enhanced pre-flight check with car_ready emergency override
-        car_ready_today = self._get_car_ready_for_today()
-        ev_target_entity = self.priority_balancer._ev_min_soc_entities.get(today)
-
-        # EMERGENCY OVERRIDE: When car_ready=True, bypass validation and force charge
-        if car_ready_today:
-            self.logger.warning(
-                f"{self.logger.ALERT} car_ready=True detected - PRIORITY: Ensure car is charged"
-            )
-
-            # Only check ABSOLUTE essentials (control entities must exist)
-            if not self._charger_switch:
-                self.logger.error("❌ CRITICAL: Charger switch entity not configured - cannot charge")
-                return
-
-            if not self._charger_current:
-                self.logger.error("❌ CRITICAL: Charger amperage entity not configured - cannot charge")
-                return
-
-            # Check if control entities are available (not the sensors, the control entities)
-            switch_state = self.hass.states.get(self._charger_switch)
-            current_state = self.hass.states.get(self._charger_current)
-
-            if not switch_state:
-                self.logger.error(
-                    f"❌ CRITICAL: Charger switch entity unavailable: {self._charger_switch}"
+            # EMERGENCY OVERRIDE: When car_ready=True, bypass validation and force charge
+            if car_ready_today:
+                self.logger.warning(
+                    f"{self.logger.ALERT} car_ready=True detected - PRIORITY: Ensure car is charged"
                 )
-                return
-
-            if not current_state:
-                self.logger.error(
-                    f"❌ CRITICAL: Charger amperage entity unavailable: {self._charger_current}"
-                )
-                return
-
-            # Control entities OK - proceed with emergency charging
-            self.logger.success("✅ Essential control entities available")
-
-            # Check if monitoring sensors are available (informational only)
-            monitoring_sensors = {
-                "Charger Status": self._charger_status,
-                "EV SOC": self.priority_balancer._soc_car,
-                f"EV Target ({today.capitalize()})": ev_target_entity,
-            }
-
-            unavailable_monitoring = []
-            for name, entity_id in monitoring_sensors.items():
-                if entity_id:
-                    state = state_helper.get_state(self.hass, entity_id)
-                    if state in ["unavailable", "unknown", None]:
-                        unavailable_monitoring.append(f"{name}: {entity_id} (state={state})")
-
-            if unavailable_monitoring:
-                self.logger.warning("⚠️ Monitoring sensors unavailable (will use defaults):")
-                for item in unavailable_monitoring:
-                    self.logger.warning(f"   • {item}")
-
-                # Use emergency charge with defaults
-                await self._emergency_charge_with_defaults()
-                return
+    
+                # Only check ABSOLUTE essentials (control entities must exist)
+                if not self._charger_switch:
+                    self.logger.error("❌ CRITICAL: Charger switch entity not configured - cannot charge")
+                    return
+    
+                if not self._charger_current:
+                    self.logger.error("❌ CRITICAL: Charger amperage entity not configured - cannot charge")
+                    return
+    
+                # Check if control entities are available (not the sensors, the control entities)
+                switch_state = self.hass.states.get(self._charger_switch)
+                current_state = self.hass.states.get(self._charger_current)
+    
+                if not switch_state:
+                    self.logger.error(
+                        f"❌ CRITICAL: Charger switch entity unavailable: {self._charger_switch}"
+                    )
+                    return
+    
+                if not current_state:
+                    self.logger.error(
+                        f"❌ CRITICAL: Charger amperage entity unavailable: {self._charger_current}"
+                    )
+                    return
+    
+                # Control entities OK - proceed with emergency charging
+                self.logger.success("✅ Essential control entities available")
+    
+                # Check if monitoring sensors are available (informational only)
+                monitoring_sensors = {
+                    "Charger Status": self._charger_status,
+                    "EV SOC": self.priority_balancer._soc_car,
+                    f"EV Target ({today.capitalize()})": ev_target_entity,
+                }
+    
+                unavailable_monitoring = []
+                for name, entity_id in monitoring_sensors.items():
+                    if entity_id:
+                        state = state_helper.get_state(self.hass, entity_id)
+                        if state in ["unavailable", "unknown", None]:
+                            unavailable_monitoring.append(f"{name}: {entity_id} (state={state})")
+    
+                if unavailable_monitoring:
+                    self.logger.warning("⚠️ Monitoring sensors unavailable (will use defaults):")
+                    for item in unavailable_monitoring:
+                        self.logger.warning(f"   • {item}")
+    
+                    # Use emergency charge with defaults
+                    await self._emergency_charge_with_defaults()
+                    return
+                else:
+                    self.logger.success("✅ All monitoring sensors available")
+                    # Continue with normal logic below
+    
+            # NORMAL MODE: car_ready=False - use relaxed validation with fallbacks
             else:
-                self.logger.success("✅ All monitoring sensors available")
-                # Continue with normal logic below
-
-        # NORMAL MODE: car_ready=False - use relaxed validation with fallbacks
-        else:
-            self.logger.info("car_ready=False - using normal validation with fallbacks")
-
-            # Check monitoring sensors with fallback logic
-            critical_sensors = {
-                "Charger Status": self._charger_status,
-                "EV SOC": self.priority_balancer._soc_car,
-                f"EV Target ({today.capitalize()})": ev_target_entity,
-            }
-
-            unavailable = []
-            for name, entity_id in critical_sensors.items():
-                if entity_id:
-                    state = state_helper.get_state(self.hass, entity_id)
-                    if state in ["unavailable", "unknown", None]:
-                        unavailable.append(f"{name}: {entity_id} (state={state})")
-
-            if unavailable:
-                self.logger.warning("⚠️ Monitoring sensors unavailable:")
-                for item in unavailable:
-                    self.logger.warning(f"   • {item}")
-
-                # For non-car_ready scenarios, still delay if sensors unavailable
-                # (User doesn't need car urgently, better to wait for sensors)
-                self.logger.warning("car_ready=False - delaying evaluation until sensors available")
-                self.logger.warning("Will retry at next periodic check (1 minute)")
+                self.logger.info("car_ready=False - using normal validation with fallbacks")
+    
+                # Check monitoring sensors with fallback logic
+                critical_sensors = {
+                    "Charger Status": self._charger_status,
+                    "EV SOC": self.priority_balancer._soc_car,
+                    f"EV Target ({today.capitalize()})": ev_target_entity,
+                }
+    
+                unavailable = []
+                for name, entity_id in critical_sensors.items():
+                    if entity_id:
+                        state = state_helper.get_state(self.hass, entity_id)
+                        if state in ["unavailable", "unknown", None]:
+                            unavailable.append(f"{name}: {entity_id} (state={state})")
+    
+                if unavailable:
+                    self.logger.warning("⚠️ Monitoring sensors unavailable:")
+                    for item in unavailable:
+                        self.logger.warning(f"   • {item}")
+    
+                    # For non-car_ready scenarios, still delay if sensors unavailable
+                    # (User doesn't need car urgently, better to wait for sensors)
+                    self.logger.warning("car_ready=False - delaying evaluation until sensors available")
+                    self.logger.warning("Will retry at next periodic check (1 minute)")
+                    self.logger.separator()
+                    return
+    
+            # Step 1: Check if Priority Balancer is enabled
+            self.logger.info(f"{self.logger.BALANCE} Step 1: Check Priority Balancer")
+    
+            if not self.priority_balancer.is_enabled():
+                self.logger.warning("Priority Balancer disabled - SKIPPING")
+                self.logger.warning("Night Smart Charge requires Priority Balancer to be enabled")
                 self.logger.separator()
                 return
-
-        # Step 1: Check if Priority Balancer is enabled
-        self.logger.info(f"{self.logger.BALANCE} Step 1: Check Priority Balancer")
-
-        if not self.priority_balancer.is_enabled():
-            self.logger.warning("Priority Balancer disabled - SKIPPING")
-            self.logger.warning("Night Smart Charge requires Priority Balancer to be enabled")
-            self.logger.separator()
-            return
-
-        self.logger.success("Priority Balancer enabled")
-
-        # Step 2: Check if charger is connected
-        self.logger.info(f"{self.logger.EV} Step 2: Check charger connection")
-
-        charger_status = state_helper.get_state(self.hass, self._charger_status)
-        self.logger.info(f"   Charger status: {charger_status}")
-
-        # v1.3.22: Check for invalid/unavailable states
-        if not charger_status or charger_status in ["unavailable", "unknown", CHARGER_STATUS_FREE]:
-            if charger_status in ["unavailable", "unknown"]:
-                self.logger.warning(f"{self.logger.ALERT} Charger status sensor {charger_status} - cannot determine connection")
-                reason = f"sensor {charger_status}"
+    
+            self.logger.success("Priority Balancer enabled")
+    
+            # Step 2: Check if charger is connected
+            self.logger.info(f"{self.logger.EV} Step 2: Check charger connection")
+    
+            charger_status = state_helper.get_state(self.hass, self._charger_status)
+            self.logger.info(f"   Charger status: {charger_status}")
+    
+            # v1.3.22: Check for invalid/unavailable states
+            if not charger_status or charger_status in ["unavailable", "unknown", CHARGER_STATUS_FREE]:
+                if charger_status in ["unavailable", "unknown"]:
+                    self.logger.warning(f"{self.logger.ALERT} Charger status sensor {charger_status} - cannot determine connection")
+                    reason = f"sensor {charger_status}"
+                else:
+                    reason = "not connected"
+    
+                self.logger.skip(f"Charger {reason}")
+                self.logger.separator()
+                return
+    
+            self.logger.success("Charger connected")
+    
+            # Step 3: Check if EV target reached
+            self.logger.info(f"{self.logger.EV} Step 3: Check EV target SOC")
+    
+            ev_target_reached = await self.priority_balancer.is_ev_target_reached()
+            ev_soc = await self.priority_balancer.get_ev_current_soc()
+            ev_target = self.priority_balancer.get_ev_target_for_today()
+    
+            self.logger.sensor_value("Current EV SOC", ev_soc, "%")
+            self.logger.sensor_value("Target EV SOC", ev_target, "%")
+    
+            if ev_target_reached:
+                self.logger.success(f"EV at or above target ({ev_soc}% >= {ev_target}%)")
+                self.logger.info("No charging needed")
+    
+                # If we were charging, mark as complete
+                if self.is_active():
+                    self.logger.info("Completing active night charge session")
+                    await self._complete_night_charge()
+    
+                self.logger.separator()
+                return
+    
+            self.logger.info(f"{self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - CHARGING NEEDED")
+    
+            # Step 4: Evaluate energy source
+            self.logger.info(f"{self.logger.SOLAR} Step 4: Evaluate energy source")
+    
+            pv_forecast = await self._get_pv_forecast()
+            threshold = self._get_solar_threshold()
+    
+            self.logger.sensor_value("PV Forecast", pv_forecast, "kWh")
+            self.logger.sensor_value("Threshold", threshold, "kWh")
+    
+            # Step 5: Decide charging mode
+            self.logger.info(f"{self.logger.DECISION} Step 5: Decide charging mode")
+    
+            if pv_forecast >= threshold:
+                self.logger.decision(
+                    "Charging mode",
+                    "BATTERY MODE",
+                    f"Good solar forecast ({pv_forecast} kWh >= {threshold} kWh)"
+                )
+                await self._start_battery_charge(pv_forecast)
             else:
-                reason = "not connected"
+                self.logger.decision(
+                    "Charging mode",
+                    "GRID MODE",
+                    f"Low/no solar forecast ({pv_forecast} kWh < {threshold} kWh)"
+                )
+                await self._start_grid_charge(pv_forecast)
 
-            self.logger.skip(f"Charger {reason}")
-            self.logger.separator()
-            return
+        except AttributeError as ex:
+            # v1.4.11: Catch missing attribute errors (e.g., self._charger_switch)
+            self.logger.error(f"❌ CRITICAL: Missing attribute during evaluation: {ex}")
+            self.logger.error("This indicates a configuration error or incomplete initialization")
+            self._night_charge_active = False
+            self._active_mode = NIGHT_CHARGE_MODE_IDLE
+            raise  # Re-raise to surface the error
 
-        self.logger.success("Charger connected")
-
-        # Step 3: Check if EV target reached
-        self.logger.info(f"{self.logger.EV} Step 3: Check EV target SOC")
-
-        ev_target_reached = await self.priority_balancer.is_ev_target_reached()
-        ev_soc = await self.priority_balancer.get_ev_current_soc()
-        ev_target = self.priority_balancer.get_ev_target_for_today()
-
-        self.logger.sensor_value("Current EV SOC", ev_soc, "%")
-        self.logger.sensor_value("Target EV SOC", ev_target, "%")
-
-        if ev_target_reached:
-            self.logger.success(f"EV at or above target ({ev_soc}% >= {ev_target}%)")
-            self.logger.info("No charging needed")
-
-            # If we were charging, mark as complete
-            if self.is_active():
-                self.logger.info("Completing active night charge session")
-                await self._complete_night_charge()
-
-            self.logger.separator()
-            return
-
-        self.logger.info(f"{self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - CHARGING NEEDED")
-
-        # Step 4: Evaluate energy source
-        self.logger.info(f"{self.logger.SOLAR} Step 4: Evaluate energy source")
-
-        pv_forecast = await self._get_pv_forecast()
-        threshold = self._get_solar_threshold()
-
-        self.logger.sensor_value("PV Forecast", pv_forecast, "kWh")
-        self.logger.sensor_value("Threshold", threshold, "kWh")
-
-        # Step 5: Decide charging mode
-        self.logger.info(f"{self.logger.DECISION} Step 5: Decide charging mode")
-
-        if pv_forecast >= threshold:
-            self.logger.decision(
-                "Charging mode",
-                "BATTERY MODE",
-                f"Good solar forecast ({pv_forecast} kWh >= {threshold} kWh)"
-            )
-            await self._start_battery_charge(pv_forecast)
-        else:
-            self.logger.decision(
-                "Charging mode",
-                "GRID MODE",
-                f"Low/no solar forecast ({pv_forecast} kWh < {threshold} kWh)"
-            )
-            await self._start_grid_charge(pv_forecast)
+        except Exception as ex:
+            # v1.4.11: Catch all other exceptions to prevent silent failures
+            self.logger.error(f"❌ FATAL: Unexpected error in evaluate_and_charge: {ex}")
+            self.logger.error("Stack trace:", exc_info=True)
+            self._night_charge_active = False
+            self._active_mode = NIGHT_CHARGE_MODE_IDLE
+            raise
 
     # ========== BATTERY CHARGE MODE ==========
 
