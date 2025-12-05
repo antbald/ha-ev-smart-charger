@@ -105,10 +105,11 @@ class LogManager:
         if enabled:
             _LOGGER.info(f"Enabling file logging for {len(self._components)} components")
             for logger in self._components:
-                logger.enable_file_logging(
+                await self.hass.async_add_executor_job(
+                    logger.enable_file_logging,
                     self._log_file_path,
-                    max_bytes=FILE_LOG_MAX_SIZE_MB * 1024 * 1024,
-                    backup_count=FILE_LOG_BACKUP_COUNT
+                    FILE_LOG_MAX_SIZE_MB * 1024 * 1024,
+                    FILE_LOG_BACKUP_COUNT
                 )
         else:
             _LOGGER.info(f"Disabling file logging for {len(self._components)} components")
