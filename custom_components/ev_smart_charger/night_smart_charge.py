@@ -9,6 +9,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_CAR_OWNER,
     CONF_EV_CHARGER_STATUS,
+    CONF_EV_CHARGER_SWITCH,
     CONF_SOC_HOME,
     CONF_PV_FORECAST,
     CONF_GRID_IMPORT,
