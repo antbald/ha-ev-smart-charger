@@ -17,6 +17,7 @@ from .const import (
     CONF_EV_CHARGER_CURRENT,
     CONF_BATTERY_CAPACITY,
     CONF_ENERGY_FORECAST_TARGET,
+    CHARGER_STATUS_CHARGING,
     CHARGER_STATUS_FREE,
     NIGHT_CHARGE_MODE_BATTERY,
     NIGHT_CHARGE_MODE_GRID,
@@ -922,7 +923,6 @@ class NightSmartCharge:
         self.logger.info(f"   {self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - continuing charge")
 
         # Check 2: Validate charger still charging
-        from .const import CHARGER_STATUS_CHARGING
         charger_status = state_helper.get_state(self.hass, self._charger_status)
 
         if charger_status != CHARGER_STATUS_CHARGING:
