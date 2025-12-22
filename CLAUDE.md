@@ -388,7 +388,7 @@ This allows automations to find helper entities regardless of entry_id.
 
 **Integration Metadata:**
 - `DOMAIN = "ev_smart_charger"`
-- `VERSION = "1.3.13"`
+- `VERSION = "1.4.14"`
 - `DEFAULT_NAME = "EV Smart Charger"`
 
 **Platforms:**
@@ -752,6 +752,68 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.4.14 (2025-12-22)
+**CRITICAL FIX: Smart Blocker Incorrect Blocking Window Calculation for Late Arrivals**
+
+**Problem Fixed**:
+Smart Blocker incorrectly blocked charging when users plugged in their car in the early morning hours (after midnight) but **after** the configured `night_charge_time`. Example scenario: User plugs in at 02:20 with `night_charge_time=01:00`, and Smart Blocker blocks charging with notification "fuori dalla fascia night charge" (outside night charge window), even though Night Smart Charge should be active.
+
+**Root Cause**:
+The `_get_night_charge_datetime()` method in Smart Blocker used `time_string_to_next_occurrence()` which always returns the NEXT future occurrence. At 02:20 with configured time 01:00:
+1. Creates datetime: `today 01:00:00`
+2. Sees that `01:00 < 02:20` (time has passed)
+3. **Adds one day**: returns `tomorrow 01:00:00` ❌
+
+This caused Smart Blocker to calculate an incorrect blocking window:
+- Start: `yesterday 18:30` (sunset)
+- End: **`tomorrow 01:00`** (wrong!)
+- At 02:20: `yesterday_18:30 <= 02:20 < tomorrow_01:00` → **BLOCKED** ❌
+
+**Correct Logic**:
+At 02:20, the blocking window should be `yesterday 18:30 → today 01:00`. Since we're at 02:20, we're **OUTSIDE** the window and Night Charge should activate.
+
+**Solution Implemented**:
+Modified `_get_night_charge_datetime()` in `automations.py` to select correct occurrence based on sunrise position:
+- **Before sunrise** (early morning): Use `time_string_to_datetime()` → Returns TODAY's occurrence (even if passed)
+  - Example: At 02:20 returns `today 01:00`
+  - Blocking window: `yesterday_18:30 → today_01:00` ✓
+  - At 02:20 we're OUTSIDE ✓
+- **After sunrise** (afternoon/evening): Use `time_string_to_next_occurrence()` → Returns TOMORROW's occurrence
+  - Example: At 20:00 returns `tomorrow 01:00`
+  - Blocking window: `today_18:30 → tomorrow_01:00` ✓
+  - At 20:00 we're INSIDE ✓
+
+**When Bug Manifested**:
+Only under these specific conditions:
+- Night Smart Charge is ENABLED ✓
+- User plugs in after midnight (early morning) ✓
+- User plugs in **after** `night_charge_time` (e.g., 02:20 > 01:00) ✓
+- Before sunrise (e.g., 02:20 < 07:00) ✓
+- Manual late arrival (not scheduled activation) ✓
+
+**Impact**:
+- ✅ Smart Blocker now calculates correct blocking window for early morning hours
+- ✅ Night Smart Charge activates correctly for late arrivals after configured time
+- ✅ No more incorrect "outside night charge window" notifications at 02:20
+- ✅ Blocking window logic consistent across all time scenarios
+
+**Files Modified**:
+- [automations.py](custom_components/ev_smart_charger/automations.py): Fixed `_get_night_charge_datetime()` with sunrise-based logic (lines 417-465)
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.4.14"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.4.14"
+
+**Test Scenarios Validated**:
+- ✅ Late arrival at 02:20 (after 01:00 configured time) → Night Charge activates
+- ✅ Late arrival at 00:30 (before 01:00 configured time) → Smart Blocker blocks correctly
+- ✅ Evening connection at 20:00 → Smart Blocker blocks correctly
+- ✅ Daytime connection at 14:00 → Smart Blocker allows (outside window)
+
+**Upgrade Priority**: 🔴 CRITICAL - Fixes complete Night Smart Charge failure for late arrivals in early morning
+
+**Related Analysis**: See [BUG_ANALYSIS_NIGHT_CHARGE_02_20.md](BUG_ANALYSIS_NIGHT_CHARGE_02_20.md) for detailed technical analysis
+
+---
 
 ### v1.4.4 (2025-11-20)
 **ARCHITECTURAL FIX: Ultra-Robust Night Smart Charge Window Check with Hybrid Approach**
