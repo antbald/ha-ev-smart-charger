@@ -415,9 +415,19 @@ class SmartChargerBlocker:
         return state == STATE_ON
 
     async def _get_night_charge_datetime(self, reference_date: datetime) -> datetime | None:
-        """Get the night charge time as a datetime object.
+        """Get the night charge time as a datetime object for blocking window.
 
         Uses TimeParsingService for centralized time parsing.
+
+        CRITICAL FIX (v1.4.13): Correct occurrence selection based on sunrise position.
+        - Before sunrise (early morning): Use TODAY's occurrence (even if passed)
+          → Example: At 02:20 with night_charge_time=01:00, returns today 01:00
+          → This makes blocking window: yesterday_sunset → today_01:00
+          → At 02:20 we're OUTSIDE the window ✓
+        - After sunrise (afternoon/evening): Use NEXT occurrence (tomorrow)
+          → Example: At 20:00 with night_charge_time=01:00, returns tomorrow 01:00
+          → This makes blocking window: today_sunset → tomorrow_01:00
+          → At 20:00 we're INSIDE the window ✓
 
         Args:
             reference_date: Reference date to build the datetime
@@ -433,10 +443,21 @@ class SmartChargerBlocker:
             return None
 
         try:
-            # Use TimeParsingService to convert time string to next occurrence
-            return TimeParsingService.time_string_to_next_occurrence(
-                time_state, reference_date
-            )
+            # v1.4.13: Fixed occurrence selection based on sunrise position
+            sunrise_today = self._astral_service.get_sunrise(reference_date)
+
+            if sunrise_today and reference_date < sunrise_today:
+                # Early morning (before sunrise): use TODAY's occurrence
+                # This fixes the bug where late arrivals (e.g., 02:20) after
+                # night_charge_time (e.g., 01:00) were incorrectly blocked
+                return TimeParsingService.time_string_to_datetime(
+                    time_state, reference_date
+                )
+            else:
+                # After sunrise: use NEXT occurrence (tomorrow)
+                return TimeParsingService.time_string_to_next_occurrence(
+                    time_state, reference_date
+                )
         except (ValueError, AttributeError) as e:
             self.logger.warning(
                 f"Error parsing night_charge_time '{time_state}': {e}"
