@@ -1,7 +1,12 @@
-"""Centralized logging system for EVSC integration."""
+"""Centralized logging system for EVSC integration (v1.4.15).
+
+Updated to support date-based log file structure:
+- Daily log files (one per day)
+- No rotation needed (new file each day)
+- Path format: logs/<year>/<month>/<day>.log
+"""
 import logging
 import os
-from logging.handlers import RotatingFileHandler
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +43,7 @@ class EVSCLogger:
     def __init__(self, component_name: str):
         """Initialize logger with component name."""
         self.component = component_name
-        self._file_handler = None  # Track file handler (v1.3.25)
+        self._file_handler = None  # Track file handler
 
     def separator(self, length: int = 64):
         """Log visual separator."""
@@ -104,30 +109,31 @@ class EVSCLogger:
         """Log debug message."""
         _LOGGER.debug(f"[{self.component}] {message}")
 
-    # ========== FILE LOGGING METHODS (v1.3.25) ==========
+    # ========== FILE LOGGING METHODS (v1.4.15 - Daily files) ==========
 
-    def enable_file_logging(self, log_file_path: str, max_bytes: int = 10485760, backup_count: int = 5):
+    def enable_file_logging(self, log_file_path: str):
         """
-        Enable logging to file with rotation.
+        Enable logging to file.
+
+        Since v1.4.15: Uses simple FileHandler (no rotation needed).
+        Log files are organized by date: logs/<year>/<month>/<day>.log
+        Daily rotation is handled by LogManager at midnight.
 
         Args:
-            log_file_path: Full path to log file
-            max_bytes: Max size per file in bytes (default 10MB)
-            backup_count: Number of backup files to keep (default 5)
+            log_file_path: Full path to log file (e.g., logs/2025/12/29.log)
         """
         if self._file_handler:
-            # Already enabled
-            return
+            # Already enabled - disable first to switch files
+            self.disable_file_logging()
 
         try:
-            # Ensure directory exists
+            # Ensure directory exists (creates year/month folders)
             os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 
-            # Create rotating file handler
-            self._file_handler = RotatingFileHandler(
+            # Create file handler (append mode for daily files)
+            self._file_handler = logging.FileHandler(
                 log_file_path,
-                maxBytes=max_bytes,
-                backupCount=backup_count,
+                mode='a',
                 encoding='utf-8'
             )
 
