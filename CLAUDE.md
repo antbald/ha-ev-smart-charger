@@ -753,6 +753,82 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.4.15 (2025-12-29)
+**Restructured Logging: Date-Based Directory Organization**
+
+**Feature Overview**:
+Completely restructured the file logging system to use a date-based directory organization. Instead of a single log file with rotation, logs are now organized in a hierarchical folder structure by year/month with a separate file for each day.
+
+**New Log Structure**:
+```
+logs/
+└── 2025/
+    └── 12/
+        ├── 29.log
+        ├── 28.log
+        ├── 27.log
+        └── ...
+    └── 11/
+        ├── 30.log
+        └── ...
+```
+
+**Benefits**:
+- ✅ **Easy Navigation**: Find logs by date without searching through a large file
+- ✅ **Better Organization**: Clear separation of daily logs
+- ✅ **Simpler Archiving**: Easy to backup or delete old logs by month/year
+- ✅ **No Size Limits**: Each day's log can grow without rotation concerns
+- ✅ **Automatic Daily Rotation**: New log file created automatically at midnight
+
+**Changes from Previous Version (v1.3.25)**:
+| Feature | v1.3.25 | v1.4.15 |
+|---------|---------|---------|
+| Structure | Single file with rotation | Year/Month/Day folders |
+| File Path | `logs/evsc_<entry_id>.log` | `logs/<year>/<month>/<day>.log` |
+| Rotation | RotatingFileHandler (10MB, 5 backups) | Daily at midnight |
+| Max Size | 50MB total | Unlimited (one file per day) |
+
+**Sensor Updates**:
+The `sensor.evsc_log_file_path` entity now:
+- Shows today's log file path (e.g., `logs/2025/12/29.log`)
+- Updates automatically at midnight
+- Includes new attributes:
+  - `logs_directory`: Base logs directory path
+  - `structure`: Shows the path format (`logs/<year>/<month>/<day>.log`)
+
+**Technical Implementation**:
+
+**LogManager Changes** ([log_manager.py](custom_components/ev_smart_charger/log_manager.py)):
+- New `_get_log_file_path_for_date(date)` method generates date-based paths
+- New `get_logs_directory()` method returns base logs path
+- Added midnight listener using `async_track_time_change` for automatic daily rotation
+- Removed dependency on `FILE_LOG_MAX_SIZE_MB` and `FILE_LOG_BACKUP_COUNT`
+
+**EVSCLogger Changes** ([utils/logging_helper.py](custom_components/ev_smart_charger/utils/logging_helper.py)):
+- Switched from `RotatingFileHandler` to simple `FileHandler`
+- `enable_file_logging()` now only requires `log_file_path` parameter
+- Automatically creates year/month directories when needed
+
+**Constants Updates** ([const.py](custom_components/ev_smart_charger/const.py)):
+- Removed `FILE_LOG_MAX_SIZE_MB` and `FILE_LOG_BACKUP_COUNT` (no longer needed)
+- Added documentation comments for new log structure
+
+**Migration Notes**:
+- Existing log files in the old format are not automatically migrated
+- Old logs can be manually moved or deleted if desired
+- New logs will immediately use the new structure when logging is enabled
+
+**Files Modified**:
+- [log_manager.py](custom_components/ev_smart_charger/log_manager.py): Date-based path generation, midnight rotation
+- [utils/logging_helper.py](custom_components/ev_smart_charger/utils/logging_helper.py): Simplified FileHandler
+- [sensor.py](custom_components/ev_smart_charger/sensor.py): Updated EVSCLogFilePathSensor with new attributes
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.4.15", removed rotation constants
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.4.15"
+
+**Upgrade Priority**: 🟢 RECOMMENDED - Improved log organization and easier troubleshooting
+
+---
+
 ### v1.4.14 (2025-12-22)
 **CRITICAL FIX: Smart Blocker Incorrect Blocking Window Calculation for Late Arrivals**
 

@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.4.14"
+VERSION = "1.4.15"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -203,9 +203,10 @@ CHARGER_AMPERAGE_STABILIZATION_DELAY = 1  # seconds after setting amperage
 # ========== TIMEOUTS ==========
 SERVICE_CALL_TIMEOUT = 10  # seconds for service calls
 
-# ========== FILE LOGGING SETTINGS (v1.3.25) ==========
-FILE_LOG_MAX_SIZE_MB = 10  # 10MB per log file
-FILE_LOG_BACKUP_COUNT = 5  # Keep 5 backup files (50MB total)
+# ========== FILE LOGGING SETTINGS (v1.4.15) ==========
+# Date-based log structure: logs/<year>/<month>/<day>.log
+# Example: logs/2025/12/29.log
+# No rotation needed - new file each day, automatic midnight transition
 
 # ========== EV SOC MONITOR SETTINGS (v1.4.0) ==========
 EV_SOC_MONITOR_INTERVAL = 5  # seconds - polling frequency for cloud sensor reliability

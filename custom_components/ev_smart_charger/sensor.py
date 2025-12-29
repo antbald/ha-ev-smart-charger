@@ -245,9 +245,14 @@ class EVSCSolarSurplusDiagnosticSensor(SensorEntity, RestoreEntity):
 
 
 class EVSCLogFilePathSensor(SensorEntity):
-    """EVSC Log File Path Sensor (v1.3.25)."""
+    """EVSC Log File Path Sensor (v1.4.15).
 
-    _attr_should_poll = False
+    Updated for date-based log structure:
+    - Shows today's log file path (logs/<year>/<month>/<day>.log)
+    - Updates automatically at midnight
+    """
+
+    _attr_should_poll = True  # Poll to update path at midnight
 
     def __init__(
         self,
@@ -270,7 +275,7 @@ class EVSCLogFilePathSensor(SensorEntity):
         self._attr_native_value = self._get_log_file_path()
 
     def _get_log_file_path(self) -> str:
-        """Get log file path from log manager."""
+        """Get today's log file path from log manager."""
         entry_data = self._hass.data.get(DOMAIN, {}).get(self._entry_id, {})
         log_manager = entry_data.get("log_manager")
 
@@ -278,11 +283,29 @@ class EVSCLogFilePathSensor(SensorEntity):
             return log_manager.get_log_file_path()
         else:
             # Fallback: construct path manually during initial setup
+            from datetime import datetime
+            now = datetime.now()
             return self._hass.config.path(
                 "custom_components",
                 "ev_smart_charger",
                 "logs",
-                f"evsc_{self._entry_id}.log"
+                str(now.year),
+                f"{now.month:02d}",
+                f"{now.day:02d}.log"
+            )
+
+    def _get_logs_directory(self) -> str:
+        """Get base logs directory from log manager."""
+        entry_data = self._hass.data.get(DOMAIN, {}).get(self._entry_id, {})
+        log_manager = entry_data.get("log_manager")
+
+        if log_manager:
+            return log_manager.get_logs_directory()
+        else:
+            return self._hass.config.path(
+                "custom_components",
+                "ev_smart_charger",
+                "logs"
             )
 
     @property
@@ -300,15 +323,21 @@ class EVSCLogFilePathSensor(SensorEntity):
     def extra_state_attributes(self) -> dict:
         """Return the state attributes."""
         return {
-            "description": "Path to the file logging output (when enabled)",
+            "description": "Today's log file path (format: logs/<year>/<month>/<day>.log)",
             "friendly_name": "Log File Path",
+            "logs_directory": self._get_logs_directory(),
+            "structure": "logs/<year>/<month>/<day>.log",
         }
+
+    async def async_update(self) -> None:
+        """Update the sensor value (called periodically to update path at midnight)."""
+        self._attr_native_value = self._get_log_file_path()
 
     async def async_added_to_hass(self) -> None:
         """Entity added to hass."""
         await super().async_added_to_hass()
         _LOGGER.info(f"✅ Log File Path sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
-        _LOGGER.info(f"  📄 Log file path: {self._attr_native_value}")
+        _LOGGER.info(f"  📄 Today's log file: {self._attr_native_value}")
 
 
 class EVSCTodayEVTargetSensor(SensorEntity, RestoreEntity):
