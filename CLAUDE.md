@@ -753,6 +753,70 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.4.16 (2025-12-29)
+**CRITICAL FIX: Charger Starts at 6A Instead of Configured Amperage**
+
+**Problem Fixed**:
+When plugging in the car during Night Smart Charge window (e.g., at 00:54), the charger started at 6A instead of the configured amperage (e.g., 16A), even though the `evsc_night_charge_amperage` setting was correctly set.
+
+**Root Cause**:
+The `start_charger()` method in ChargerController compared the target amperage with a **cached value** (`self._current_amperage`) instead of the actual current amperage from the charger:
+
+```python
+# BUG: Used stale cached value
+if target_amps and target_amps != self._current_amperage:
+    await self._set_amperage_internal(target_amps)
+```
+
+**Bug Scenario**:
+1. **Previous session**: Charged at 16A → `self._current_amperage = 16` (cached in memory)
+2. **00:54 - Plug in car**: Wallbox auto-starts charging at 6A (wallbox default)
+3. **Night Smart Charge** calls `start_charger(16, "Night charge")`
+4. **Comparison**: `16 != 16` (cache) → **FALSE** → **SKIP setting amperage!**
+5. **Result**: Charger remains at 6A instead of 16A
+
+**Why Wallbox Starts at 6A**:
+Many EV chargers (wallboxes) automatically start charging when a car is plugged in, using their internal default amperage (often 6A for safety). This happens BEFORE our integration has a chance to set the correct amperage.
+
+**Solution Implemented**:
+Modified `start_charger()` in [charger_controller.py](custom_components/ev_smart_charger/charger_controller.py) to:
+1. **Always refresh state** before setting amperage (get actual current value)
+2. **Always set amperage** when target is specified (don't trust cached value)
+3. **Log actual vs target** for debugging
+
+```python
+# v1.4.16: ALWAYS set amperage when target specified
+if target_amps:
+    # Refresh state to get actual current amperage
+    await self._refresh_state()
+    actual_current = self._current_amperage
+
+    self.logger.info(
+        f"Target amperage: {target_amps}A, "
+        f"Actual current: {actual_current}A"
+    )
+
+    # Always set amperage to ensure correct value
+    await self._set_amperage_internal(target_amps)
+    await asyncio.sleep(CHARGER_AMPERAGE_STABILIZATION_DELAY)
+    self._current_amperage = target_amps
+```
+
+**Impact**:
+- ✅ Charger now ALWAYS starts at configured amperage
+- ✅ Works correctly even when wallbox auto-starts at different amperage
+- ✅ Cached value no longer causes incorrect behavior
+- ✅ Added logging to show actual vs target amperage for debugging
+
+**Files Modified**:
+- [charger_controller.py](custom_components/ev_smart_charger/charger_controller.py): Fixed `start_charger()` method (lines 180-198)
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.4.16"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.4.16"
+
+**Upgrade Priority**: 🔴 CRITICAL - Fixes incorrect charging amperage at session start
+
+---
+
 ### v1.4.15 (2025-12-29)
 **Restructured Logging: Date-Based Directory Organization**
 

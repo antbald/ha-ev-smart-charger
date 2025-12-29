@@ -178,10 +178,24 @@ class ChargerController:
                 )
 
             try:
-                # Set amperage first if specified
-                if target_amps and target_amps != self._current_amperage:
+                # v1.4.16: ALWAYS set amperage when target specified
+                # Previously compared with cached value which could be stale
+                # (e.g., wallbox auto-starts at 6A but cache shows 16A from previous session)
+                if target_amps:
+                    # Refresh state to get actual current amperage
+                    await self._refresh_state()
+                    actual_current = self._current_amperage
+
+                    self.logger.info(
+                        f"Target amperage: {target_amps}A, "
+                        f"Actual current: {actual_current}A"
+                    )
+
+                    # Always set amperage to ensure correct value
+                    # (wallbox may have auto-started at different amperage)
                     await self._set_amperage_internal(target_amps)
                     await asyncio.sleep(CHARGER_AMPERAGE_STABILIZATION_DELAY)
+                    self._current_amperage = target_amps
 
                 # Turn on charger
                 self.logger.action("Starting charger", "Calling switch.turn_on")
