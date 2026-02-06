@@ -7,6 +7,7 @@ import pytest
 from custom_components.ev_smart_charger.night_smart_charge import NightSmartCharge
 from custom_components.ev_smart_charger.const import (
     CONF_EV_CHARGER_STATUS,
+    CONF_EV_CHARGER_SWITCH,
     CONF_EV_CHARGER_CURRENT,
     CONF_SOC_HOME,
     CONF_PV_FORECAST,
@@ -22,6 +23,7 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
     """Create NightSmartCharge instance with mocked dependencies."""
     config = {
         CONF_EV_CHARGER_STATUS: "sensor.charger_status",
+        CONF_EV_CHARGER_SWITCH: "switch.charger_switch",
         CONF_EV_CHARGER_CURRENT: "sensor.charger_current",
         CONF_SOC_HOME: "sensor.home_soc",
         CONF_PV_FORECAST: "sensor.pv_forecast",
@@ -34,6 +36,8 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
     
     # Setup helper entities
     hass.states.async_set("switch.test_evsc_night_smart_charge_enabled", "on")
+    hass.states.async_set("switch.charger_switch", "off")
+    hass.states.async_set("sensor.charger_current", "0")
     hass.states.async_set("input_datetime.test_evsc_night_charge_time", "01:00:00")
     hass.states.async_set("input_datetime.test_evsc_car_ready_time", "08:00:00")
     hass.states.async_set("number.test_evsc_night_charge_amperage", "16")

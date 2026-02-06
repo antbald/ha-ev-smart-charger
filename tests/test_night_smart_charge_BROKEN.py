@@ -4,6 +4,8 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
+pytestmark = pytest.mark.skip(reason="Legacy test suite kept for reference; replaced by active night_smart_charge tests.")
+
 from custom_components.ev_smart_charger.night_smart_charge import NightSmartCharge
 from custom_components.ev_smart_charger.const import (
     CONF_EV_CHARGER_STATUS,

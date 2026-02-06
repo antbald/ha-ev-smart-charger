@@ -1,6 +1,6 @@
 """Test SolarSurplusAutomation logic."""
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime
 from custom_components.ev_smart_charger.solar_surplus import SolarSurplusAutomation
 from custom_components.ev_smart_charger.const import (
@@ -103,6 +103,25 @@ async def test_grid_import_protection(hass, automation):
         assert automation._last_grid_import_high is None
         automation.charger_controller.set_amperage.assert_called_with(13, "Grid import protection")
 
+async def test_grid_import_protection_keeps_charger_off_when_already_off(hass, automation):
+    """When import is high and charger is OFF, protection must not start charging."""
+    # Initial high import - start timer
+    with patch("time.time", return_value=2000):
+        await automation._handle_grid_import_protection(
+            grid_import=100, grid_threshold=50, grid_import_delay=30, current_amps=0
+        )
+        assert automation._last_grid_import_high == 2000
+
+    # Delay elapsed - charger should remain OFF
+    with patch("time.time", return_value=2031):
+        await automation._handle_grid_import_protection(
+            grid_import=100, grid_threshold=50, grid_import_delay=30, current_amps=0
+        )
+
+    automation.charger_controller.set_amperage.assert_not_called()
+    automation.charger_controller.stop_charger.assert_not_called()
+    assert automation._last_grid_import_high is None
+
 async def test_surplus_increase_stability(hass, automation):
     """Test surplus increase stability delay."""
     # Setup
@@ -128,3 +147,50 @@ async def test_surplus_increase_stability(hass, automation):
         
         automation.charger_controller.set_amperage.assert_called_with(16, "Stable surplus increase")
         assert automation._surplus_stable_since is None
+
+async def test_priority_stop_runs_even_if_energy_sensors_invalid(hass, automation):
+    """Priority EV_FREE must stop charging even if solar/grid sensors are unavailable."""
+    # Preconditions for periodic flow
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+
+    # Make energy sensors invalid: logic should still enforce target stop before validation
+    hass.states.async_set("sensor.solar", "unavailable")
+    hass.states.async_set("sensor.consumption", "unavailable")
+    hass.states.async_set("sensor.grid", "unavailable")
+
+    automation.priority_balancer.is_enabled.return_value = True
+    automation.priority_balancer.calculate_priority = AsyncMock(return_value=PRIORITY_EV_FREE)
+    automation.charger_controller.is_charging.return_value = True
+
+    await automation._async_periodic_check()
+
+    automation.charger_controller.stop_charger.assert_called_with(
+        "Both EV and Home targets reached (Priority = EV_FREE)"
+    )
+
+async def test_no_start_when_grid_import_is_above_threshold(hass, automation):
+    """Do not start charger in solar window when grid import is above threshold."""
+    # Preconditions for periodic flow
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+    hass.states.async_set("sensor.solar", "4000")
+    hass.states.async_set("sensor.consumption", "1000")
+    hass.states.async_set("sensor.grid", "200")
+    hass.states.async_set("number.grid_threshold", "50")
+    hass.states.async_set("number.grid_delay", "30")
+    hass.states.async_set("number.surplus_delay", "30")
+    hass.states.async_set("switch.use_battery", "off")
+
+    automation.priority_balancer.is_enabled.return_value = False
+    automation.charger_controller.is_charging.return_value = False
+    automation.charger_controller.get_current_amperage.return_value = 0
+
+    # Force a positive target amperage to verify start is blocked by grid import protection
+    with patch.object(automation, "_calculate_target_amperage", return_value=6):
+        await automation._async_periodic_check()
+
+    automation.charger_controller.start_charger.assert_not_called()
+    assert automation._last_grid_import_high is not None

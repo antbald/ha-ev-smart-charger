@@ -16,6 +16,8 @@ from custom_components.ev_smart_charger.const import (
     CONF_HOME_CONSUMPTION,
     CONF_GRID_IMPORT,
     CONF_PV_FORECAST,
+    CONF_NOTIFY_SERVICES,
+    CONF_BATTERY_CAPACITY,
 )
 
 async def test_form(hass: HomeAssistant):
@@ -78,13 +80,24 @@ async def test_form(hass: HomeAssistant):
         result6 = await hass.config_entries.flow.async_configure(
             result5["flow_id"],
             {
+                CONF_NOTIFY_SERVICES: [],
                 "car_owner": "person.test",
             },
         )
-        assert result6["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-        assert result6["title"] == "Test Charger"
-        assert result6["data"][CONF_NAME] == "Test Charger"
-        assert result6["data"][CONF_EV_CHARGER_SWITCH] == "switch.charger"
+        assert result6["type"] == data_entry_flow.FlowResultType.FORM
+        assert result6["step_id"] == "external_connectors"
+
+        result7 = await hass.config_entries.flow.async_configure(
+            result6["flow_id"],
+            {
+                CONF_BATTERY_CAPACITY: 13.5,
+            },
+        )
+
+        assert result7["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result7["title"] == "Test Charger"
+        assert result7["data"][CONF_NAME] == "Test Charger"
+        assert result7["data"][CONF_EV_CHARGER_SWITCH] == "switch.charger"
         
         await hass.async_block_till_done()
         assert len(mock_setup_entry.mock_calls) == 1

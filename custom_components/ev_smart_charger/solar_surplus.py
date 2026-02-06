@@ -345,7 +345,35 @@ class SolarSurplusAutomation:
 
         self.logger.info(f"Charger status: '{charger_status}' - proceeding")
 
-        # === 7. Validate Sensors (with throttled logging to prevent spam) ===
+        # === 7. Priority Balancer Decision (target enforcement must run even if energy sensors fail) ===
+        priority = None
+        if self.priority_balancer.is_enabled():
+            priority = await self.priority_balancer.calculate_priority()
+            self.logger.info(f"Priority Balancer: {priority}")
+
+            if priority == PRIORITY_HOME:
+                self.logger.warning("Priority = HOME - Stopping EV charger")
+                await self.charger_controller.stop_charger("Home battery needs charging (Priority = HOME)")
+                self.logger.separator()
+                return
+
+            # v1.3.24: Stop opportunistic charging when both targets met
+            if priority == PRIORITY_EV_FREE:
+                if await self.charger_controller.is_charging():
+                    self.logger.info(
+                        f"{self.logger.SUCCESS} Both targets met (Priority = EV_FREE) - "
+                        "Stopping opportunistic charging"
+                    )
+                    await self.charger_controller.stop_charger(
+                        "Both EV and Home targets reached (Priority = EV_FREE)"
+                    )
+                    self._battery_support_active = False  # Force deactivation
+                    self.logger.separator()
+                return
+        else:
+            self.logger.info("Priority Balancer disabled - using fallback mode")
+
+        # === 8. Validate Sensors (with throttled logging to prevent spam) ===
         sensor_errors = []
         sensors_to_validate = [
             (self._fv_production, "Solar Production"),
@@ -387,7 +415,7 @@ class SolarSurplusAutomation:
             self.logger.separator()
             return
 
-        # === 8. Calculate Surplus ===
+        # === 9. Calculate Surplus ===
         fv_production = get_float(self.hass, self._fv_production)
         home_consumption = get_float(self.hass, self._home_consumption)
         grid_import = get_float(self.hass, self._grid_import)
@@ -398,34 +426,6 @@ class SolarSurplusAutomation:
         self.logger.info(f"Home Consumption: {home_consumption}W")
         self.logger.info(f"Surplus: {surplus_watts}W ({surplus_amps:.2f}A)")
         self.logger.info(f"Grid Import: {grid_import}W")
-
-        # === 9. Priority Balancer Decision ===
-        priority = None
-        if self.priority_balancer.is_enabled():
-            priority = await self.priority_balancer.calculate_priority()
-            self.logger.info(f"Priority Balancer: {priority}")
-
-            if priority == PRIORITY_HOME:
-                self.logger.warning("Priority = HOME - Stopping EV charger")
-                await self.charger_controller.stop_charger("Home battery needs charging (Priority = HOME)")
-                self.logger.separator()
-                return
-
-            # v1.3.24: Stop opportunistic charging when both targets met
-            if priority == PRIORITY_EV_FREE:
-                if await self.charger_controller.is_charging():
-                    self.logger.info(
-                        f"{self.logger.SUCCESS} Both targets met (Priority = EV_FREE) - "
-                        "Stopping opportunistic charging"
-                    )
-                    await self.charger_controller.stop_charger(
-                        "Both EV and Home targets reached (Priority = EV_FREE)"
-                    )
-                    self._battery_support_active = False  # Force deactivation
-                    self.logger.separator()
-                return
-        else:
-            self.logger.info("Priority Balancer disabled - using fallback mode")
 
         # === 10. Handle Home Battery Usage ===
         await self._handle_home_battery_usage(surplus_watts, priority)
@@ -468,16 +468,19 @@ class SolarSurplusAutomation:
 
         # === 14. Apply Charging Logic ===
 
+        # Grid Import Protection
+        if grid_import > grid_threshold:
+            await self._handle_grid_import_protection(grid_import, grid_threshold, grid_import_delay, current_amps)
+            self.logger.separator()
+            return
+        else:
+            # Reset timer when import goes back below threshold
+            self._last_grid_import_high = None
+
         # Start charger if OFF and we have target amperage
         if not charger_is_on and target_amps > 0:
             self.logger.action(f"Starting charger with {target_amps}A")
             await self.charger_controller.start_charger(target_amps, "Solar surplus available")
-            self.logger.separator()
-            return
-
-        # Grid Import Protection
-        if grid_import > grid_threshold:
-            await self._handle_grid_import_protection(grid_import, grid_threshold, grid_import_delay, current_amps)
             self.logger.separator()
             return
 
@@ -676,11 +679,10 @@ class SolarSurplusAutomation:
         except ValueError:
             # Handle 0A (charger off) or other non-standard levels
             if current_amps == 0:
-                self.logger.warning("Charger is off (0A) - starting at minimum 6A")
-                await self.charger_controller.set_amperage(6, "Grid import protection - charger was off, starting at 6A")
+                self.logger.info("Charger is already off (0A) - keeping charger stopped")
             else:
                 self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
-                await self.charger_controller.set_amperage(6, "Grid import protection - fallback to 6A")
+                await self.charger_controller.stop_charger("Grid import protection - invalid amperage level")
 
     async def _handle_surplus_decrease(
         self,
