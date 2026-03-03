@@ -31,6 +31,7 @@ EV Smart Charger transforms your Home Assistant into an intelligent EV charging 
 ✅ **Charges your EV using only excess solar energy** (Solar Surplus mode)
 ✅ **Balances charging between EV and home battery** (Priority Balancer)
 ✅ **Automates overnight charging** based on solar forecast (Night Smart Charge)
+✅ **Runs manual boost sessions with auto-stop on EV SOC** (Boost Charge)
 ✅ **Prevents nighttime charging** when solar is unavailable (Smart Blocker)
 ✅ **Protects against unreliable cloud sensors** (Cache layer for cloud-based car integrations)
 
@@ -79,6 +80,13 @@ Charge your EV **only** when excess solar energy is available. Never import from
 - **Daily car ready flags** (weekdays vs weekends)
 - **Seamless transition** to solar surplus at sunrise
 - **Late arrival detection** (car plugged in after scheduled time)
+
+### ⚡ Boost Charge
+**Manual override charging with automatic stop at a target EV SOC.**
+- **Dedicated boost switch** separate from `Forza Ricarica`
+- **Configurable fixed amperage** (6-32A)
+- **Configurable EV SOC target** (0-100%)
+- **Automatic return** to normal automations when the target is reached
 
 ### 🚫 Smart Blocker
 **Automatic nighttime charging prevention** when solar is unavailable.
@@ -178,13 +186,13 @@ For Night Smart Charge feature:
 
 ### Step 3: Automatic Helper Entities
 
-After setup, the integration **automatically creates 29 helper entities**:
+After setup, the integration **automatically creates 51 entities**:
 
-- 🔘 **12 Switches** (feature toggles, car ready flags, notifications)
-- 🔢 **14 Numbers** (intervals, thresholds, delays, daily targets)
-- ⏰ **1 Time** (night charge start time)
+- 🔘 **17 Switches** (feature toggles, car ready flags, notifications)
+- 🔢 **24 Numbers** (intervals, thresholds, delays, targets, boost controls)
+- ⏰ **2 Time** entities (night charge start time, car ready deadline)
 - 📋 **1 Select** (charging profile selector)
-- 📊 **1 Sensor** (diagnostic status, priority state, cached EV SOC)
+- 📊 **7 Sensors** (diagnostics, targets, cached EV SOC, log path)
 
 **No manual setup required!** All entities persist across restarts.
 
@@ -218,6 +226,29 @@ After setup, the integration **automatically creates 29 helper entities**:
 3. Find Closest Level = [6, 8, 10, 13, 16, 20, 24, 32]A
 4. Start/Adjust Charger
 ```
+
+---
+
+### 3. Boost Charge ⚡
+
+**Force charging immediately at a fixed amperage until a target EV SOC is reached.**
+
+**When to use:**
+- Urgent top-up before a trip
+- Override solar-only logic temporarily
+- Avoid forgetting a manual stop after enabling an override
+
+**How it works:**
+1. Turn ON **Boost Charge**
+2. Set **Boost Charge Amperage**
+3. Set **Boost Target SOC**
+4. Charging starts immediately and stops automatically at the target
+5. The system disables Boost Charge and returns to normal automations
+
+**Important:**
+- `Boost Charge` is independent from `Forza Ricarica`
+- `Forza Ricarica` remains a manual continuous override
+- `Boost Charge` auto-disables itself when the configured target is reached
 
 #### Key Features
 
@@ -591,6 +622,18 @@ cards:
         name: 🎯 Current Priority
         icon: mdi:priority-high
 
+  # ============= BOOST CHARGE =============
+  - type: entities
+    title: ⚡ Boost Charge
+    show_header_toggle: false
+    entities:
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_charge_enabled
+        name: ⚡ Boost Charge
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_charge_amperage
+        name: ⚡ Boost Amperage
+      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_target_soc
+        name: 🎯 Boost Target SOC
+
   # ============= NIGHT SMART CHARGE =============
   - type: entities
     title: 🌙 Night Smart Charge Settings
@@ -647,6 +690,8 @@ cards:
 
 ### Setup Instructions
 
+`Boost Charge` is independent from `Forza Ricarica`: the boost stops automatically at the configured SOC target, while `Forza Ricarica` remains a manual continuous override.
+
 1. **Find Your Entry ID:**
    - Go to **Developer Tools → States**
    - Search for "evsc"
@@ -677,7 +722,7 @@ cards:
 1. **Helper entities not created**
    - Wait 2 seconds after restart
    - Check: Developer Tools → States → search "evsc"
-   - Should see 29 entities
+   - Should see 51 entities
 
 2. **Entity mappings incorrect**
    - Settings → Devices & Services → EV Smart Charger → Configure

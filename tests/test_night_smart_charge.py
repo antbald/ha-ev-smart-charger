@@ -203,3 +203,13 @@ async def test_evaluate_skip_when_charger_status_free(hass, night_charge):
     # Verify - should not start charging
     assert night_charge.is_active() is False
     night_charge.charger_controller.start_charger.assert_not_called()
+
+
+async def test_evaluate_skip_when_boost_active(hass, night_charge):
+    """Night Smart Charge should skip evaluation while Boost Charge is active."""
+    night_charge._boost_charge = MagicMock()
+    night_charge._boost_charge.is_active.return_value = True
+
+    await night_charge._evaluate_and_charge()
+
+    night_charge.charger_controller.start_charger.assert_not_called()

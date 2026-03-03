@@ -39,6 +39,16 @@ async def async_setup_entry(
         )
     )
 
+    # Create Boost Charge switch
+    entities.append(
+        EVSCSwitch(
+            entry.entry_id,
+            "evsc_boost_charge_enabled",
+            "EVSC Boost Charge",
+            "mdi:flash",
+        )
+    )
+
     # Create Smart Charger Blocker Enable
     entities.append(
         EVSCSwitch(

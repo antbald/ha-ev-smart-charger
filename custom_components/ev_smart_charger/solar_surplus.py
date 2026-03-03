@@ -42,6 +42,8 @@ class SolarSurplusAutomation:
         priority_balancer,
         charger_controller,
         night_smart_charge=None,
+        coordinator=None,
+        boost_charge=None,
     ) -> None:
         """Initialize the Solar Surplus automation.
 
@@ -59,6 +61,8 @@ class SolarSurplusAutomation:
         self.priority_balancer = priority_balancer
         self.charger_controller = charger_controller
         self._night_smart_charge = night_smart_charge
+        self._coordinator = coordinator
+        self._boost_charge = boost_charge
 
         # Initialize logger, registry service, and astral time service
         self.logger = EVSCLogger("SOLAR SURPLUS")
@@ -244,11 +248,15 @@ class SolarSurplusAutomation:
                 )
 
     @callback
-    async def _async_periodic_check(self, now=None) -> None:
+    async def _async_periodic_check(self, now=None, ignore_rate_limit: bool = False) -> None:
         """Periodic check for solar surplus charging."""
         # === Rate Limiting ===
         current_time = time.time()
-        if self._last_check_time and (current_time - self._last_check_time) < SOLAR_SURPLUS_MIN_CHECK_INTERVAL:
+        if (
+            not ignore_rate_limit
+            and self._last_check_time
+            and (current_time - self._last_check_time) < SOLAR_SURPLUS_MIN_CHECK_INTERVAL
+        ):
             return
 
         self._last_check_time = current_time
@@ -276,7 +284,17 @@ class SolarSurplusAutomation:
             self.logger.separator()
             return
 
-        # === 2. Check Nighttime (Solar Surplus only works during daytime) ===
+        # === 2. Check Boost Charge (manual override) ===
+        if self._boost_charge and self._boost_charge.is_active():
+            self.logger.skip("Boost Charge active")
+            await self._update_diagnostic_sensor(
+                "SKIPPED: Boost Charge Active",
+                {"reason": "Boost override enabled", "last_check": datetime.now().isoformat()}
+            )
+            self.logger.separator()
+            return
+
+        # === 3. Check Nighttime (Solar Surplus only works during daytime) ===
         from homeassistant.util import dt as dt_util
         from .const import NIGHT_CHARGE_COOLDOWN_SECONDS
         now = dt_util.now()
@@ -290,7 +308,7 @@ class SolarSurplusAutomation:
             self.logger.separator()
             return
 
-        # === 3. Check Night Smart Charge ===
+        # === 4. Check Night Smart Charge ===
         if self._night_smart_charge and self._night_smart_charge.is_active():
             night_mode = self._night_smart_charge.get_active_mode()
             self.logger.skip(f"Night Smart Charge active (mode: {night_mode})")
@@ -301,7 +319,7 @@ class SolarSurplusAutomation:
             self.logger.separator()
             return
 
-        # === 4. Check Night Smart Charge Cooldown ===
+        # === 5. Check Night Smart Charge Cooldown ===
         if self._night_smart_charge and hasattr(self._night_smart_charge, '_last_completion_time') and \
            self._night_smart_charge._last_completion_time:
             time_since = (now - self._night_smart_charge._last_completion_time).total_seconds()
@@ -320,7 +338,7 @@ class SolarSurplusAutomation:
                 self.logger.separator()
                 return
 
-        # === 5. Check Charging Profile ===
+        # === 6. Check Charging Profile ===
         current_profile = get_state(self.hass, self._charging_profile_entity)
         if current_profile != "solar_surplus":
             self.logger.skip(f"Profile not 'solar_surplus' (current: {current_profile})")
@@ -331,7 +349,7 @@ class SolarSurplusAutomation:
             self.logger.separator()
             return
 
-        # === 6. Check Charger Status ===
+        # === 7. Check Charger Status ===
         charger_status = get_state(self.hass, self._charger_status)
         if not charger_status:
             self.logger.warning("Charger status unavailable")
@@ -345,7 +363,7 @@ class SolarSurplusAutomation:
 
         self.logger.info(f"Charger status: '{charger_status}' - proceeding")
 
-        # === 7. Priority Balancer Decision (target enforcement must run even if energy sensors fail) ===
+        # === 8. Priority Balancer Decision (target enforcement must run even if energy sensors fail) ===
         priority = None
         if self.priority_balancer.is_enabled():
             priority = await self.priority_balancer.calculate_priority()
@@ -373,7 +391,7 @@ class SolarSurplusAutomation:
         else:
             self.logger.info("Priority Balancer disabled - using fallback mode")
 
-        # === 8. Validate Sensors (with throttled logging to prevent spam) ===
+        # === 9. Validate Sensors (with throttled logging to prevent spam) ===
         sensor_errors = []
         sensors_to_validate = [
             (self._fv_production, "Solar Production"),
@@ -415,7 +433,7 @@ class SolarSurplusAutomation:
             self.logger.separator()
             return
 
-        # === 9. Calculate Surplus ===
+        # === 10. Calculate Surplus ===
         fv_production = get_float(self.hass, self._fv_production)
         home_consumption = get_float(self.hass, self._home_consumption)
         grid_import = get_float(self.hass, self._grid_import)
@@ -811,6 +829,12 @@ class SolarSurplusAutomation:
             state,
             attributes,
         )
+
+    async def async_request_immediate_check(self, reason: str = "") -> None:
+        """Force an immediate periodic check, bypassing the rate limit."""
+        if reason:
+            self.logger.info(f"Immediate Solar Surplus check requested: {reason}")
+        await self._async_periodic_check(ignore_rate_limit=True)
 
     async def async_remove(self) -> None:
         """Remove the automation."""

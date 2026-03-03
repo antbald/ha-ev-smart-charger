@@ -170,6 +170,67 @@ class MobileNotificationService:
             priority="normal"
         )
 
+    async def send_boost_charge_started_notification(
+        self,
+        amperage: int,
+        start_soc: float,
+        target_soc: int,
+    ) -> None:
+        """Send Boost Charge start notification using Night Charge toggle."""
+        if not self._is_night_charge_enabled():
+            _LOGGER.debug("Night Charge notifications disabled, skipping Boost start notification")
+            return
+
+        if not self._is_car_owner_home():
+            _LOGGER.debug("Car owner not home, skipping Boost start notification")
+            return
+
+        message = (
+            "Boost ricarica EV avviato\n\n"
+            f"🚗 EV: {start_soc:.1f}%\n"
+            f"🎯 Target Boost: {target_soc}%\n"
+            f"⚡ Amperaggio: {amperage}A\n"
+            f"Ora: {dt_util.now().strftime('%H:%M')}"
+        )
+
+        await self._send_notification(
+            message=message,
+            tag="evsc_boost_charge",
+            priority="high"
+        )
+
+    async def send_boost_charge_completed_notification(
+        self,
+        end_soc: float | None,
+        target_soc: int | None,
+        reason: str,
+    ) -> None:
+        """Send Boost Charge completion notification using Night Charge toggle."""
+        if not self._is_night_charge_enabled():
+            _LOGGER.debug("Night Charge notifications disabled, skipping Boost completion notification")
+            return
+
+        if not self._is_car_owner_home():
+            _LOGGER.debug("Car owner not home, skipping Boost completion notification")
+            return
+
+        soc_label = "N/D" if end_soc is None else f"{end_soc:.1f}%"
+        target_label = "N/D" if target_soc is None else f"{target_soc}%"
+
+        message = (
+            "Boost ricarica EV terminato\n\n"
+            f"🚗 EV finale: {soc_label}\n"
+            f"🎯 Target Boost: {target_label}\n"
+            f"Motivo: {reason}\n"
+            "Ritorno alla modalita automatica in corso."
+        )
+
+        await self._send_notification(
+            message=message,
+            tag="evsc_boost_charge",
+            priority="normal"
+        )
+
     def _is_smart_blocker_enabled(self) -> bool:
         """Check if Smart Blocker notifications are enabled."""
         return self._is_notification_enabled("evsc_notify_smart_blocker_enabled")

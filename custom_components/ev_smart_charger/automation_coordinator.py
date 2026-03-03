@@ -6,15 +6,26 @@ from homeassistant.const import STATE_ON
 from homeassistant.util import dt as dt_util
 
 from .utils.entity_registry_service import EntityRegistryService
+from .const import (
+    PRIORITY_OVERRIDE,
+    PRIORITY_BOOST_CHARGE,
+    PRIORITY_SMART_BLOCKER,
+    PRIORITY_NIGHT_CHARGE,
+    PRIORITY_BALANCER,
+    PRIORITY_SOLAR_SURPLUS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-# Priority levels for automations (lower number = higher priority)
-PRIORITY_OVERRIDE = 1  # evsc_forza_ricarica (always wins)
-PRIORITY_SMART_BLOCKER = 2  # Smart Charger Blocker (safety rules)
-PRIORITY_NIGHT_CHARGE = 3  # Night Smart Charge (scheduled charging)
-PRIORITY_BALANCER = 4  # Priority Balancer (EV vs Home battery)
-PRIORITY_SOLAR_SURPLUS = 5  # Solar Surplus (optimization)
+__all__ = [
+    "AutomationCoordinator",
+    "PRIORITY_OVERRIDE",
+    "PRIORITY_BOOST_CHARGE",
+    "PRIORITY_SMART_BLOCKER",
+    "PRIORITY_NIGHT_CHARGE",
+    "PRIORITY_BALANCER",
+    "PRIORITY_SOLAR_SURPLUS",
+]
 
 
 class AutomationCoordinator:

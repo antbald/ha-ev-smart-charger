@@ -40,6 +40,7 @@ class SmartChargerBlocker:
         night_smart_charge,
         charger_controller,
         coordinator=None,
+        boost_charge=None,
     ) -> None:
         """Initialize the Smart Charger Blocker.
 
@@ -57,6 +58,7 @@ class SmartChargerBlocker:
         self.night_smart_charge = night_smart_charge
         self.charger_controller = charger_controller
         self._coordinator = coordinator
+        self._boost_charge = boost_charge
         self.logger = EVSCLogger("SMART BLOCKER")
         self._registry_service = EntityRegistryService(hass, entry_id)
         self._notification_service = NotificationService(hass)
@@ -351,7 +353,11 @@ class SmartChargerBlocker:
             night_mode = self.night_smart_charge.get_active_mode()
             return False, f"Night Smart Charge active (mode: {night_mode})"
 
-        # Check 4: Determine blocking window based on Night Charge configuration
+        # Check 4: Boost Charge active (explicit override with auto-stop)
+        if self._boost_charge and self._boost_charge.is_active():
+            return False, "Boost Charge active"
+
+        # Check 5: Determine blocking window based on Night Charge configuration
         now = dt_util.now()
         in_blocking_window, window_reason = await self._is_in_blocking_window(now)
 
@@ -572,5 +578,4 @@ class SmartChargerBlocker:
                 }
             )
             self.logger.separator()
-
 

@@ -56,6 +56,8 @@ class NightSmartCharge:
         config: dict,
         priority_balancer,
         charger_controller,
+        coordinator=None,
+        boost_charge=None,
     ) -> None:
         """
         Initialize Night Smart Charge.
@@ -72,6 +74,8 @@ class NightSmartCharge:
         self.config = config
         self.priority_balancer = priority_balancer
         self.charger_controller = charger_controller
+        self._coordinator = coordinator
+        self._boost_charge = boost_charge
         self.logger = EVSCLogger("NIGHT SMART CHARGE")
         self._astral_service = AstralTimeService(hass)
         self._mobile_notifier = MobileNotificationService(
@@ -246,6 +250,33 @@ class NightSmartCharge:
         """
         return self._active_mode
 
+    async def async_request_immediate_check(self, reason: str = "") -> None:
+        """Force an immediate evaluation cycle."""
+        if reason:
+            self.logger.info(f"Immediate Night Smart Charge check requested: {reason}")
+        await self._async_periodic_check(dt_util.now())
+
+    async def async_pause_for_external_override(self, reason: str = "") -> None:
+        """Pause an active night charge session because another override took control."""
+        if not self.is_active():
+            return
+
+        if self._battery_monitor_unsub:
+            self._battery_monitor_unsub()
+            self._battery_monitor_unsub = None
+
+        if self._grid_monitor_unsub:
+            self._grid_monitor_unsub()
+            self._grid_monitor_unsub = None
+
+        self.logger.info(
+            f"Pausing Night Smart Charge due to external override: {reason or 'No reason provided'}"
+        )
+
+        self._night_charge_active = False
+        self._active_mode = NIGHT_CHARGE_MODE_IDLE
+        self._session_state = "ready"
+
     # ========== PERIODIC MONITORING ==========
 
     @callback
@@ -255,6 +286,10 @@ class NightSmartCharge:
 
         current_time = dt_util.now()
         self.logger.debug(f"Periodic check at {current_time.strftime('%H:%M:%S')}")
+
+        if self._boost_charge and self._boost_charge.is_active():
+            self.logger.debug("Boost Charge active - skipping Night Smart Charge check")
+            return
 
         # Check if session recently completed (within 1 hour cooldown)
         if self._last_completion_time:
@@ -310,7 +345,9 @@ class NightSmartCharge:
 
             # Check if we're in active window and enabled
             now = dt_util.now()
-            if await self._is_in_active_window(now) and self.is_enabled():
+            if self._boost_charge and self._boost_charge.is_active():
+                self.logger.info("Boost Charge active - skipping late arrival handling")
+            elif await self._is_in_active_window(now) and self.is_enabled():
                 self.logger.info("Late arrival detected - running immediate check")
                 await self._evaluate_and_charge()
 
@@ -438,6 +475,10 @@ class NightSmartCharge:
         """Main decision logic for Night Smart Charge."""
         # v1.4.11: Comprehensive exception handling to prevent silent failures
         try:
+            if self._boost_charge and self._boost_charge.is_active():
+                self.logger.info("Boost Charge active - skipping Night Smart Charge evaluation")
+                return
+
             # v1.4.2: Diagnostic snapshot at evaluation start
             now = dt_util.now()
             today = now.strftime("%A").lower()
@@ -827,6 +868,9 @@ class NightSmartCharge:
         if not self.is_active() or self._active_mode != NIGHT_CHARGE_MODE_BATTERY:
             return
 
+        if self._boost_charge and self._boost_charge.is_active():
+            return
+
         current_time = dt_util.now()
         self.logger.separator()
         self.logger.info(f"{self.logger.BATTERY} Battery monitoring at {current_time.strftime('%H:%M:%S')}")
@@ -891,6 +935,9 @@ class NightSmartCharge:
         """
         # Only monitor if grid mode is active
         if not self.is_active() or self._active_mode != NIGHT_CHARGE_MODE_GRID:
+            return
+
+        if self._boost_charge and self._boost_charge.is_active():
             return
 
         current_time = dt_util.now()

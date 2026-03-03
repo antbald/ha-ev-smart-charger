@@ -13,6 +13,7 @@ from .charger_controller import ChargerController
 from .ev_soc_monitor import EVSOCMonitor
 from .priority_balancer import PriorityBalancer
 from .night_smart_charge import NightSmartCharge
+from .boost_charge import BoostCharge
 from .automations import SmartChargerBlocker
 from .solar_surplus import SolarSurplusAutomation
 from .log_manager import LogManager
@@ -86,7 +87,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # ========== PHASE 5: CREATE NIGHT SMART CHARGE (depends on Priority Balancer & Charger Controller) ==========
     _LOGGER.info("🌙 Phase 5: Creating Night Smart Charge")
-    night_smart_charge = NightSmartCharge(hass, entry.entry_id, entry.data, priority_balancer, charger_controller)
+    night_smart_charge = NightSmartCharge(
+        hass,
+        entry.entry_id,
+        entry.data,
+        priority_balancer,
+        charger_controller,
+        coordinator=coordinator,
+    )
     try:
         await night_smart_charge.async_setup()
         _LOGGER.info("✅ Night Smart Charge setup complete")
@@ -95,9 +103,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.exception("Night Smart Charge setup error details:")
         night_smart_charge = None
 
+    # ========== PHASE 5.5: CREATE BOOST CHARGE ==========
+    _LOGGER.info("⚡ Phase 5.5: Creating Boost Charge")
+    boost_charge = BoostCharge(
+        hass,
+        entry.entry_id,
+        entry.data,
+        priority_balancer,
+        charger_controller,
+        coordinator=coordinator,
+        night_smart_charge=night_smart_charge,
+    )
+    try:
+        await boost_charge.async_setup()
+        _LOGGER.info("✅ Boost Charge setup complete")
+    except Exception as e:
+        _LOGGER.error(f"❌ Failed to set up Boost Charge: {e}")
+        _LOGGER.exception("Boost Charge setup error details:")
+        boost_charge = None
+
     # ========== PHASE 6: CREATE SMART BLOCKER (depends on Night Smart Charge & Charger Controller) ==========
     _LOGGER.info("🚫 Phase 6: Creating Smart Charger Blocker")
-    smart_blocker = SmartChargerBlocker(hass, entry.entry_id, entry.data, night_smart_charge, charger_controller)
+    smart_blocker = SmartChargerBlocker(
+        hass,
+        entry.entry_id,
+        entry.data,
+        night_smart_charge,
+        charger_controller,
+        coordinator=coordinator,
+        boost_charge=boost_charge,
+    )
     try:
         await smart_blocker.async_setup()
         _LOGGER.info("✅ Smart Charger Blocker setup complete")
@@ -108,7 +143,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # ========== PHASE 7: CREATE SOLAR SURPLUS (depends on Priority Balancer & Charger Controller) ==========
     _LOGGER.info("☀️  Phase 7: Creating Solar Surplus automation")
-    solar_surplus = SolarSurplusAutomation(hass, entry.entry_id, entry.data, priority_balancer, charger_controller)
+    solar_surplus = SolarSurplusAutomation(
+        hass,
+        entry.entry_id,
+        entry.data,
+        priority_balancer,
+        charger_controller,
+        night_smart_charge=night_smart_charge,
+        coordinator=coordinator,
+        boost_charge=boost_charge,
+    )
     try:
         await solar_surplus.async_setup()
         _LOGGER.info("✅ Solar Surplus automation setup complete")
@@ -116,6 +160,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error(f"❌ Failed to set up Solar Surplus: {e}")
         _LOGGER.exception("Solar Surplus setup error details:")
         solar_surplus = None
+
+    if boost_charge:
+        boost_charge.set_related_automations(
+            night_smart_charge=night_smart_charge,
+            solar_surplus=solar_surplus,
+        )
 
     # ========== PHASE 7.5: SETUP FILE LOGGING (v1.3.25) ==========
     _LOGGER.info("📝 Phase 7.5: Setting up file logging manager")
@@ -132,6 +182,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         evsc_loggers.append(smart_blocker.logger)
     if solar_surplus:
         evsc_loggers.append(solar_surplus.logger)
+    if boost_charge:
+        evsc_loggers.append(boost_charge.logger)
 
     # Setup log manager with toggle listener
     log_manager = LogManager(hass, entry.entry_id)
@@ -148,6 +200,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
         "priority_balancer": priority_balancer,
         "night_smart_charge": night_smart_charge,
+        "boost_charge": boost_charge,
         "smart_blocker": smart_blocker,
         "solar_surplus": solar_surplus,
         "log_manager": log_manager,
@@ -188,6 +241,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if smart_blocker:
         _LOGGER.info("🗑️  Removing Smart Charger Blocker")
         await smart_blocker.async_remove()
+
+    boost_charge = entry_data.get("boost_charge")
+    if boost_charge:
+        _LOGGER.info("🗑️  Removing Boost Charge")
+        await boost_charge.async_remove()
 
     night_smart_charge = entry_data.get("night_smart_charge")
     if night_smart_charge:

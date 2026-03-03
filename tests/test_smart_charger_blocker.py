@@ -68,6 +68,18 @@ async def test_should_block_overrides(hass, blocker):
     assert should_block is False
     assert "disabled" in reason
 
+async def test_should_not_block_when_boost_active(hass, blocker):
+    """Boost Charge should bypass Smart Charger Blocker while active."""
+    hass.states.async_set("switch.force_charge", "off")
+    hass.states.async_set("switch.blocker_enabled", "on")
+    blocker._boost_charge = MagicMock()
+    blocker._boost_charge.is_active.return_value = True
+
+    should_block, reason = await blocker._should_block_charging()
+
+    assert should_block is False
+    assert "Boost Charge" in reason
+
 async def test_check_and_block_execution(hass, blocker):
     """Test the execution of blocking action."""
     hass.states.async_set("switch.force_charge", "off")

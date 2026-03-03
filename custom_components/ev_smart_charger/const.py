@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.4.17"
+VERSION = "1.4.18"
 DEFAULT_NAME = "EV Smart Charger"
 
 # ========== PLATFORMS ==========
@@ -10,10 +10,11 @@ PLATFORMS = ["switch", "number", "select", "sensor", "time"]
 
 # ========== AUTOMATION PRIORITIES ==========
 PRIORITY_OVERRIDE = 1  # Forza Ricarica (kill switch)
-PRIORITY_SMART_BLOCKER = 2  # Smart Charger Blocker
-PRIORITY_NIGHT_CHARGE = 3  # Night Smart Charge
-PRIORITY_BALANCER = 4  # Priority Balancer
-PRIORITY_SOLAR_SURPLUS = 5  # Solar Surplus
+PRIORITY_BOOST_CHARGE = 2  # Boost Charge override
+PRIORITY_SMART_BLOCKER = 3  # Smart Charger Blocker
+PRIORITY_NIGHT_CHARGE = 4  # Night Smart Charge
+PRIORITY_BALANCER = 5  # Priority Balancer
+PRIORITY_SOLAR_SURPLUS = 6  # Solar Surplus
 
 # ========== PRIORITY BALANCER STATES ==========
 PRIORITY_EV = "EV"  # EV charging priority
@@ -76,6 +77,7 @@ MAX_BATTERY_CAPACITY = 200.0
 
 # Switches
 HELPER_FORZA_RICARICA_SUFFIX = "evsc_forza_ricarica"
+HELPER_BOOST_CHARGE_ENABLED_SUFFIX = "evsc_boost_charge_enabled"
 HELPER_SMART_BLOCKER_ENABLED_SUFFIX = "evsc_smart_charger_blocker_enabled"
 HELPER_USE_HOME_BATTERY_SUFFIX = "evsc_use_home_battery"
 HELPER_PRIORITY_BALANCER_ENABLED_SUFFIX = "evsc_priority_balancer_enabled"
@@ -100,6 +102,10 @@ HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX = "evsc_battery_support_amperage"
 # Numbers - Night Smart Charge
 HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX = "evsc_night_charge_amperage"
 HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX = "evsc_min_solar_forecast_threshold"
+
+# Numbers - Boost Charge
+HELPER_BOOST_CHARGE_AMPERAGE_SUFFIX = "evsc_boost_charge_amperage"
+HELPER_BOOST_TARGET_SOC_SUFFIX = "evsc_boost_target_soc"
 
 # Numbers - Daily SOC targets (EV)
 HELPER_EV_MIN_SOC_MONDAY_SUFFIX = "evsc_ev_min_soc_monday"
@@ -172,6 +178,10 @@ DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD = 20  # kWh
 DEFAULT_NIGHT_CHARGE_AMPERAGE = 16  # amps
 DEFAULT_CAR_READY_TIME = "08:00:00"  # Default deadline when car must be ready
 NIGHT_CHARGE_COOLDOWN_SECONDS = 3600  # 1 hour - prevent re-evaluation after completion
+
+# ========== DEFAULT VALUES - BOOST CHARGE ==========
+DEFAULT_BOOST_CHARGE_AMPERAGE = 16  # amps
+DEFAULT_BOOST_TARGET_SOC = 80  # percent
 
 # ========== NIGHT SMART CHARGE WINDOW ACTIVATION SETTINGS (v1.4.4) ==========
 ACTIVATION_GRACE_BEFORE_MINUTES = 2  # Activate 2 minutes before scheduled time (handles clock drift)

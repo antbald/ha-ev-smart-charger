@@ -21,6 +21,8 @@ from .const import (
     DEFAULT_EV_MIN_SOC_WEEKEND,
     DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD,
     DEFAULT_NIGHT_CHARGE_AMPERAGE,
+    DEFAULT_BOOST_CHARGE_AMPERAGE,
+    DEFAULT_BOOST_TARGET_SOC,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -365,6 +367,36 @@ async def async_setup_entry(
             step=2,
             default_value=DEFAULT_NIGHT_CHARGE_AMPERAGE,
             unit="A",
+        )
+    )
+
+    # Boost Charge Amperage
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_boost_charge_amperage",
+            "EVSC Boost Charge Amperage",
+            "mdi:flash",
+            min_value=6,
+            max_value=32,
+            step=2,
+            default_value=DEFAULT_BOOST_CHARGE_AMPERAGE,
+            unit="A",
+        )
+    )
+
+    # Boost Charge Target SOC
+    entities.append(
+        EVSCNumber(
+            entry.entry_id,
+            "evsc_boost_target_soc",
+            "EVSC Boost Target SOC",
+            "mdi:battery-charging-90",
+            min_value=0,
+            max_value=100,
+            step=1,
+            default_value=DEFAULT_BOOST_TARGET_SOC,
+            unit="%",
         )
     )
 
