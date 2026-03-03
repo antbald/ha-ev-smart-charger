@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "home-assistant-automation-scripts": {
+      "source": "bradsjm/hassio-addons",
+      "sourceType": "github",
+      "computedHash": "78d44b9b5da6ca355f0bc67fd72eb2e2f290e4292b93989cb0d24c2f6b731350"
+    },
+    "home-assistant-best-practices": {
+      "source": "homeassistant-ai/skills",
+      "sourceType": "github",
+      "computedHash": "c1c765b3c48db9aae9fd8f69dc703128092c61287d6feea7d945cb2fc4e3bb46"
+    },
+    "home-assistant-custom-integration": {
+      "source": "bradsjm/hassio-addons",
+      "sourceType": "github",
+      "computedHash": "98e60cb77b2b9b0759f082191ecbb9241db8ff5e55dd05edca0a8fb59d6228ea"
+    }
+  }
+}
