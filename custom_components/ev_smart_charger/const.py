@@ -2,8 +2,10 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.4.18"
+VERSION = "1.4.19"
 DEFAULT_NAME = "EV Smart Charger"
+FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
+FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
 
 # ========== PLATFORMS ==========
 PLATFORMS = ["switch", "number", "select", "sensor", "time"]
