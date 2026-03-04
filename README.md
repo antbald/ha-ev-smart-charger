@@ -593,99 +593,218 @@ All Components
 
 ## 📱 Dashboard Setup
 
+### Animated Custom Dashboard
+
+This integration now ships a bundled frontend module for a full custom Lovelace dashboard card with animated HTML/CSS UI.
+
+1. Add the resource:
+
+```yaml
+lovelace:
+  resources:
+    - url: /api/ev_smart_charger/frontend/ev-smart-charger-dashboard.js
+      type: module
+```
+
+2. Add the card:
+
+```yaml
+type: custom:ev-smart-charger-dashboard
+title: Tesla Charge Deck
+entity_prefix: ev_smart_charger_YOUR_ENTRY_ID
+charging_power_entity: sensor.current_charging_power_tesla
+ev_soc_entity: sensor.tesla_battery
+home_battery_soc_entity: sensor.stato_batteria_luxpower
+solar_power_entity: sensor.produzione_solare_totale
+grid_import_entity: sensor.grid_power_import_w
+current_entity: number.wallbox_current
+```
+
+The custom card exposes the integration helpers with a single animated control surface:
+
+- gradient hero panel with live telemetry
+- native toggles for override, boost, night charge, solar surplus, and blockers
+- stepper controls for number entities
+- selectable charging profile chips
+- direct Home Assistant service calls from the UI
+
 ### Complete Control Dashboard
 
-Copy this YAML to your dashboard for full control:
+Copy this YAML to your dashboard for a cleaner, more elegant layout with a full weekly planning section:
 
 ```yaml
 type: vertical-stack
 cards:
-  # ============= MAIN CONTROLS =============
-  - type: entities
-    title: ⚡ EV Smart Charger - Main Controls
-    show_header_toggle: false
-    entities:
-      # Global Override
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_forza_ricarica
-        name: 🔴 Forza Ricarica (Override All)
-        icon: mdi:power
+  - type: markdown
+    content: |
+      # EV Smart Charger
+      A polished control deck for overrides, night charge planning, solar tuning, and daily targets.
 
-      # Charging Profile Selector
-      - type: divider
-      - entity: select.ev_smart_charger_YOUR_ENTRY_ID_evsc_charging_profile
-        name: ⚡ Charging Profile
+  - type: grid
+    title: Live Control Deck
+    columns: 2
+    square: false
+    cards:
+      - type: tile
+        entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_forza_ricarica
+        name: Forza Ricarica
+        icon: mdi:flash-alert
+        color: red
+        vertical: true
+      - type: tile
+        entity: select.ev_smart_charger_YOUR_ENTRY_ID_evsc_charging_profile
+        name: Charging Profile
         icon: mdi:ev-station
+        vertical: true
+      - type: tile
+        entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_priority_daily_state
+        name: Priority State
+        icon: mdi:scale-balance
+        vertical: true
+      - type: tile
+        entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_today_ev_target
+        name: Today EV Target
+        icon: mdi:car-electric
+        vertical: true
+      - type: tile
+        entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_today_home_target
+        name: Today Home Target
+        icon: mdi:home-battery
+        vertical: true
+      - type: tile
+        entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_solar_surplus_diagnostic
+        name: Solar Diagnostic
+        icon: mdi:solar-power-variant
+        vertical: true
 
-      # Priority State (read-only)
-      - type: divider
-      - entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_priority_daily_state
-        name: 🎯 Current Priority
-        icon: mdi:priority-high
+  - type: grid
+    title: Fast Actions
+    columns: 2
+    square: false
+    cards:
+      - type: entities
+        title: Boost Charge
+        show_header_toggle: false
+        entities:
+          - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_charge_enabled
+            name: Boost Session
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_charge_amperage
+            name: Boost Amperage
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_target_soc
+            name: Boost Target SOC
+      - type: entities
+        title: Night Smart Charge
+        show_header_toggle: false
+        entities:
+          - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_smart_charge_enabled
+            name: Enable Night Smart Charge
+          - entity: time.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_charge_time
+            name: Start Time
+          - entity: time.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_time
+            name: Ready In The Morning Time
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_min_solar_forecast_threshold
+            name: Min Solar Forecast
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_charge_amperage
+            name: Night Charge Amperage
 
-  # ============= BOOST CHARGE =============
   - type: entities
-    title: ⚡ Boost Charge
-    show_header_toggle: false
-    entities:
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_charge_enabled
-        name: ⚡ Boost Charge
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_charge_amperage
-        name: ⚡ Boost Amperage
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_target_soc
-        name: 🎯 Boost Target SOC
-
-  # ============= NIGHT SMART CHARGE =============
-  - type: entities
-    title: 🌙 Night Smart Charge Settings
-    show_header_toggle: false
-    entities:
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_smart_charge_enabled
-        name: Enable Night Smart Charge
-      - entity: time.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_charge_time
-        name: ⏰ Start Time
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_min_solar_forecast_threshold
-        name: ☀️ Min Solar Forecast (kWh)
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_charge_amperage
-        name: ⚡ Night Charge Amperage
-
-  # ============= SOLAR SURPLUS SETTINGS =============
-  - type: entities
-    title: ☀️ Solar Surplus Settings
+    title: Solar Surplus Tuning
     show_header_toggle: false
     entities:
       - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_check_interval
-        name: ⏱️ Check Interval (min)
+        name: Check Interval
       - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_grid_import_threshold
-        name: 🔌 Grid Import Threshold (W)
-      - type: divider
+        name: Grid Import Threshold
       - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_grid_import_delay
-        name: ⏳ Grid Import Delay (s)
+        name: Grid Import Delay
       - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_surplus_drop_delay
-        name: ⏳ Surplus Drop Delay (s)
+        name: Surplus Drop Delay
       - type: divider
       - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_use_home_battery
-        name: 🔋 Use Home Battery
+        name: Use Home Battery
       - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_battery_min_soc
-        name: 🔋 Home Battery Min SOC (%)
+        name: Home Battery Min SOC
       - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_battery_support_amperage
-        name: ⚡ Battery Support Amperage
+        name: Battery Support Amperage
 
-  # ============= PRIORITY BALANCER =============
   - type: entities
-    title: ⚖️ Priority Balancer Settings
+    title: Automation Toggles
     show_header_toggle: false
     entities:
       - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_priority_balancer_enabled
-        name: Enable Priority Balancer
-      # Add daily targets here (see full YAML in repo)
+        name: Priority Balancer
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_smart_charger_blocker_enabled
+        name: Smart Charger Blocker
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_priority_balancer_enabled
+        name: Notify Priority Balancer
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_night_charge_enabled
+        name: Notify Night Charge
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_smart_blocker_enabled
+        name: Notify Smart Blocker
 
-  # ============= SMART BLOCKER =============
+  - type: grid
+    title: Weekly Charging Planner
+    columns: 2
+    square: false
+    cards:
+      - type: entities
+        title: EV Daily Targets
+        show_header_toggle: false
+        entities:
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_monday
+            name: Monday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_tuesday
+            name: Tuesday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_wednesday
+            name: Wednesday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_thursday
+            name: Thursday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_friday
+            name: Friday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_saturday
+            name: Saturday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_sunday
+            name: Sunday
+      - type: entities
+        title: Home Battery Daily Targets
+        show_header_toggle: false
+        entities:
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_monday
+            name: Monday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_tuesday
+            name: Tuesday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_wednesday
+            name: Wednesday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_thursday
+            name: Thursday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_friday
+            name: Friday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_saturday
+            name: Saturday
+          - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_sunday
+            name: Sunday
+
   - type: entities
-    title: 🚫 Smart Charger Blocker
+    title: Ready In The Morning Planner
     show_header_toggle: false
     entities:
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_smart_charger_blocker_enabled
-        name: Enable Smart Blocker
+      - entity: time.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_time
+        name: Departure Deadline
+      - type: divider
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_monday
+        name: Monday Ready
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_tuesday
+        name: Tuesday Ready
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_wednesday
+        name: Wednesday Ready
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_thursday
+        name: Thursday Ready
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_friday
+        name: Friday Ready
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_saturday
+        name: Saturday Ready
+      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_sunday
+        name: Sunday Ready
 ```
 
 ### Setup Instructions
