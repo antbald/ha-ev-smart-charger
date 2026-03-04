@@ -213,3 +213,22 @@ async def test_evaluate_skip_when_boost_active(hass, night_charge):
     await night_charge._evaluate_and_charge()
 
     night_charge.charger_controller.start_charger.assert_not_called()
+
+
+async def test_complete_night_charge_skips_cooldown_when_boost_is_active(hass, night_charge):
+    """Boost preemption must not mark the night session as completed."""
+    night_charge._night_charge_active = True
+    night_charge._active_mode = NIGHT_CHARGE_MODE_GRID
+    night_charge._session_state = "active"
+    night_charge._last_completion_time = None
+    night_charge._last_completion_date = None
+    night_charge._boost_charge = MagicMock()
+    night_charge._boost_charge.is_active.return_value = True
+
+    await night_charge._complete_night_charge()
+
+    assert night_charge.is_active() is False
+    assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_IDLE
+    assert night_charge._session_state == "ready"
+    assert night_charge._last_completion_time is None
+    assert night_charge._last_completion_date is None

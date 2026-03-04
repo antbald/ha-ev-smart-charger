@@ -1207,6 +1207,19 @@ class NightSmartCharge:
             self._grid_monitor_unsub = None
             self.logger.info("Grid monitoring stopped")
 
+        # Boost Charge can preempt Night Smart Charge while a monitor callback is already
+        # running. In that race, this cleanup must not mark the night session as completed
+        # or enable cooldown, otherwise Solar Surplus will be skipped after Boost ends.
+        if self._boost_charge and self._boost_charge.is_active():
+            previous_mode = self._active_mode
+            self._night_charge_active = False
+            self._active_mode = NIGHT_CHARGE_MODE_IDLE
+            self._session_state = "ready"
+            self.logger.info("Boost Charge override detected during completion - clearing state without cooldown")
+            self.logger.info(f"   Previous mode: {previous_mode}")
+            self.logger.separator()
+            return
+
         # Track completion time for cooldown
         self._last_completion_time = dt_util.now()
         self._last_completion_date = self._last_completion_time.date()  # v1.4.4: Date tracking
