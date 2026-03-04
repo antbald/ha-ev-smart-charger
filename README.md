@@ -838,225 +838,285 @@ cards:
 
 ### Mobile-First Full View (Best Option)
 
-If this dashboard is used almost entirely on a phone, the best structure is a dedicated **sidebar view**. On desktop it gives you a clean primary column plus a compact right rail. On mobile, Home Assistant renders everything in a single column and keeps the YAML order, which makes the screen flow predictable.
+The strongest mobile pattern here is **not** one giant page. It is:
 
-Paste this into the YAML of a dedicated dashboard view:
+1. A compact **home view** for the actions you use every day
+2. A **weekly planner subview** for day-by-day preferences
+3. A **diagnostics subview** for serviceability and logs
+
+This keeps the first screen fast and visually clean, while still exposing every preference.
+
+#### Main View
 
 ```yaml
-title: EV Mobile
-path: ev-mobile
-icon: mdi:car-electric
-type: sidebar
-cards:
-  - type: custom:mushroom-template-card
-    primary: Tesla Charge Deck
-    secondary: >
-      Priority {{ states('sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_priority_daily_state') }}
-      • Profile {{ states('select.ev_smart_charger_YOUR_ENTRY_ID_evsc_charging_profile') }}
-      • EV {{ states('sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_today_ev_target') }}
-      • Home {{ states('sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_today_home_target') }}
-    icon: mdi:ev-station
-    icon_color: teal
-    multiline_secondary: true
-    fill_container: true
+- title: EV Mobile
+  path: ev-mobile
+  icon: mdi:car-electric
+  type: sidebar
+  cards:
+    - type: custom:mushroom-template-card
+      primary: Tesla Charge Deck
+      secondary: >
+        Priority {{ states('sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_priority_daily_state') }}
+        • Profile {{ states('select.ev_smart_charger_YOUR_ENTRY_ID_evsc_charging_profile') }}
+        • EV {{ states('sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_today_ev_target') }}
+        • Home {{ states('sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_today_home_target') }}
+      icon: mdi:ev-station
+      icon_color: teal
+      multiline_secondary: true
+      fill_container: true
 
-  - type: custom:mushroom-chips-card
-    alignment: justify
-    chips:
-      - type: entity
-        entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_priority_daily_state
-        icon_color: teal
-      - type: entity
-        entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_today_ev_target
-        icon_color: amber
-      - type: entity
-        entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_today_home_target
-        icon_color: green
-      - type: entity
-        entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_cached_ev_soc
-        icon_color: blue
+    - type: custom:mushroom-chips-card
+      alignment: justify
+      chips:
+        - type: entity
+          entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_priority_daily_state
+          icon_color: teal
+        - type: entity
+          entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_today_ev_target
+          icon_color: amber
+        - type: entity
+          entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_today_home_target
+          icon_color: green
+        - type: entity
+          entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_cached_ev_soc
+          icon_color: blue
 
-  - type: grid
-    columns: 2
-    square: false
-    cards:
-      - type: custom:mushroom-entity-card
-        entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_forza_ricarica
-        name: Forza Ricarica
-        icon_color: red
-        secondary_info: state
-        fill_container: true
-      - type: custom:mushroom-select-card
-        entity: select.ev_smart_charger_YOUR_ENTRY_ID_evsc_charging_profile
-        name: Charging Profile
-        fill_container: true
-      - type: custom:mushroom-entity-card
-        entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_charge_enabled
-        name: Boost
-        icon_color: amber
-        secondary_info: state
-        fill_container: true
-      - type: custom:mushroom-entity-card
-        entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_smart_charge_enabled
-        name: Night Smart Charge
-        icon_color: indigo
-        secondary_info: state
-        fill_container: true
-      - type: custom:mushroom-entity-card
-        entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_priority_balancer_enabled
-        name: Priority Balancer
-        icon_color: teal
-        secondary_info: state
-        fill_container: true
-      - type: custom:mushroom-entity-card
-        entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_use_home_battery
-        name: Battery Support
-        icon_color: green
-        secondary_info: state
-        fill_container: true
+    - type: grid
+      columns: 2
+      square: false
+      cards:
+        - type: custom:mushroom-entity-card
+          entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_forza_ricarica
+          name: Forza Ricarica
+          icon_color: red
+          secondary_info: state
+          fill_container: true
+        - type: custom:mushroom-select-card
+          entity: select.ev_smart_charger_YOUR_ENTRY_ID_evsc_charging_profile
+          name: Charging Profile
+          fill_container: true
+        - type: custom:mushroom-entity-card
+          entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_charge_enabled
+          name: Boost
+          icon_color: amber
+          secondary_info: state
+          fill_container: true
+        - type: custom:mushroom-entity-card
+          entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_smart_charge_enabled
+          name: Night Smart Charge
+          icon_color: indigo
+          secondary_info: state
+          fill_container: true
+        - type: custom:mushroom-entity-card
+          entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_priority_balancer_enabled
+          name: Priority Balancer
+          icon_color: teal
+          secondary_info: state
+          fill_container: true
+        - type: custom:mushroom-entity-card
+          entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_use_home_battery
+          name: Battery Support
+          icon_color: green
+          secondary_info: state
+          fill_container: true
 
-  - type: entities
-    title: Quick Tuning
-    show_header_toggle: false
-    entities:
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_charge_amperage
-        name: Boost Amperage
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_target_soc
-        name: Boost Target SOC
-      - entity: time.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_charge_time
-        name: Night Charge Start
-      - entity: time.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_time
-        name: Ready In The Morning Time
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_charge_amperage
-        name: Night Charge Amperage
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_min_solar_forecast_threshold
-        name: Min Solar Forecast Threshold
+    - type: entities
+      title: Daily Controls
+      show_header_toggle: false
+      entities:
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_charge_amperage
+          name: Boost Amperage
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_boost_target_soc
+          name: Boost Target SOC
+        - entity: time.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_charge_time
+          name: Night Charge Start
+        - entity: time.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_time
+          name: Ready In The Morning Time
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_night_charge_amperage
+          name: Night Charge Amperage
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_min_solar_forecast_threshold
+          name: Min Solar Forecast Threshold
 
-  - type: custom:mushroom-title-card
-    title: Weekly Planner
-    subtitle: Each day bundles EV target, Home target, and morning readiness
+    - type: grid
+      columns: 2
+      square: false
+      cards:
+        - type: custom:mushroom-template-card
+          primary: Weekly Planner
+          secondary: Open day-by-day EV, Home, and Ready settings
+          icon: mdi:calendar-week
+          icon_color: amber
+          fill_container: true
+          tap_action:
+            action: navigate
+            navigation_path: /lovelace/ev-planner
+        - type: custom:mushroom-template-card
+          primary: Diagnostics
+          secondary: Open logs, diagnostics, notifications, and service tools
+          icon: mdi:stethoscope
+          icon_color: blue
+          fill_container: true
+          tap_action:
+            action: navigate
+            navigation_path: /lovelace/ev-diagnostics
 
-  - type: entities
-    title: Monday
-    show_header_toggle: false
-    entities:
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_monday
-        name: EV Target
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_monday
-        name: Home Target
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_monday
-        name: Ready In The Morning
+    - type: entities
+      title: Quick Diagnostics
+      show_header_toggle: false
+      entities:
+        - entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_diagnostic
+          name: Core Diagnostic
+        - entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_solar_surplus_diagnostic
+          name: Solar Surplus Diagnostic
+      view_layout:
+        position: sidebar
+```
 
-  - type: entities
-    title: Tuesday
-    show_header_toggle: false
-    entities:
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_tuesday
-        name: EV Target
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_tuesday
-        name: Home Target
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_tuesday
-        name: Ready In The Morning
+#### Weekly Planner Subview
 
-  - type: entities
-    title: Wednesday
-    show_header_toggle: false
-    entities:
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_wednesday
-        name: EV Target
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_wednesday
-        name: Home Target
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_wednesday
-        name: Ready In The Morning
+```yaml
+- title: EV Planner
+  path: ev-planner
+  subview: true
+  back_path: /lovelace/ev-mobile
+  cards:
+    - type: custom:mushroom-title-card
+      title: Weekly Planner
+      subtitle: Each day groups EV target, Home target, and morning readiness
 
-  - type: entities
-    title: Thursday
-    show_header_toggle: false
-    entities:
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_thursday
-        name: EV Target
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_thursday
-        name: Home Target
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_thursday
-        name: Ready In The Morning
+    - type: entities
+      title: Monday
+      show_header_toggle: false
+      entities:
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_monday
+          name: EV Target
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_monday
+          name: Home Target
+        - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_monday
+          name: Ready In The Morning
 
-  - type: entities
-    title: Friday
-    show_header_toggle: false
-    entities:
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_friday
-        name: EV Target
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_friday
-        name: Home Target
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_friday
-        name: Ready In The Morning
+    - type: entities
+      title: Tuesday
+      show_header_toggle: false
+      entities:
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_tuesday
+          name: EV Target
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_tuesday
+          name: Home Target
+        - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_tuesday
+          name: Ready In The Morning
 
-  - type: entities
-    title: Saturday
-    show_header_toggle: false
-    entities:
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_saturday
-        name: EV Target
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_saturday
-        name: Home Target
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_saturday
-        name: Ready In The Morning
+    - type: entities
+      title: Wednesday
+      show_header_toggle: false
+      entities:
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_wednesday
+          name: EV Target
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_wednesday
+          name: Home Target
+        - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_wednesday
+          name: Ready In The Morning
 
-  - type: entities
-    title: Sunday
-    show_header_toggle: false
-    entities:
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_sunday
-        name: EV Target
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_sunday
-        name: Home Target
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_sunday
-        name: Ready In The Morning
+    - type: entities
+      title: Thursday
+      show_header_toggle: false
+      entities:
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_thursday
+          name: EV Target
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_thursday
+          name: Home Target
+        - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_thursday
+          name: Ready In The Morning
 
-  - type: entities
-    title: Solar Surplus Studio
-    show_header_toggle: false
-    entities:
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_check_interval
-        name: Check Interval
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_grid_import_threshold
-        name: Grid Import Threshold
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_grid_import_delay
-        name: Grid Import Delay
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_surplus_drop_delay
-        name: Surplus Drop Delay
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_battery_min_soc
-        name: Home Battery Min SOC
-      - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_battery_support_amperage
-        name: Battery Support Amperage
+    - type: entities
+      title: Friday
+      show_header_toggle: false
+      entities:
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_friday
+          name: EV Target
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_friday
+          name: Home Target
+        - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_friday
+          name: Ready In The Morning
 
-  - type: entities
-    title: Diagnostics
-    show_header_toggle: false
-    entities:
-      - entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_diagnostic
-        name: Core Diagnostic
-      - entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_solar_surplus_diagnostic
-        name: Solar Surplus Diagnostic
-      - entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_log_file_path
-        name: Log File Path
-    view_layout:
-      position: sidebar
+    - type: entities
+      title: Saturday
+      show_header_toggle: false
+      entities:
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_saturday
+          name: EV Target
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_saturday
+          name: Home Target
+        - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_saturday
+          name: Ready In The Morning
 
-  - type: entities
-    title: Notifications & Serviceability
-    show_header_toggle: false
-    entities:
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_priority_balancer_enabled
-        name: Notify Priority Balancer
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_night_charge_enabled
-        name: Notify Night Charge
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_smart_blocker_enabled
-        name: Notify Smart Blocker
-      - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_enable_file_logging
-        name: File Logging
-    view_layout:
-      position: sidebar
+    - type: entities
+      title: Sunday
+      show_header_toggle: false
+      entities:
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_ev_min_soc_sunday
+          name: EV Target
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_min_soc_sunday
+          name: Home Target
+        - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_car_ready_sunday
+          name: Ready In The Morning
+```
+
+#### Diagnostics Subview
+
+```yaml
+- title: EV Diagnostics
+  path: ev-diagnostics
+  subview: true
+  back_path: /lovelace/ev-mobile
+  cards:
+    - type: custom:mushroom-title-card
+      title: Diagnostics & Serviceability
+      subtitle: Deep settings, logs, notifications, and solar tuning
+
+    - type: entities
+      title: Solar Surplus Studio
+      show_header_toggle: false
+      entities:
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_check_interval
+          name: Check Interval
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_grid_import_threshold
+          name: Grid Import Threshold
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_grid_import_delay
+          name: Grid Import Delay
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_surplus_drop_delay
+          name: Surplus Drop Delay
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_home_battery_min_soc
+          name: Home Battery Min SOC
+        - entity: number.ev_smart_charger_YOUR_ENTRY_ID_evsc_battery_support_amperage
+          name: Battery Support Amperage
+
+    - type: entities
+      title: Notifications & Logging
+      show_header_toggle: false
+      entities:
+        - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_priority_balancer_enabled
+          name: Notify Priority Balancer
+        - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_night_charge_enabled
+          name: Notify Night Charge
+        - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_notify_smart_blocker_enabled
+          name: Notify Smart Blocker
+        - entity: switch.ev_smart_charger_YOUR_ENTRY_ID_evsc_enable_file_logging
+          name: File Logging
+
+    - type: entities
+      title: Diagnostic Sensors
+      show_header_toggle: false
+      entities:
+        - entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_diagnostic
+          name: Core Diagnostic
+        - entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_solar_surplus_diagnostic
+          name: Solar Surplus Diagnostic
+        - entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_cached_ev_soc
+          name: Cached EV SOC
+        - entity: sensor.ev_smart_charger_YOUR_ENTRY_ID_evsc_log_file_path
+          name: Log File Path
 ```
 
 ### Animated Custom Dashboard
