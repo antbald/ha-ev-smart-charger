@@ -8,12 +8,13 @@ Restructured logging with date-based directory organization:
 from __future__ import annotations
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change
 
 from .const import HELPER_ENABLE_FILE_LOGGING_SUFFIX
+from .utils.logging_helper import EVSCLogger
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class LogManager:
 
     Responsibilities:
     - Monitors toggle switch (evsc_enable_file_logging)
-    - Enables/disables file logging on all component loggers
+    - Enables/disables one global file handler shared by all EVSC component loggers
     - Manages date-based log file paths (year/month/day.log)
     - Handles automatic daily file rotation at midnight
     """
@@ -55,7 +56,7 @@ class LogManager:
 
         _LOGGER.info(f"LogManager initialized - Logs base path: {self._logs_base_path}")
 
-    def _get_log_file_path_for_date(self, date: datetime) -> str:
+    def _get_log_file_path_for_date(self, date_value: datetime) -> str:
         """
         Get log file path for a specific date.
 
@@ -68,9 +69,9 @@ class LogManager:
         Returns:
             Full path to log file
         """
-        year = str(date.year)
-        month = f"{date.month:02d}"
-        day = f"{date.day:02d}"
+        year = str(date_value.year)
+        month = f"{date_value.month:02d}"
+        day = f"{date_value.day:02d}"
 
         return os.path.join(
             self._logs_base_path,
@@ -86,6 +87,8 @@ class LogManager:
         Returns:
             Full path to today's log file
         """
+        if self._current_date is not None:
+            return self._get_log_file_path_for_date(self._current_date)
         return self._get_log_file_path_for_date(datetime.now())
 
     def get_logs_directory(self) -> str:
@@ -174,19 +177,14 @@ class LogManager:
         # Check if logging is enabled
         state = self.hass.states.get(self._toggle_entity)
         if state and state.state == "on":
-            # Disable current logging
-            for logger in self._components:
-                logger.disable_file_logging()
-
             # Re-enable with new day's file
             new_log_path = self.get_log_file_path()
             _LOGGER.info(f"Rotating to new log file: {new_log_path}")
-
-            for logger in self._components:
-                await self.hass.async_add_executor_job(
-                    logger.enable_file_logging,
-                    new_log_path
-                )
+            await self.hass.async_add_executor_job(EVSCLogger.disable_global_file_logging)
+            await self.hass.async_add_executor_job(
+                EVSCLogger.enable_global_file_logging,
+                new_log_path,
+            )
 
     async def _apply_logging_state(self):
         """Enable or disable file logging based on toggle state."""
@@ -200,18 +198,15 @@ class LogManager:
 
         if enabled:
             log_path = self.get_log_file_path()
-            _LOGGER.info(f"Enabling file logging for {len(self._components)} components")
+            _LOGGER.info("Enabling global file logging for EVSC components")
             _LOGGER.info(f"Log file: {log_path}")
-
-            for logger in self._components:
-                await self.hass.async_add_executor_job(
-                    logger.enable_file_logging,
-                    log_path
-                )
+            await self.hass.async_add_executor_job(
+                EVSCLogger.enable_global_file_logging,
+                log_path,
+            )
         else:
-            _LOGGER.info(f"Disabling file logging for {len(self._components)} components")
-            for logger in self._components:
-                logger.disable_file_logging()
+            _LOGGER.info("Disabling global file logging for EVSC components")
+            EVSCLogger.disable_global_file_logging()
 
     async def async_remove(self):
         """Cleanup log manager."""
@@ -227,8 +222,7 @@ class LogManager:
             self._midnight_listener_unsub()
             self._midnight_listener_unsub = None
 
-        # Disable file logging on all components
-        for logger in self._components:
-            logger.disable_file_logging()
+        # Disable global file logging handler
+        EVSCLogger.disable_global_file_logging()
 
         _LOGGER.info("LogManager cleanup complete")

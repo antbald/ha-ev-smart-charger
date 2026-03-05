@@ -408,6 +408,12 @@ Every check interval, Priority Balancer calculates:
 | **ON** (weekday) | Below threshold | **GRID MODE** fallback - ensures car ready |
 | **OFF** (weekend) | Below threshold | **SKIP** charging - wait for solar surplus |
 
+When Night Smart Charge is already active in BATTERY mode and home battery drops to min SOC:
+- **Car Ready ON**: transition from BATTERY to GRID in the same night session (no daily lock).
+- **Car Ready OFF**: stop session and mark it as terminal for today (`completed_today`).
+
+`completed_today` is set only for terminal stop reasons (deadline/sunrise, EV target reached, charger no longer charging, unrecoverable fallback failure).
+
 **Use Cases:**
 - 📅 **Weekdays**: Car needed for work → Flag ON → Grid fallback ensures ready
 - 🏖️ **Weekends**: No rush → Flag OFF → Skip charging, wait for sun
@@ -1460,6 +1466,14 @@ cards:
 3. Check PV forecast sensor available
 4. Check EV SOC < today's target
 5. Check home battery SOC (if battery mode)
+6. If battery mode hits home battery min:
+   - `car_ready=ON` → fallback to GRID (session continues)
+   - `car_ready=OFF` → terminal stop (`completed_today`)
+
+**Expected diagnostic patterns in logs:**
+- Transition case: `Home battery threshold reached` + `switching to GRID fallback` + `Grid charge mode`
+- Terminal case: `Session state: completed_today`
+- No duplicate lines for the same event when file logging is enabled
 
 ### Cloud Sensor Issues (v1.4.0)
 
@@ -1512,6 +1526,7 @@ A: Check logs. Common reasons:
 - EV already at target
 - Home battery below threshold (check car_ready flag)
 - PV forecast sensor unavailable
+- Session already completed for terminal reason (`completed_today`)
 
 **Q: How do I test the integration without my car?**
 A: Set **Charging Profile** to `manual` and use charger's native controls.
@@ -1571,7 +1586,8 @@ Cloud Sensor (unreliable) → Monitor (5s) → Cache (reliable) → Components
 #### v1.3.25 (2025-11-12) - Toggle-Controlled File Logging
 - NEW: `switch.evsc_enable_file_logging` - Toggle file logging on/off
 - NEW: `sensor.evsc_log_file_path` - Shows log file path
-- Automatic log rotation (10MB per file, 5 backups = 50MB total)
+- Daily log files under `logs/<year>/<month>/<day>.log`
+- Single global file handler (no duplicate log lines across components)
 - Easy troubleshooting and log sharing
 
 #### v1.3.24 (2025-11-12) - Solar Surplus PRIORITY_EV_FREE Fix

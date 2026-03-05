@@ -103,7 +103,35 @@ After fixing issues, verify everything works:
    - "✅ EV Smart Charger setup completed successfully"
    - "Smart Charger Blocker automation set up successfully"
 
-### 4. Get More Help
+### 4. Night Smart Charge Stops Too Early
+
+**Symptoms:**
+- Night Smart Charge starts, then stops soon after.
+- Repeated debug line: `Already completed today - inactive`.
+
+**Expected behavior at home battery minimum SOC:**
+- `car_ready=ON` for today: Night session should switch from BATTERY to GRID and continue.
+- `car_ready=OFF` for today: session should stop and be marked terminal (`completed_today`).
+
+**What to check in logs:**
+- Transition path: `Home battery threshold reached` + `switching to GRID fallback` + `Grid charge mode`
+- Terminal path: `Session state: completed_today`
+
+### 5. Duplicate Lines in File Logs
+
+**Symptoms:**
+- Same log line appears multiple times in the same second.
+
+**Expected behavior:**
+- File logging uses a single global file handler.
+- Daily file path format: `custom_components/ev_smart_charger/logs/<year>/<month>/<day>.log`
+
+**Checks:**
+1. Ensure `switch.evsc_enable_file_logging` is ON only once (no rapid toggle loops).
+2. Reload integration once after updating to current version.
+3. Verify that new logs no longer duplicate the same event line.
+
+### 6. Get More Help
 
 If issues persist:
 

@@ -2,12 +2,24 @@
 from __future__ import annotations
 import asyncio
 import logging
+from pathlib import Path
 
+try:
+    # HA 2024.8+ API
+    from homeassistant.components.http import StaticPathConfig
+except ImportError:  # pragma: no cover - compatibility branch for older HA cores
+    StaticPathConfig = None
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN, PLATFORMS, VERSION
+from .const import (
+    DOMAIN,
+    FRONTEND_CARD_FILENAME,
+    FRONTEND_URL_BASE,
+    PLATFORMS,
+    VERSION,
+)
 from .automation_coordinator import AutomationCoordinator
 from .charger_controller import ChargerController
 from .ev_soc_monitor import EVSOCMonitor
@@ -19,11 +31,41 @@ from .solar_surplus import SolarSurplusAutomation
 from .log_manager import LogManager
 
 _LOGGER = logging.getLogger(__name__)
+FRONTEND_DIR = Path(__file__).parent / "frontend"
+
+
+async def _async_register_frontend(hass: HomeAssistant) -> None:
+    """Expose the bundled dashboard frontend as a static module."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if domain_data.get("_frontend_registered"):
+        return
+
+    if StaticPathConfig is not None and hasattr(hass.http, "async_register_static_paths"):
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(FRONTEND_URL_BASE, str(FRONTEND_DIR), cache_headers=True)]
+        )
+    else:
+        # Compatibility for HA cores exposing only register_static_path.
+        await hass.async_add_executor_job(
+            hass.http.register_static_path,
+            FRONTEND_URL_BASE,
+            str(FRONTEND_DIR),
+            True,
+        )
+
+    domain_data["_frontend_registered"] = True
+
+    _LOGGER.info(
+        "🌐 EV Smart Charger dashboard frontend available at %s/%s",
+        FRONTEND_URL_BASE,
+        FRONTEND_CARD_FILENAME,
+    )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up EV Smart Charger from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+    await _async_register_frontend(hass)
 
     _LOGGER.info("=" * 64)
     _LOGGER.info(f"🚗 EV Smart Charger v{VERSION} - Starting setup")

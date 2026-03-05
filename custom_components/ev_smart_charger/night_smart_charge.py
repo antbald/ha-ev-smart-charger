@@ -45,6 +45,13 @@ from .utils.mobile_notification_service import MobileNotificationService
 from .utils.astral_time_service import AstralTimeService
 from .utils.time_parsing_service import TimeParsingService
 
+STOP_REASON_DEADLINE_OR_TARGET = "deadline_or_target_reached"
+STOP_REASON_HOME_BATTERY_MIN = "home_battery_min_reached"
+STOP_REASON_EV_TARGET = "ev_target_reached"
+STOP_REASON_CHARGER_NOT_CHARGING = "charger_not_charging"
+STOP_REASON_GRID_FALLBACK_FAILED = "grid_fallback_failed"
+STOP_REASON_BOOST_PREEMPTED = "boost_preempted"
+
 
 class NightSmartCharge:
     """Manages Night Smart Charge automation with Priority Balancer integration."""
@@ -310,7 +317,7 @@ class NightSmartCharge:
                     f"{self.logger.ALERT} Active session detected past stop condition - terminating"
                 )
                 await self.charger_controller.stop_charger(reason)
-                await self._complete_night_charge()
+                await self._complete_night_charge(STOP_REASON_DEADLINE_OR_TARGET, terminal=True)
             else:
                 self.logger.debug("Already active and within valid window, skipping re-evaluation")
             return
@@ -688,7 +695,7 @@ class NightSmartCharge:
                 # If we were charging, mark as complete
                 if self.is_active():
                     self.logger.info("Completing active night charge session")
-                    await self._complete_night_charge()
+                    await self._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
     
                 self.logger.separator()
                 return
@@ -880,7 +887,7 @@ class NightSmartCharge:
         if should_stop:
             self.logger.info(f"{self.logger.CALENDAR} Stop condition: {reason}")
             await self.charger_controller.stop_charger(reason)
-            await self._complete_night_charge()
+            await self._complete_night_charge(STOP_REASON_DEADLINE_OR_TARGET, terminal=True)
             return
 
         # Check 1: Home battery SOC threshold
@@ -893,9 +900,34 @@ class NightSmartCharge:
         if home_soc <= home_min:
             self.logger.warning(f"{self.logger.STOP} Home battery threshold reached!")
             self.logger.warning(f"   Current: {home_soc}% <= Minimum: {home_min}%")
-            self.logger.warning("   Stopping EV charging to protect home battery")
-            await self.charger_controller.stop_charger(f"Home battery protection ({home_soc}% <= {home_min}%)")
-            await self._complete_night_charge()
+            car_ready_today = self._get_car_ready_for_today()
+
+            if car_ready_today:
+                self.logger.warning("   Car ready is ON - switching to GRID fallback")
+
+                # Stop battery monitor before transition to avoid overlapping callbacks.
+                if self._battery_monitor_unsub:
+                    self._battery_monitor_unsub()
+                    self._battery_monitor_unsub = None
+
+                await self.charger_controller.stop_charger(
+                    f"Battery min reached ({home_soc}% <= {home_min}%) - switching to grid"
+                )
+
+                try:
+                    pv_forecast = await self._get_pv_forecast()
+                    await self._start_grid_charge(pv_forecast)
+                    self.logger.success("Battery→Grid fallback completed successfully")
+                except Exception as ex:
+                    self.logger.error(f"Grid fallback failed after battery threshold stop: {ex}")
+                    await self._complete_night_charge(STOP_REASON_GRID_FALLBACK_FAILED, terminal=True)
+                return
+
+            self.logger.warning("   Car ready is OFF - stopping session to protect home battery")
+            await self.charger_controller.stop_charger(
+                f"Home battery protection ({home_soc}% <= {home_min}%)"
+            )
+            await self._complete_night_charge(STOP_REASON_HOME_BATTERY_MIN, terminal=True)
             return
 
         self.logger.success(f"Home battery above minimum ({home_soc}% > {home_min}%)")
@@ -912,7 +944,7 @@ class NightSmartCharge:
             self.logger.success(f"{self.logger.SUCCESS} EV target reached!")
             self.logger.info(f"   Current: {ev_soc}% >= Target: {ev_target}%")
             await self.charger_controller.stop_charger(f"EV target SOC reached ({ev_soc}% >= {ev_target}%)")
-            await self._complete_night_charge()
+            await self._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
             return
 
         self.logger.info(f"   {self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - continuing charge")
@@ -949,7 +981,7 @@ class NightSmartCharge:
         if should_stop:
             self.logger.info(f"{self.logger.CALENDAR} Stop condition: {reason}")
             await self.charger_controller.stop_charger(reason)
-            await self._complete_night_charge()
+            await self._complete_night_charge(STOP_REASON_DEADLINE_OR_TARGET, terminal=True)
             return
 
         # Check 1: EV target SOC reached
@@ -964,7 +996,7 @@ class NightSmartCharge:
             self.logger.success(f"{self.logger.SUCCESS} EV target reached!")
             self.logger.info(f"   Current: {ev_soc}% >= Target: {ev_target}%")
             await self.charger_controller.stop_charger(f"EV target SOC reached ({ev_soc}% >= {ev_target}%)")
-            await self._complete_night_charge()
+            await self._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
             return
 
         self.logger.info(f"   {self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - continuing charge")
@@ -974,7 +1006,7 @@ class NightSmartCharge:
 
         if charger_status != CHARGER_STATUS_CHARGING:
             self.logger.warning(f"Charger no longer charging (status: {charger_status}) - ending grid mode")
-            await self._complete_night_charge()
+            await self._complete_night_charge(STOP_REASON_CHARGER_NOT_CHARGING, terminal=True)
             return
 
         self.logger.info("Monitoring will continue...")
@@ -1190,10 +1222,37 @@ class NightSmartCharge:
 
     # ========== SESSION COMPLETION ==========
 
-    async def _complete_night_charge(self) -> None:
-        """Complete night charge and clean up."""
+    def _is_terminal_stop_reason(self, stop_reason: str) -> bool:
+        """Return True when a stop reason should lock the day as completed."""
+        terminal_reasons = {
+            STOP_REASON_DEADLINE_OR_TARGET,
+            STOP_REASON_HOME_BATTERY_MIN,
+            STOP_REASON_EV_TARGET,
+            STOP_REASON_CHARGER_NOT_CHARGING,
+            STOP_REASON_GRID_FALLBACK_FAILED,
+        }
+        non_terminal_reasons = {
+            STOP_REASON_BOOST_PREEMPTED,
+        }
+
+        if stop_reason in terminal_reasons:
+            return True
+        if stop_reason in non_terminal_reasons:
+            return False
+
+        # Safety default: unknown reason is treated as terminal.
+        self.logger.warning(f"Unknown stop reason '{stop_reason}' - defaulting to terminal completion")
+        return True
+
+    async def _complete_night_charge(self, stop_reason: str, terminal: bool | None = None) -> None:
+        """Complete night charge and clean up session state."""
+        if terminal is None:
+            terminal = self._is_terminal_stop_reason(stop_reason)
+
         self.logger.separator()
         self.logger.info(f"{self.logger.SUCCESS} Completing night charge session")
+        self.logger.info(f"   Stop reason: {stop_reason}")
+        self.logger.info(f"   Terminal completion: {terminal}")
 
         # Stop battery monitoring if active
         if self._battery_monitor_unsub:
@@ -1220,26 +1279,33 @@ class NightSmartCharge:
             self.logger.separator()
             return
 
-        # Track completion time for cooldown
-        self._last_completion_time = dt_util.now()
-        self._last_completion_date = self._last_completion_time.date()  # v1.4.4: Date tracking
-        self.logger.info(f"Completion time recorded: {self._last_completion_time.strftime('%H:%M:%S')}")
-
         # Reset state flags
         previous_mode = self._active_mode
         self._night_charge_active = False
         self._active_mode = NIGHT_CHARGE_MODE_IDLE
 
-        # v1.4.4: Update state machine
-        self._session_state = "completed_today"
-        self.logger.info(f"Session state: {self._session_state}")
+        if terminal:
+            # Track completion time for cooldown only on terminal stop reasons.
+            self._last_completion_time = dt_util.now()
+            self._last_completion_date = self._last_completion_time.date()
+            self.logger.info(f"Completion time recorded: {self._last_completion_time.strftime('%H:%M:%S')}")
 
-        self.logger.success("Session completed")
-        self.logger.info(f"   Previous mode: {previous_mode}")
-        self.logger.info(f"   Completion date: {self._last_completion_date}")
-        self.logger.info("   1-hour cooldown period active")
-        self.logger.info("   Will not re-activate today")
-        self.logger.info("   Smart Blocker will resume normal operation")
+            self._session_state = "completed_today"
+            self.logger.info(f"Session state: {self._session_state}")
+
+            self.logger.success("Session completed (terminal)")
+            self.logger.info(f"   Previous mode: {previous_mode}")
+            self.logger.info(f"   Completion date: {self._last_completion_date}")
+            self.logger.info("   1-hour cooldown period active")
+            self.logger.info("   Will not re-activate today")
+            self.logger.info("   Smart Blocker will resume normal operation")
+        else:
+            self._session_state = "ready"
+            self._last_completion_time = None
+            self._last_completion_date = None
+            self.logger.success("Session completed (non-terminal)")
+            self.logger.info(f"   Previous mode: {previous_mode}")
+            self.logger.info("   State reset to ready (no daily lock)")
         self.logger.separator()
 
     async def _emergency_charge_with_defaults(self) -> None:
@@ -1428,8 +1494,9 @@ class NightSmartCharge:
             True if car needs to be ready in the morning (use grid as fallback)
             False if car not needed (skip charging, wait for solar)
         """
-        # Get current day (0=Monday, 6=Sunday)
-        current_day = datetime.now().weekday()
+        # Use HA timezone-aware clock to avoid day mismatches around midnight.
+        # This is critical when night charge starts shortly after 00:00.
+        current_day = dt_util.now().weekday()
 
         # Get entity for today
         entity_id = self._car_ready_entities.get(current_day)

@@ -5,10 +5,16 @@ Updated to support date-based log file structure:
 - No rotation needed (new file each day)
 - Path format: logs/<year>/<month>/<day>.log
 """
+from __future__ import annotations
+
 import logging
 import os
+import threading
 
 _LOGGER = logging.getLogger(__name__)
+_GLOBAL_FILE_HANDLER: logging.FileHandler | None = None
+_GLOBAL_FILE_HANDLER_PATH: str | None = None
+_GLOBAL_FILE_HANDLER_LOCK = threading.Lock()
 
 
 class EVSCLogger:
@@ -43,7 +49,6 @@ class EVSCLogger:
     def __init__(self, component_name: str):
         """Initialize logger with component name."""
         self.component = component_name
-        self._file_handler = None  # Track file handler
 
     def separator(self, length: int = 64):
         """Log visual separator."""
@@ -111,6 +116,91 @@ class EVSCLogger:
 
     # ========== FILE LOGGING METHODS (v1.4.15 - Daily files) ==========
 
+    @classmethod
+    def _normalize_log_path(cls, log_file_path: str) -> str:
+        """Return normalized absolute path for stable handler identity checks."""
+        return os.path.abspath(log_file_path)
+
+    @classmethod
+    def _build_file_handler(cls, log_file_path: str) -> logging.FileHandler:
+        """Create configured file handler for EVSC daily logging."""
+        handler = logging.FileHandler(
+            log_file_path,
+            mode="a",
+            encoding="utf-8",
+        )
+        formatter = logging.Formatter(
+            "%(asctime)s - [%(name)s] - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        handler.setFormatter(formatter)
+        return handler
+
+    @classmethod
+    def enable_global_file_logging(cls, log_file_path: str) -> bool:
+        """
+        Enable global file logging handler once for the whole integration logger.
+
+        Returns:
+            True if the handler was created or switched to a different path,
+            False if already enabled with the same target file.
+        """
+        global _GLOBAL_FILE_HANDLER, _GLOBAL_FILE_HANDLER_PATH
+        normalized_path = cls._normalize_log_path(log_file_path)
+
+        with _GLOBAL_FILE_HANDLER_LOCK:
+            if _GLOBAL_FILE_HANDLER and _GLOBAL_FILE_HANDLER_PATH == normalized_path:
+                return False
+
+            if _GLOBAL_FILE_HANDLER:
+                _LOGGER.removeHandler(_GLOBAL_FILE_HANDLER)
+                _GLOBAL_FILE_HANDLER.close()
+                _GLOBAL_FILE_HANDLER = None
+                _GLOBAL_FILE_HANDLER_PATH = None
+
+            os.makedirs(os.path.dirname(normalized_path), exist_ok=True)
+            handler = cls._build_file_handler(normalized_path)
+            _LOGGER.addHandler(handler)
+
+            _GLOBAL_FILE_HANDLER = handler
+            _GLOBAL_FILE_HANDLER_PATH = normalized_path
+            return True
+
+    @classmethod
+    def disable_global_file_logging(cls) -> bool:
+        """
+        Disable global file logging handler.
+
+        Returns:
+            True if handler was disabled, False if already disabled.
+        """
+        global _GLOBAL_FILE_HANDLER, _GLOBAL_FILE_HANDLER_PATH
+
+        with _GLOBAL_FILE_HANDLER_LOCK:
+            if not _GLOBAL_FILE_HANDLER:
+                return False
+
+            _LOGGER.removeHandler(_GLOBAL_FILE_HANDLER)
+            _GLOBAL_FILE_HANDLER.close()
+            _GLOBAL_FILE_HANDLER = None
+            _GLOBAL_FILE_HANDLER_PATH = None
+            return True
+
+    @classmethod
+    def is_global_file_logging_enabled(cls) -> bool:
+        """Check whether global file logging is enabled."""
+        return _GLOBAL_FILE_HANDLER is not None
+
+    @classmethod
+    def get_global_log_file_path(cls) -> str | None:
+        """Return current global log file path when enabled."""
+        return _GLOBAL_FILE_HANDLER_PATH
+
+    @classmethod
+    def get_global_file_handler_count(cls) -> int:
+        """Expose current number of file handlers attached to EVSC logger."""
+        return sum(1 for handler in _LOGGER.handlers if isinstance(handler, logging.FileHandler))
+
     def enable_file_logging(self, log_file_path: str):
         """
         Enable logging to file.
@@ -122,47 +212,27 @@ class EVSCLogger:
         Args:
             log_file_path: Full path to log file (e.g., logs/2025/12/29.log)
         """
-        if self._file_handler:
-            # Already enabled - disable first to switch files
-            self.disable_file_logging()
-
         try:
-            # Ensure directory exists (creates year/month folders)
-            os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-
-            # Create file handler (append mode for daily files)
-            self._file_handler = logging.FileHandler(
-                log_file_path,
-                mode='a',
-                encoding='utf-8'
-            )
-
-            # Format: timestamp - component - level - message (with emojis)
-            formatter = logging.Formatter(
-                '%(asctime)s - [%(name)s] - %(levelname)s - %(message)s',
-                datefmt='%Y-%m-%d %H:%M:%S'
-            )
-            self._file_handler.setFormatter(formatter)
-
-            # Add handler to module logger (shared by all EVSCLogger instances)
-            _LOGGER.addHandler(self._file_handler)
-
-            self.info(f"File logging enabled: {log_file_path}")
+            changed = self.enable_global_file_logging(log_file_path)
+            if changed:
+                self.info(f"File logging enabled: {self.get_global_log_file_path()}")
+            else:
+                self.debug(f"File logging already enabled: {self.get_global_log_file_path()}")
 
         except Exception as ex:
             self.error(f"Failed to enable file logging: {ex}")
 
     def disable_file_logging(self):
         """Disable file logging."""
-        if self._file_handler:
-            try:
+        try:
+            changed = self.disable_global_file_logging()
+            if changed:
                 self.info("File logging disabled")
-                _LOGGER.removeHandler(self._file_handler)
-                self._file_handler.close()
-                self._file_handler = None
-            except Exception as ex:
-                self.error(f"Failed to disable file logging: {ex}")
+            else:
+                self.debug("File logging already disabled")
+        except Exception as ex:
+            self.error(f"Failed to disable file logging: {ex}")
 
     def is_file_logging_enabled(self) -> bool:
         """Check if file logging is active."""
-        return self._file_handler is not None
+        return self.is_global_file_logging_enabled()

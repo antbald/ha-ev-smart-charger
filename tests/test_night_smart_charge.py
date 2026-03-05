@@ -4,7 +4,11 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from custom_components.ev_smart_charger.night_smart_charge import NightSmartCharge
+from custom_components.ev_smart_charger.night_smart_charge import (
+    NightSmartCharge,
+    STOP_REASON_BOOST_PREEMPTED,
+    STOP_REASON_EV_TARGET,
+)
 from custom_components.ev_smart_charger.const import (
     CONF_EV_CHARGER_STATUS,
     CONF_EV_CHARGER_SWITCH,
@@ -225,10 +229,122 @@ async def test_complete_night_charge_skips_cooldown_when_boost_is_active(hass, n
     night_charge._boost_charge = MagicMock()
     night_charge._boost_charge.is_active.return_value = True
 
-    await night_charge._complete_night_charge()
+    await night_charge._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
 
     assert night_charge.is_active() is False
     assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_IDLE
+    assert night_charge._session_state == "ready"
+    assert night_charge._last_completion_time is None
+    assert night_charge._last_completion_date is None
+
+
+async def test_get_car_ready_for_today_uses_ha_timezone(hass, night_charge):
+    """Car-ready day selection must use Home Assistant timezone clock."""
+    # Wednesday OFF, Thursday ON
+    hass.states.async_set("switch.test_evsc_car_ready_wednesday", "off")
+    hass.states.async_set("switch.test_evsc_car_ready_thursday", "on")
+    night_charge._car_ready_entities = {
+        2: "switch.test_evsc_car_ready_wednesday",
+        3: "switch.test_evsc_car_ready_thursday",
+    }
+
+    # If HA time says Thursday, we must read Thursday flag (ON).
+    with patch(
+        "custom_components.ev_smart_charger.night_smart_charge.dt_util.now",
+        return_value=datetime(2026, 3, 5, 0, 1, 0),
+    ):
+        assert night_charge._get_car_ready_for_today() is True
+
+
+async def test_monitor_battery_fallbacks_to_grid_when_car_ready_on(hass, night_charge):
+    """Home battery min in battery mode must transition to grid when car_ready is ON."""
+    night_charge._night_charge_active = True
+    night_charge._active_mode = NIGHT_CHARGE_MODE_BATTERY
+    night_charge._session_state = "active"
+    night_charge._last_completion_time = None
+    night_charge._last_completion_date = None
+    night_charge._battery_monitor_unsub = MagicMock()
+
+    hass.states.async_set("number.test_evsc_home_battery_min_soc", "20")
+
+    night_charge._get_car_ready_for_today = MagicMock(return_value=True)
+    night_charge._should_stop_for_deadline = AsyncMock(return_value=(False, ""))
+    night_charge.priority_balancer.get_home_current_soc = AsyncMock(return_value=20)
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+    night_charge.priority_balancer.get_ev_current_soc = AsyncMock(return_value=40)
+    night_charge.priority_balancer.get_ev_target_for_today = MagicMock(return_value=80)
+    night_charge._get_pv_forecast = AsyncMock(return_value=5.0)
+
+    async def _fake_grid_start(_pv_forecast):
+        night_charge._night_charge_active = True
+        night_charge._active_mode = NIGHT_CHARGE_MODE_GRID
+
+    night_charge._start_grid_charge = AsyncMock(side_effect=_fake_grid_start)
+
+    await night_charge._async_monitor_battery_charge(None)
+
+    night_charge.charger_controller.stop_charger.assert_awaited_once()
+    night_charge._start_grid_charge.assert_awaited_once_with(5.0)
+    assert night_charge.is_active() is True
+    assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_GRID
+    assert night_charge._session_state == "active"
+    assert night_charge._last_completion_time is None
+    assert night_charge._last_completion_date is None
+
+
+async def test_monitor_battery_stops_terminal_when_car_ready_off(hass, night_charge):
+    """Home battery min in battery mode must complete day when car_ready is OFF."""
+    night_charge._night_charge_active = True
+    night_charge._active_mode = NIGHT_CHARGE_MODE_BATTERY
+    night_charge._session_state = "active"
+    night_charge._last_completion_time = None
+    night_charge._last_completion_date = None
+
+    hass.states.async_set("number.test_evsc_home_battery_min_soc", "20")
+
+    night_charge._get_car_ready_for_today = MagicMock(return_value=False)
+    night_charge._should_stop_for_deadline = AsyncMock(return_value=(False, ""))
+    night_charge.priority_balancer.get_home_current_soc = AsyncMock(return_value=20)
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+    night_charge.priority_balancer.get_ev_current_soc = AsyncMock(return_value=40)
+    night_charge.priority_balancer.get_ev_target_for_today = MagicMock(return_value=80)
+
+    with patch(
+        "custom_components.ev_smart_charger.night_smart_charge.dt_util.now",
+        return_value=datetime(2026, 3, 5, 0, 10, 0),
+    ):
+        await night_charge._async_monitor_battery_charge(None)
+
+    night_charge.charger_controller.stop_charger.assert_awaited_once()
+    assert night_charge.is_active() is False
+    assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_IDLE
+    assert night_charge._session_state == "completed_today"
+    assert night_charge._last_completion_time is not None
+    assert night_charge._last_completion_date is not None
+
+
+async def test_complete_night_charge_terminal_vs_non_terminal_semantics(hass, night_charge):
+    """completed_today must be set only for terminal completions."""
+    night_charge._night_charge_active = True
+    night_charge._active_mode = NIGHT_CHARGE_MODE_GRID
+    night_charge._session_state = "active"
+
+    with patch(
+        "custom_components.ev_smart_charger.night_smart_charge.dt_util.now",
+        return_value=datetime(2026, 3, 5, 0, 30, 0),
+    ):
+        await night_charge._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
+
+    assert night_charge._session_state == "completed_today"
+    assert night_charge._last_completion_time is not None
+    assert night_charge._last_completion_date is not None
+
+    night_charge._night_charge_active = True
+    night_charge._active_mode = NIGHT_CHARGE_MODE_GRID
+    night_charge._session_state = "active"
+
+    await night_charge._complete_night_charge(STOP_REASON_BOOST_PREEMPTED, terminal=False)
+
     assert night_charge._session_state == "ready"
     assert night_charge._last_completion_time is None
     assert night_charge._last_completion_date is None
