@@ -284,6 +284,125 @@ class NightSmartCharge:
         self._active_mode = NIGHT_CHARGE_MODE_IDLE
         self._session_state = "ready"
 
+    def _is_in_active_window_for_handover(self, now: datetime) -> tuple[bool, str]:
+        """
+        Check handover window without mutating the session state machine.
+
+        This is used by Solar Surplus sunset handover validation and must stay side-effect free.
+        """
+        from .const import (
+            ACTIVATION_GRACE_BEFORE_MINUTES,
+            ACTIVATION_GRACE_AFTER_MINUTES,
+            NIGHT_CHARGE_COOLDOWN_SECONDS,
+        )
+
+        if self._session_state == "completed_today" and self._last_completion_date == now.date():
+            return False, "already_completed_today"
+
+        if self._session_state == "cooldown" and self._last_completion_time:
+            elapsed = (now - self._last_completion_time).total_seconds()
+            if elapsed < NIGHT_CHARGE_COOLDOWN_SECONDS:
+                return False, "cooldown_active"
+
+        if self._session_state == "active":
+            return True, "session_already_active"
+
+        if not self._night_charge_time_entity:
+            return False, "night_charge_time_not_configured"
+
+        time_state = state_helper.get_state(self.hass, self._night_charge_time_entity)
+        if not time_state or time_state in ("unknown", "unavailable"):
+            return False, "night_charge_time_unavailable"
+
+        try:
+            scheduled_time = self._get_scheduled_time_for_today(now, time_state)
+        except (ValueError, TypeError, IndexError):
+            return False, "invalid_night_charge_time"
+
+        sunrise = self._astral_service.get_next_sunrise_after(scheduled_time)
+        if not sunrise:
+            return False, "sunrise_unavailable"
+
+        grace_start = scheduled_time - timedelta(minutes=ACTIVATION_GRACE_BEFORE_MINUTES)
+        grace_end = scheduled_time + timedelta(minutes=ACTIVATION_GRACE_AFTER_MINUTES)
+
+        in_grace = grace_start <= now < grace_end
+        past_scheduled = now >= scheduled_time
+        before_sunrise = now < sunrise
+        in_window = in_grace or (past_scheduled and before_sunrise)
+
+        if not in_window:
+            return False, "outside_active_window"
+
+        return True, "ok"
+
+    async def async_try_handover_from_solar_surplus(self, reason: str = "") -> bool:
+        """
+        Try to hand over control from Solar Surplus to Night Smart Charge.
+
+        Returns:
+            True when Night Smart Charge accepted control and is active, False otherwise.
+        """
+        handover_reason = reason or "unspecified"
+        self.logger.info(f"Sunset transition - handover requested (reason: {handover_reason})")
+
+        if self._boost_charge and self._boost_charge.is_active():
+            self.logger.info("Handover rejected - Boost Charge is active")
+            return False
+
+        if not self.is_enabled():
+            self.logger.info("Handover rejected - Night Smart Charge disabled")
+            return False
+
+        now = dt_util.now()
+        in_window, window_reason = self._is_in_active_window_for_handover(now)
+        if not in_window:
+            self.logger.info(f"Handover rejected - window validation failed ({window_reason})")
+            return False
+
+        charger_status = state_helper.get_state(self.hass, self._charger_status)
+        if not charger_status or charger_status in ("unknown", "unavailable", CHARGER_STATUS_FREE):
+            self.logger.info(f"Handover rejected - charger not ready (status: {charger_status})")
+            return False
+
+        ev_target_reached = await self.priority_balancer.is_ev_target_reached()
+        if ev_target_reached:
+            ev_soc = await self.priority_balancer.get_ev_current_soc()
+            ev_target = self.priority_balancer.get_ev_target_for_today()
+            self.logger.info(
+                f"Handover rejected - EV target already reached ({ev_soc}% >= {ev_target}%)"
+            )
+            return False
+
+        if self.is_active():
+            self.logger.success("Handover accepted - Night Smart Charge already active")
+            return True
+
+        previous_session_state = self._session_state
+        previous_activation_date = self._activation_date
+
+        # Mirror standard activation transition without waiting for periodic tick.
+        if self._session_state == "ready":
+            self._session_state = "active"
+            self._activation_date = now.date()
+
+        try:
+            await self._evaluate_and_charge()
+        except Exception as ex:
+            self._session_state = previous_session_state
+            self._activation_date = previous_activation_date
+            self.logger.error(f"Handover rejected - evaluation failed: {ex}")
+            return False
+
+        if self.is_active():
+            self.logger.success("Sunset transition - Handover accepted")
+            return True
+
+        self._session_state = previous_session_state
+        self._activation_date = previous_activation_date
+        self.logger.info("Handover rejected - evaluation completed without starting Night Smart Charge")
+        return False
+
     # ========== PERIODIC MONITORING ==========
 
     @callback
@@ -943,7 +1062,10 @@ class NightSmartCharge:
         if ev_target_reached:
             self.logger.success(f"{self.logger.SUCCESS} EV target reached!")
             self.logger.info(f"   Current: {ev_soc}% >= Target: {ev_target}%")
-            await self.charger_controller.stop_charger(f"EV target SOC reached ({ev_soc}% >= {ev_target}%)")
+            self.logger.warning("Target hard cap enforced [night_smart_charge:battery_monitor]")
+            await self.charger_controller.stop_charger(
+                f"Target hard cap enforced (Night Smart Charge battery): {ev_soc}% >= {ev_target}%"
+            )
             await self._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
             return
 
@@ -995,7 +1117,10 @@ class NightSmartCharge:
         if ev_target_reached:
             self.logger.success(f"{self.logger.SUCCESS} EV target reached!")
             self.logger.info(f"   Current: {ev_soc}% >= Target: {ev_target}%")
-            await self.charger_controller.stop_charger(f"EV target SOC reached ({ev_soc}% >= {ev_target}%)")
+            self.logger.warning("Target hard cap enforced [night_smart_charge:grid_monitor]")
+            await self.charger_controller.stop_charger(
+                f"Target hard cap enforced (Night Smart Charge grid): {ev_soc}% >= {ev_target}%"
+            )
             await self._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
             return
 

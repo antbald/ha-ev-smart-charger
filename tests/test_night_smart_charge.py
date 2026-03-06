@@ -348,3 +348,54 @@ async def test_complete_night_charge_terminal_vs_non_terminal_semantics(hass, ni
     assert night_charge._session_state == "ready"
     assert night_charge._last_completion_time is None
     assert night_charge._last_completion_date is None
+
+
+async def test_handover_from_solar_surplus_accepts_and_activates(hass, night_charge):
+    """Structured handover should activate Night Smart Charge when validation passes."""
+    hass.states.async_set("switch.test_evsc_night_smart_charge_enabled", "on")
+    hass.states.async_set("sensor.charger_status", "Charging")
+
+    night_charge._session_state = "ready"
+    night_charge._activation_date = None
+    night_charge._is_in_active_window_for_handover = MagicMock(return_value=(True, "ok"))
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+
+    async def _fake_evaluate():
+        night_charge._night_charge_active = True
+        night_charge._active_mode = NIGHT_CHARGE_MODE_GRID
+
+    night_charge._evaluate_and_charge = AsyncMock(side_effect=_fake_evaluate)
+
+    result = await night_charge.async_try_handover_from_solar_surplus("sunset_transition")
+
+    assert result is True
+    night_charge._evaluate_and_charge.assert_awaited_once()
+    assert night_charge.is_active() is True
+    assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_GRID
+    assert night_charge._session_state == "active"
+    assert night_charge._activation_date is not None
+
+
+async def test_handover_from_solar_surplus_rejects_without_side_effect_when_target_reached(hass, night_charge):
+    """Handover must reject cleanly when EV target is already reached."""
+    hass.states.async_set("switch.test_evsc_night_smart_charge_enabled", "on")
+    hass.states.async_set("sensor.charger_status", "Charging")
+
+    night_charge._night_charge_active = False
+    night_charge._active_mode = NIGHT_CHARGE_MODE_IDLE
+    night_charge._session_state = "ready"
+    night_charge._activation_date = None
+    night_charge._is_in_active_window_for_handover = MagicMock(return_value=(True, "ok"))
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=True)
+    night_charge.priority_balancer.get_ev_current_soc = AsyncMock(return_value=60)
+    night_charge.priority_balancer.get_ev_target_for_today = MagicMock(return_value=60)
+    night_charge._evaluate_and_charge = AsyncMock()
+
+    result = await night_charge.async_try_handover_from_solar_surplus("sunset_transition")
+
+    assert result is False
+    night_charge._evaluate_and_charge.assert_not_awaited()
+    assert night_charge._night_charge_active is False
+    assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_IDLE
+    assert night_charge._session_state == "ready"
+    assert night_charge._activation_date is None

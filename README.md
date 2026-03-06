@@ -286,7 +286,9 @@ After setup, the integration **automatically creates 51 entities**:
    → Increase to 20A
 
 🌙 Sunset - Solar 0W
-   → Stop charging
+   → Sunset transition guard
+   → Try handover to Night Smart Charge
+   → If handover rejected: safe stop
 ```
 
 #### Requirements
@@ -383,6 +385,12 @@ Every check interval, Priority Balancer calculates:
 3. At sunrise:
    └─ Transition to Solar Surplus mode
 ```
+
+**Sunset transition safety (Solar Surplus → Night):**
+- If Solar Surplus is still charging at night, the integration does not just skip checks.
+- It first enforces EV target hard cap.
+- Then it tries an explicit handover to Night Smart Charge.
+- If handover is not accepted, charger is stopped immediately (safe fallback).
 
 #### Configuration Entities
 
@@ -1473,6 +1481,9 @@ cards:
 **Expected diagnostic patterns in logs:**
 - Transition case: `Home battery threshold reached` + `switching to GRID fallback` + `Grid charge mode`
 - Terminal case: `Session state: completed_today`
+- Sunset transition: `Sunset transition` + `Handover accepted` or safe stop fallback
+- Target cap: `Target hard cap enforced`
+- Stale SOC policy: `SOC stale (continue)` + decision continues by policy
 - No duplicate lines for the same event when file logging is enabled
 
 ### Cloud Sensor Issues (v1.4.0)
@@ -1496,6 +1507,7 @@ cards:
 - Cache maintains last valid value
 - Warning log once: "⚠️ Using cached EV SOC: X% (source unavailable)"
 - System continues working normally
+- If EV SOC age becomes old, diagnostics log `SOC stale (continue)` (policy: no auto-stop)
 
 ### Enable Debug Logging
 

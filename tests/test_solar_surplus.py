@@ -1,7 +1,7 @@
 """Test SolarSurplusAutomation logic."""
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
-from datetime import datetime
+from datetime import datetime, timedelta
 from custom_components.ev_smart_charger.solar_surplus import SolarSurplusAutomation
 from custom_components.ev_smart_charger.const import (
     CONF_EV_CHARGER_STATUS,
@@ -47,6 +47,10 @@ def automation(hass, mock_charger_controller, mock_priority_balancer):
         auto._home_battery_min_soc_entity = "number.min_soc"
         auto._battery_support_amperage_entity = "number.battery_amps"
         auto._forza_ricarica_entity = "switch.force"
+        auto.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+        auto.priority_balancer.get_ev_current_soc = AsyncMock(return_value=40)
+        auto.priority_balancer.get_ev_target_for_today = MagicMock(return_value=80)
+        auto.priority_balancer._soc_car = "sensor.ev_soc"
         
         return auto
 
@@ -204,3 +208,97 @@ async def test_periodic_check_skips_when_boost_active(hass, automation):
     await automation._async_periodic_check()
 
     automation.charger_controller.start_charger.assert_not_called()
+
+
+async def test_nighttime_sunset_transition_handover_accepted(hass, automation):
+    """At sunset, active solar_surplus session should hand over to Night Smart Charge when accepted."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+
+    automation._astral_service.is_nighttime.return_value = True
+    automation.charger_controller.is_charging.return_value = True
+    automation.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+
+    automation._night_smart_charge = MagicMock()
+    automation._night_smart_charge.async_try_handover_from_solar_surplus = AsyncMock(return_value=True)
+
+    await automation._async_periodic_check()
+
+    automation._night_smart_charge.async_try_handover_from_solar_surplus.assert_awaited_once_with(
+        "sunset_transition"
+    )
+    automation.charger_controller.stop_charger.assert_not_called()
+
+
+async def test_nighttime_sunset_transition_handover_rejected_stops_charger(hass, automation):
+    """At sunset, if handover is rejected the charger must be stopped immediately."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+
+    automation._astral_service.is_nighttime.return_value = True
+    automation.charger_controller.is_charging.return_value = True
+    automation.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+
+    automation._night_smart_charge = MagicMock()
+    automation._night_smart_charge.async_try_handover_from_solar_surplus = AsyncMock(return_value=False)
+
+    await automation._async_periodic_check()
+
+    automation.charger_controller.stop_charger.assert_awaited_once()
+    stop_reason = automation.charger_controller.stop_charger.await_args.args[0]
+    assert "Sunset transition safe stop" in stop_reason
+
+
+async def test_periodic_check_enforces_target_hard_cap_before_energy_checks(hass, automation):
+    """Target hard cap must stop charging even when energy sensors are invalid."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+    hass.states.async_set("sensor.solar", "unavailable")
+    hass.states.async_set("sensor.consumption", "unavailable")
+    hass.states.async_set("sensor.grid", "unavailable")
+
+    automation._astral_service.is_nighttime.return_value = False
+    automation.charger_controller.is_charging.return_value = True
+    automation.priority_balancer.is_ev_target_reached = AsyncMock(return_value=True)
+    automation.priority_balancer.get_ev_current_soc = AsyncMock(return_value=60)
+    automation.priority_balancer.get_ev_target_for_today = MagicMock(return_value=60)
+
+    await automation._async_periodic_check()
+
+    automation.priority_balancer.calculate_priority.assert_not_called()
+    automation.charger_controller.stop_charger.assert_awaited_once()
+    stop_reason = automation.charger_controller.stop_charger.await_args.args[0]
+    assert "Target hard cap enforced (periodic_check)" in stop_reason
+
+
+async def test_periodic_check_logs_stale_soc_but_continues_by_policy(hass, automation, caplog):
+    """Stale EV SOC should generate warning diagnostics without forcing a stop."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+    hass.states.async_set("sensor.solar", "unavailable")
+    hass.states.async_set("sensor.consumption", "unavailable")
+    hass.states.async_set("sensor.grid", "unavailable")
+    hass.states.async_set("sensor.ev_soc", "55")
+
+    ev_state = hass.states.get("sensor.ev_soc")
+    stale_now = ev_state.last_updated + timedelta(minutes=15)
+
+    automation._astral_service.is_nighttime.return_value = False
+    automation.charger_controller.is_charging.return_value = True
+    automation.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+    automation.priority_balancer.get_ev_current_soc = AsyncMock(return_value=55)
+    automation.priority_balancer.get_ev_target_for_today = MagicMock(return_value=80)
+    caplog.set_level("WARNING")
+
+    with patch(
+        "custom_components.ev_smart_charger.solar_surplus.dt_util.now",
+        return_value=stale_now,
+    ):
+        await automation._async_periodic_check()
+
+    assert any("SOC stale (continue)" in rec.message for rec in caplog.records)
+    automation.charger_controller.stop_charger.assert_not_called()

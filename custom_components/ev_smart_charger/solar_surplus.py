@@ -6,6 +6,7 @@ from datetime import timedelta, datetime
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CHARGER_AMP_LEVELS,
@@ -29,6 +30,8 @@ from .utils.logging_helper import EVSCLogger
 from .utils.state_helper import get_state, get_float, get_bool, validate_sensor
 from .utils.entity_registry_service import EntityRegistryService
 from .utils.astral_time_service import AstralTimeService
+
+EV_SOC_STALE_WARNING_SECONDS = 300
 
 
 class SolarSurplusAutomation:
@@ -295,16 +298,12 @@ class SolarSurplusAutomation:
             return
 
         # === 3. Check Nighttime (Solar Surplus only works during daytime) ===
-        from homeassistant.util import dt as dt_util
         from .const import NIGHT_CHARGE_COOLDOWN_SECONDS
         now = dt_util.now()
+        current_profile = get_state(self.hass, self._charging_profile_entity)
 
         if self._astral_service.is_nighttime(now):
-            self.logger.skip("Nighttime - Solar Surplus only operates during daytime (sunrise to sunset)")
-            await self._update_diagnostic_sensor(
-                "SKIPPED: Nighttime",
-                {"reason": "Solar production unavailable at night", "last_check": datetime.now().isoformat()}
-            )
+            await self._handle_nighttime_transition(now, current_profile)
             self.logger.separator()
             return
 
@@ -339,7 +338,6 @@ class SolarSurplusAutomation:
                 return
 
         # === 6. Check Charging Profile ===
-        current_profile = get_state(self.hass, self._charging_profile_entity)
         if current_profile != "solar_surplus":
             self.logger.skip(f"Profile not 'solar_surplus' (current: {current_profile})")
             await self._update_diagnostic_sensor(
@@ -362,6 +360,16 @@ class SolarSurplusAutomation:
             return
 
         self.logger.info(f"Charger status: '{charger_status}' - proceeding")
+        charger_is_on = await self.charger_controller.is_charging()
+
+        # === 7.1 EV Target Hard Cap (always enforced, even before energy checks) ===
+        if await self._enforce_ev_target_hard_cap(
+            context="periodic_check",
+            charger_is_on=charger_is_on,
+        ):
+            self._battery_support_active = False
+            self.logger.separator()
+            return
 
         # === 8. Priority Balancer Decision (target enforcement must run even if energy sensors fail) ===
         priority = None
@@ -377,7 +385,7 @@ class SolarSurplusAutomation:
 
             # v1.3.24: Stop opportunistic charging when both targets met
             if priority == PRIORITY_EV_FREE:
-                if await self.charger_controller.is_charging():
+                if charger_is_on:
                     self.logger.info(
                         f"{self.logger.SUCCESS} Both targets met (Priority = EV_FREE) - "
                         "Stopping opportunistic charging"
@@ -449,7 +457,6 @@ class SolarSurplusAutomation:
         await self._handle_home_battery_usage(surplus_watts, priority)
 
         # === 11. Get Current Amperage (needed for hysteresis) ===
-        charger_is_on = await self.charger_controller.is_charging()
         if charger_is_on:
             current_amps = await self.charger_controller.get_current_amperage() or 6
         else:
@@ -543,6 +550,194 @@ class SolarSurplusAutomation:
             self._reset_state_tracking()
 
         self.logger.separator()
+
+    def _get_ev_soc_staleness(self) -> dict:
+        """Return EV SOC freshness metadata based on cached sensor update age."""
+        soc_entity = getattr(self.priority_balancer, "_soc_car", None)
+        if not soc_entity:
+            return {
+                "entity": None,
+                "age_seconds": None,
+                "is_stale": False,
+            }
+
+        soc_state = self.hass.states.get(soc_entity)
+        if not soc_state or not soc_state.last_updated:
+            return {
+                "entity": soc_entity,
+                "age_seconds": None,
+                "is_stale": False,
+            }
+
+        age_seconds = max(0.0, (dt_util.now() - soc_state.last_updated).total_seconds())
+        return {
+            "entity": soc_entity,
+            "age_seconds": age_seconds,
+            "is_stale": age_seconds >= EV_SOC_STALE_WARNING_SECONDS,
+        }
+
+    def _build_ev_soc_stale_attributes(self, stale_info: dict) -> dict:
+        """Build diagnostic attributes for SOC stale visibility."""
+        return {
+            "ev_soc_entity": stale_info.get("entity"),
+            "ev_soc_age_seconds": stale_info.get("age_seconds"),
+            "ev_soc_is_stale": stale_info.get("is_stale", False),
+            "ev_soc_stale_policy": "continue_charge",
+        }
+
+    def _log_ev_soc_stale_continue_policy(self, stale_info: dict, context: str) -> None:
+        """Log stale SOC warning while explicitly continuing by policy."""
+        if not stale_info.get("is_stale"):
+            return
+
+        age_seconds = stale_info.get("age_seconds")
+        age_label = f"{age_seconds:.0f}s" if age_seconds is not None else "unknown"
+        self.logger.warning(
+            f"SOC stale (continue) [{context}] - age={age_label}, "
+            f"entity={stale_info.get('entity')} - continuing by policy"
+        )
+
+    async def _enforce_ev_target_hard_cap(self, context: str, charger_is_on: bool | None = None) -> bool:
+        """
+        Enforce EV target as a hard cap.
+
+        Returns True when hard-cap logic handled the cycle (target reached path).
+        """
+        if not self.priority_balancer:
+            return False
+
+        stale_info = self._get_ev_soc_staleness()
+        self._log_ev_soc_stale_continue_policy(stale_info, context)
+
+        try:
+            ev_target_reached = await self.priority_balancer.is_ev_target_reached()
+            ev_soc = await self.priority_balancer.get_ev_current_soc()
+            ev_target = self.priority_balancer.get_ev_target_for_today()
+        except Exception as ex:
+            self.logger.error(f"Target hard cap check failed [{context}]: {ex}")
+            return False
+
+        if not ev_target_reached:
+            return False
+
+        if charger_is_on is None:
+            charger_is_on = await self.charger_controller.is_charging()
+
+        if charger_is_on:
+            reason = (
+                f"Target hard cap enforced ({context}): EV target reached "
+                f"({ev_soc}% >= {ev_target}%)"
+            )
+            self.logger.warning(f"Target hard cap enforced [{context}] - stopping charger")
+            await self.charger_controller.stop_charger(reason)
+            await self._update_diagnostic_sensor(
+                "STOPPED: Target hard cap enforced",
+                {
+                    "reason": reason,
+                    "context": context,
+                    "ev_soc": ev_soc,
+                    "ev_target": ev_target,
+                    "last_check": datetime.now().isoformat(),
+                    **self._build_ev_soc_stale_attributes(stale_info),
+                },
+            )
+            return True
+
+        self.logger.info(
+            f"Target hard cap enforced [{context}] - charger already OFF ({ev_soc}% >= {ev_target}%)"
+        )
+        await self._update_diagnostic_sensor(
+            "SKIPPED: Target already reached (charger OFF)",
+            {
+                "reason": "Target hard cap enforced with charger OFF",
+                "context": context,
+                "ev_soc": ev_soc,
+                "ev_target": ev_target,
+                "last_check": datetime.now().isoformat(),
+                **self._build_ev_soc_stale_attributes(stale_info),
+            },
+        )
+        return True
+
+    async def _handle_nighttime_transition(self, now: datetime, current_profile: str | None) -> None:
+        """Handle sunset transition when Solar Surplus is no longer allowed to run."""
+        charger_is_on = await self.charger_controller.is_charging()
+
+        if not charger_is_on:
+            self.logger.skip("Nighttime - Solar Surplus only operates during daytime (sunrise to sunset)")
+            await self._update_diagnostic_sensor(
+                "SKIPPED: Nighttime",
+                {"reason": "Solar production unavailable at night", "last_check": datetime.now().isoformat()},
+            )
+            return
+
+        if current_profile != "solar_surplus":
+            self.logger.skip(
+                f"Nighttime with charger ON but profile is '{current_profile}' - no sunset transition needed"
+            )
+            await self._update_diagnostic_sensor(
+                "SKIPPED: Nighttime (profile mismatch)",
+                {
+                    "reason": "Charger active but profile is not solar_surplus",
+                    "profile": current_profile,
+                    "last_check": datetime.now().isoformat(),
+                },
+            )
+            return
+
+        self.logger.warning(
+            f"Sunset transition detected at {now.strftime('%H:%M:%S')} with charger ON in Solar Surplus"
+        )
+
+        if await self._enforce_ev_target_hard_cap(
+            context="sunset_transition",
+            charger_is_on=charger_is_on,
+        ):
+            self._battery_support_active = False
+            return
+
+        handover_accepted = False
+        if self._night_smart_charge and hasattr(
+            self._night_smart_charge, "async_try_handover_from_solar_surplus"
+        ):
+            try:
+                handover_accepted = bool(
+                    await self._night_smart_charge.async_try_handover_from_solar_surplus(
+                        "sunset_transition"
+                    )
+                )
+            except Exception as ex:
+                self.logger.error(f"Sunset transition handover failed: {ex}")
+        else:
+            self.logger.warning("Sunset transition - Night Smart Charge handover API unavailable")
+
+        if handover_accepted:
+            self._battery_support_active = False
+            self.logger.success("Sunset transition - Handover accepted by Night Smart Charge")
+            await self._update_diagnostic_sensor(
+                "TRANSITION: Sunset handover accepted",
+                {
+                    "reason": "Sunset transition",
+                    "handover": "accepted",
+                    "last_check": datetime.now().isoformat(),
+                },
+            )
+            return
+
+        stop_reason = (
+            "Sunset transition safe stop: Solar Surplus cannot continue at night and handover was rejected"
+        )
+        self.logger.warning("Sunset transition - Handover rejected, applying safe stop")
+        await self.charger_controller.stop_charger(stop_reason)
+        self._battery_support_active = False
+        await self._update_diagnostic_sensor(
+            "STOPPED: Sunset transition safe stop",
+            {
+                "reason": stop_reason,
+                "handover": "rejected_or_failed",
+                "last_check": datetime.now().isoformat(),
+            },
+        )
 
     async def _handle_home_battery_usage(self, surplus_watts: float, priority: str | None) -> None:
         """Handle home battery support mode.

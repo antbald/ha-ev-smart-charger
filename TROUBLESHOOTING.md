@@ -117,7 +117,27 @@ After fixing issues, verify everything works:
 - Transition path: `Home battery threshold reached` + `switching to GRID fallback` + `Grid charge mode`
 - Terminal path: `Session state: completed_today`
 
-### 5. Duplicate Lines in File Logs
+### 5. EV Target Overshoot or Nighttime Battery Drain
+
+**Symptoms:**
+- EV charges above the configured target after a runtime target change.
+- Charging continues after sunset while profile is still `solar_surplus`.
+- Home battery drains unexpectedly in evening/night.
+
+**Expected behavior (current):**
+- `Target hard cap enforced` stops charge at first SOC sample `>= target`.
+- At sunset with charger ON in `solar_surplus`:
+  - try Night Smart Charge handover first,
+  - if rejected/fails, stop charger immediately (safe fallback).
+- If EV SOC data is stale, integration logs `SOC stale (continue)` and continues by policy (no automatic stale-stop).
+
+**What to check in logs:**
+- `Target hard cap enforced`
+- `Sunset transition`
+- `Handover accepted` or `STOPPED: Sunset transition safe stop`
+- `SOC stale (continue)` with age in seconds
+
+### 6. Duplicate Lines in File Logs
 
 **Symptoms:**
 - Same log line appears multiple times in the same second.
@@ -131,7 +151,7 @@ After fixing issues, verify everything works:
 2. Reload integration once after updating to current version.
 3. Verify that new logs no longer duplicate the same event line.
 
-### 6. Get More Help
+### 7. Get More Help
 
 If issues persist:
 
