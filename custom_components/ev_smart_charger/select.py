@@ -6,9 +6,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.select import SelectEntity
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, VERSION, CHARGING_PROFILES, PROFILE_MANUAL
+from .const import CHARGING_PROFILES, LEGACY_CHARGING_PROFILES, PROFILE_MANUAL
+from .entity_base import EVSCEntityMixin
+from .runtime import get_runtime_data
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -20,14 +23,16 @@ async def async_setup_entry(
 ) -> None:
     """Set up EVSC select entities."""
 
+    runtime_data = get_runtime_data(entry)
     entities = []
 
     # Create Charging Profile Selector
     entities.append(
         EVSCSelect(
+            runtime_data,
             entry.entry_id,
             "evsc_charging_profile",
-            "EVSC Charging Profile",
+            "Charging Profile",
             "mdi:ev-station",
             CHARGING_PROFILES,
         )
@@ -37,13 +42,14 @@ async def async_setup_entry(
     _LOGGER.info(f"✅ Created {len(entities)} EVSC select entities")
 
 
-class EVSCSelect(SelectEntity, RestoreEntity):
+class EVSCSelect(EVSCEntityMixin, SelectEntity, RestoreEntity):
     """EVSC Select Entity (behaves like input_select)."""
 
     _attr_should_poll = False
 
     def __init__(
         self,
+        runtime_data,
         entry_id: str,
         suffix: str,
         name: str,
@@ -51,25 +57,17 @@ class EVSCSelect(SelectEntity, RestoreEntity):
         options: list[str],
     ) -> None:
         """Initialize the select."""
-        self._entry_id = entry_id
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
-        self._attr_name = name
-        self._attr_icon = icon
+        self._init_evsc_entity(
+            runtime_data,
+            entry_id,
+            suffix,
+            "select",
+            name,
+            icon,
+            entity_category=EntityCategory.CONFIG,
+        )
         self._attr_options = options
         self._current_option = PROFILE_MANUAL  # Default to manual
-        # Set explicit entity_id to match pattern
-        self.entity_id = f"select.{DOMAIN}_{entry_id}_{suffix}"
-
-    @property
-    def device_info(self):
-        """Return device info to group all entities under one device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "EV Smart Charger",
-            "manufacturer": "antbald",
-            "model": "EV Smart Charger",
-            "sw_version": VERSION,
-        }
 
     @property
     def current_option(self) -> str:
@@ -90,3 +88,11 @@ class EVSCSelect(SelectEntity, RestoreEntity):
         if (last_state := await self.async_get_last_state()) is not None:
             if last_state.state in self.options:
                 self._current_option = last_state.state
+            elif last_state.state in LEGACY_CHARGING_PROFILES:
+                self._current_option = PROFILE_MANUAL
+                _LOGGER.warning(
+                    "Legacy charging profile '%s' restored for %s - coercing to '%s'",
+                    last_state.state,
+                    self.entity_id,
+                    PROFILE_MANUAL,
+                )

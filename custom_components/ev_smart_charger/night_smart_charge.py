@@ -38,9 +38,12 @@ from .const import (
     HELPER_CAR_READY_SATURDAY_SUFFIX,
     HELPER_CAR_READY_SUNDAY_SUFFIX,
     DEFAULT_CAR_READY_TIME,
+    PRIORITY_NIGHT_CHARGE,
 )
+from .runtime import EVSCRuntimeData
+from .charger_controller import CurrentControlAdapter
 from .utils.logging_helper import EVSCLogger
-from .utils import entity_helper, state_helper
+from .utils import state_helper
 from .utils.mobile_notification_service import MobileNotificationService
 from .utils.astral_time_service import AstralTimeService
 from .utils.time_parsing_service import TimeParsingService
@@ -63,6 +66,7 @@ class NightSmartCharge:
         config: dict,
         priority_balancer,
         charger_controller,
+        runtime_data: EVSCRuntimeData | None = None,
         coordinator=None,
         boost_charge=None,
     ) -> None:
@@ -81,12 +85,17 @@ class NightSmartCharge:
         self.config = config
         self.priority_balancer = priority_balancer
         self.charger_controller = charger_controller
+        self._runtime_data = runtime_data
         self._coordinator = coordinator
         self._boost_charge = boost_charge
         self.logger = EVSCLogger("NIGHT SMART CHARGE")
         self._astral_service = AstralTimeService(hass)
         self._mobile_notifier = MobileNotificationService(
-            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id, config.get(CONF_CAR_OWNER)
+            hass,
+            config.get(CONF_NOTIFY_SERVICES, []),
+            entry_id,
+            config.get(CONF_CAR_OWNER),
+            runtime_data=runtime_data,
         )
 
         # User-configured entities
@@ -129,6 +138,95 @@ class NightSmartCharge:
         self._last_completion_date = None  # Date when last completed
         self._last_diagnostic_log_time = None  # For throttling diagnostic logs
 
+    @property
+    def _automation_name(self) -> str:
+        """Return the coordinator owner name for Night Smart Charge."""
+        return "Night Smart Charge"
+
+    def _has_control(self) -> bool:
+        """Return True when Night Smart Charge currently owns the session."""
+        if self._coordinator is None:
+            return True
+        return self._coordinator.is_automation_active(self._automation_name)
+
+    async def _acquire_control(self, action: str, reason: str) -> bool:
+        """Acquire coordinator ownership for a charger action."""
+        if self._coordinator is None or self._has_control():
+            return True
+
+        allowed, denial_reason = await self._coordinator.request_charger_action(
+            automation_name=self._automation_name,
+            action=action,
+            reason=reason,
+            priority=PRIORITY_NIGHT_CHARGE,
+        )
+        if not allowed:
+            self.logger.info(f"Coordinator denied Night Smart Charge action: {denial_reason}")
+            return False
+        return True
+
+    async def _ensure_control(self, reason: str) -> bool:
+        """Ensure Night Smart Charge still owns the active session."""
+        if self._coordinator is None:
+            return True
+        if self._has_control():
+            return True
+        await self._handle_control_loss(f"Ownership lost: {reason}")
+        return False
+
+    def _release_control(self, reason: str) -> None:
+        """Release coordinator ownership when Night Smart Charge completes."""
+        if self._coordinator is not None:
+            self._coordinator.release_control(self._automation_name, reason)
+
+    async def _handle_control_loss(self, reason: str) -> None:
+        """Stand down after another automation preempts Night Smart Charge."""
+        if self._battery_monitor_unsub:
+            self._battery_monitor_unsub()
+            self._battery_monitor_unsub = None
+
+        if self._grid_monitor_unsub:
+            self._grid_monitor_unsub()
+            self._grid_monitor_unsub = None
+
+        if self.is_active():
+            self.logger.warning(f"Night Smart Charge lost ownership: {reason}")
+
+        self._night_charge_active = False
+        self._active_mode = NIGHT_CHARGE_MODE_IDLE
+        self._session_state = "ready"
+
+    async def _stop_charger_with_control(self, reason: str) -> bool:
+        """Stop the charger only while Night Smart Charge still owns the session."""
+        if not await self._ensure_control(reason):
+            return False
+        if not await self._acquire_control("turn_off", reason):
+            return False
+        result = await self.charger_controller.stop_charger(reason)
+        return self._operation_succeeded(result)
+
+    async def _adjust_for_grid_import_with_control(self, reason: str):
+        """Adjust charger amperage only while Night Smart Charge owns the session."""
+        if not await self._ensure_control(reason):
+            return None
+        return await self.charger_controller.adjust_for_grid_import(reason=reason)
+
+    async def _recover_to_target_with_control(self, target_amps: int, reason: str):
+        """Recover charger amperage only while Night Smart Charge owns the session."""
+        if not await self._ensure_control(reason):
+            return None
+        return await self.charger_controller.recover_to_target(
+            target_amps=target_amps,
+            reason=reason,
+        )
+
+    @staticmethod
+    def _operation_succeeded(result) -> bool:
+        """Handle both OperationResult and boolean-like mocks."""
+        if hasattr(result, "success"):
+            return result.success
+        return bool(result)
+
     async def async_setup(self) -> None:
         """Set up Night Smart Charge automation."""
         self.logger.separator()
@@ -136,29 +234,23 @@ class NightSmartCharge:
         self.logger.separator()
 
         # Discover helper entities (optional for backward compatibility)
-        self._night_charge_enabled_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_NIGHT_CHARGE_ENABLED_SUFFIX
+        self._night_charge_enabled_entity = self._resolve_entity(HELPER_NIGHT_CHARGE_ENABLED_SUFFIX)
+        self._night_charge_time_entity = self._resolve_entity(HELPER_NIGHT_CHARGE_TIME_SUFFIX)
+        self._car_ready_time_entity = self._resolve_entity(HELPER_CAR_READY_TIME_SUFFIX)
+        self._solar_forecast_threshold_entity = self._resolve_entity(
+            HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX
         )
-        self._night_charge_time_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_NIGHT_CHARGE_TIME_SUFFIX
+        self._night_charge_amperage_entity = self._resolve_entity(
+            HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX
         )
-        self._car_ready_time_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_CAR_READY_TIME_SUFFIX
+        self._home_battery_min_soc_entity = self._resolve_entity(
+            HELPER_HOME_BATTERY_MIN_SOC_SUFFIX
         )
-        self._solar_forecast_threshold_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX
+        self._grid_import_threshold_entity = self._resolve_entity(
+            HELPER_GRID_IMPORT_THRESHOLD_SUFFIX
         )
-        self._night_charge_amperage_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX
-        )
-        self._home_battery_min_soc_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_HOME_BATTERY_MIN_SOC_SUFFIX
-        )
-        self._grid_import_threshold_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_GRID_IMPORT_THRESHOLD_SUFFIX
-        )
-        self._grid_import_delay_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_GRID_IMPORT_DELAY_SUFFIX
+        self._grid_import_delay_entity = self._resolve_entity(
+            HELPER_GRID_IMPORT_DELAY_SUFFIX
         )
 
         # Discover car_ready switches for each day (v1.3.13+)
@@ -173,7 +265,7 @@ class NightSmartCharge:
         ]
 
         for idx, suffix in enumerate(days_suffixes):
-            entity = entity_helper.find_by_suffix(self.hass, suffix)
+            entity = self._resolve_entity(suffix)
             if entity:
                 self._car_ready_entities[idx] = entity
                 self.logger.info(f"Found car_ready entity for day {idx}: {entity}")
@@ -220,6 +312,12 @@ class NightSmartCharge:
         self.logger.info("Periodic check interval: 1 minute")
         self.logger.info("Late arrival detection: Enabled")
         self.logger.separator()
+
+    def _resolve_entity(self, key: str) -> str | None:
+        """Resolve an integration-owned helper entity."""
+        if self._runtime_data is None:
+            return None
+        return self._runtime_data.get_entity_id(key)
 
     async def async_remove(self) -> None:
         """Remove Night Smart Charge automation."""
@@ -268,21 +366,11 @@ class NightSmartCharge:
         if not self.is_active():
             return
 
-        if self._battery_monitor_unsub:
-            self._battery_monitor_unsub()
-            self._battery_monitor_unsub = None
-
-        if self._grid_monitor_unsub:
-            self._grid_monitor_unsub()
-            self._grid_monitor_unsub = None
-
         self.logger.info(
             f"Pausing Night Smart Charge due to external override: {reason or 'No reason provided'}"
         )
-
-        self._night_charge_active = False
-        self._active_mode = NIGHT_CHARGE_MODE_IDLE
-        self._session_state = "ready"
+        self._release_control(reason or "External override")
+        await self._handle_control_loss(reason or "External override")
 
     def _is_in_active_window_for_handover(self, now: datetime) -> tuple[bool, str]:
         """
@@ -417,6 +505,9 @@ class NightSmartCharge:
             self.logger.debug("Boost Charge active - skipping Night Smart Charge check")
             return
 
+        if not self.is_active() and self._has_control():
+            self._release_control("Night Smart Charge idle without an active session")
+
         # Check if session recently completed (within 1 hour cooldown)
         if self._last_completion_time:
             time_since = (current_time - self._last_completion_time).total_seconds()
@@ -429,14 +520,16 @@ class NightSmartCharge:
 
         # Check if already active - validate stop conditions (v1.3.18)
         if self.is_active():
+            if not await self._ensure_control("periodic_check_active_session"):
+                return
             # Validate stop conditions (deadline/sunrise based on car_ready flag)
             should_stop, reason = await self._should_stop_for_deadline(current_time)
             if should_stop:
                 self.logger.warning(
                     f"{self.logger.ALERT} Active session detected past stop condition - terminating"
                 )
-                await self.charger_controller.stop_charger(reason)
-                await self._complete_night_charge(STOP_REASON_DEADLINE_OR_TARGET, terminal=True)
+                if await self._stop_charger_with_control(reason):
+                    await self._complete_night_charge(STOP_REASON_DEADLINE_OR_TARGET, terminal=True)
             else:
                 self.logger.debug("Already active and within valid window, skipping re-evaluation")
             return
@@ -915,6 +1008,11 @@ class NightSmartCharge:
         self.logger.info(f"   EV target SOC: {ev_target}%")
         self.logger.info(f"   Home battery minimum SOC: {home_min_soc}%")
 
+        if not await self._acquire_control("turn_on", "Night charge - Battery mode"):
+            self.logger.warning("Night Smart Charge battery start blocked by coordinator")
+            self.logger.separator()
+            return
+
         # Start charger with exception handling and state cleanup (v1.3.21)
         try:
             # Set internal state BEFORE starting charger to prevent race condition with Smart Blocker
@@ -976,6 +1074,7 @@ class NightSmartCharge:
                 self._battery_monitor_unsub()
                 self._battery_monitor_unsub = None
 
+            self._release_control(f"Battery start failed: {ex}")
             self.logger.error("Battery charge start aborted - state cleaned up")
             self.logger.separator()
             raise  # Re-raise to allow caller to handle
@@ -997,6 +1096,9 @@ class NightSmartCharge:
         if self._boost_charge and self._boost_charge.is_active():
             return
 
+        if not await self._ensure_control("battery_monitor"):
+            return
+
         current_time = dt_util.now()
         self.logger.separator()
         self.logger.info(f"{self.logger.BATTERY} Battery monitoring at {current_time.strftime('%H:%M:%S')}")
@@ -1005,8 +1107,8 @@ class NightSmartCharge:
         should_stop, reason = await self._should_stop_for_deadline(current_time)
         if should_stop:
             self.logger.info(f"{self.logger.CALENDAR} Stop condition: {reason}")
-            await self.charger_controller.stop_charger(reason)
-            await self._complete_night_charge(STOP_REASON_DEADLINE_OR_TARGET, terminal=True)
+            if await self._stop_charger_with_control(reason):
+                await self._complete_night_charge(STOP_REASON_DEADLINE_OR_TARGET, terminal=True)
             return
 
         # Check 1: Home battery SOC threshold
@@ -1029,7 +1131,7 @@ class NightSmartCharge:
                     self._battery_monitor_unsub()
                     self._battery_monitor_unsub = None
 
-                await self.charger_controller.stop_charger(
+                await self._stop_charger_with_control(
                     f"Battery min reached ({home_soc}% <= {home_min}%) - switching to grid"
                 )
 
@@ -1043,7 +1145,7 @@ class NightSmartCharge:
                 return
 
             self.logger.warning("   Car ready is OFF - stopping session to protect home battery")
-            await self.charger_controller.stop_charger(
+            await self._stop_charger_with_control(
                 f"Home battery protection ({home_soc}% <= {home_min}%)"
             )
             await self._complete_night_charge(STOP_REASON_HOME_BATTERY_MIN, terminal=True)
@@ -1063,7 +1165,7 @@ class NightSmartCharge:
             self.logger.success(f"{self.logger.SUCCESS} EV target reached!")
             self.logger.info(f"   Current: {ev_soc}% >= Target: {ev_target}%")
             self.logger.warning("Target hard cap enforced [night_smart_charge:battery_monitor]")
-            await self.charger_controller.stop_charger(
+            await self._stop_charger_with_control(
                 f"Target hard cap enforced (Night Smart Charge battery): {ev_soc}% >= {ev_target}%"
             )
             await self._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
@@ -1094,6 +1196,9 @@ class NightSmartCharge:
         if self._boost_charge and self._boost_charge.is_active():
             return
 
+        if not await self._ensure_control("grid_monitor"):
+            return
+
         current_time = dt_util.now()
         self.logger.separator()
         self.logger.info(f"{self.logger.GRID} Grid monitoring at {current_time.strftime('%H:%M:%S')}")
@@ -1102,8 +1207,8 @@ class NightSmartCharge:
         should_stop, reason = await self._should_stop_for_deadline(current_time)
         if should_stop:
             self.logger.info(f"{self.logger.CALENDAR} Stop condition: {reason}")
-            await self.charger_controller.stop_charger(reason)
-            await self._complete_night_charge(STOP_REASON_DEADLINE_OR_TARGET, terminal=True)
+            if await self._stop_charger_with_control(reason):
+                await self._complete_night_charge(STOP_REASON_DEADLINE_OR_TARGET, terminal=True)
             return
 
         # Check 1: EV target SOC reached
@@ -1118,7 +1223,7 @@ class NightSmartCharge:
             self.logger.success(f"{self.logger.SUCCESS} EV target reached!")
             self.logger.info(f"   Current: {ev_soc}% >= Target: {ev_target}%")
             self.logger.warning("Target hard cap enforced [night_smart_charge:grid_monitor]")
-            await self.charger_controller.stop_charger(
+            await self._stop_charger_with_control(
                 f"Target hard cap enforced (Night Smart Charge grid): {ev_soc}% >= {ev_target}%"
             )
             await self._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
@@ -1150,6 +1255,11 @@ class NightSmartCharge:
 
         self.logger.info(f"   Charger amperage: {amperage}A")
         self.logger.info(f"   EV target SOC: {ev_target}%")
+
+        if not await self._acquire_control("turn_on", "Night charge - Grid mode"):
+            self.logger.warning("Night Smart Charge grid start blocked by coordinator")
+            self.logger.separator()
+            return
 
         # Start charger with exception handling and state cleanup (v1.3.21)
         try:
@@ -1212,6 +1322,7 @@ class NightSmartCharge:
                 self._grid_monitor_unsub()
                 self._grid_monitor_unsub = None
 
+            self._release_control(f"Grid start failed: {ex}")
             self.logger.error("Grid charge start aborted - state cleaned up")
             self.logger.separator()
             raise  # Re-raise to allow caller to handle
@@ -1233,6 +1344,9 @@ class NightSmartCharge:
         from .utils.amperage_helper import GridImportProtection
 
         # Get current amperage
+        if not await self._ensure_control("dynamic_amperage"):
+            return
+
         current_amps = await self.charger_controller.get_current_amperage()
         if current_amps is None:
             self.logger.warning("Cannot read current amperage, skipping dynamic adjustment")
@@ -1276,15 +1390,15 @@ class NightSmartCharge:
                 f"({grid_delay}s elapsed)"
             )
 
-            result = await self.charger_controller.adjust_for_grid_import(
+            result = await self._adjust_for_grid_import_with_control(
                 reason=f"Grid import protection ({grid_import:.0f}W > {grid_threshold:.0f}W)"
             )
 
-            if result.success:
+            if result and result.success:
                 self.logger.success(f"Amperage reduced: {current_amps}A → {result.amperage}A")
                 self._grid_import_trigger_time = None  # Reset for next detection
                 self._recovery_tracker.reset()  # Reset recovery tracker
-            else:
+            elif result is not None:
                 self.logger.error(f"Failed to reduce amperage: {result.error_message}")
 
             return
@@ -1332,17 +1446,17 @@ class NightSmartCharge:
             f"{self.logger.SUCCESS} Conditions stable for 60s, recovering amperage..."
         )
 
-        result = await self.charger_controller.recover_to_target(
-            target_amps=target_amps,
+        result = await self._recover_to_target_with_control(
+            target_amps,
             reason=f"Conditions improved (grid {grid_import:.0f}W, stable 60s)"
         )
 
-        if result.success:
+        if result and result.success:
             self.logger.success(
                 f"Amperage recovered: {current_amps}A → {result.amperage}A (target {target_amps}A)"
             )
             self._recovery_tracker.reset()  # Reset for next recovery cycle
-        else:
+        elif result is not None:
             self.logger.error(f"Failed to recover amperage: {result.error_message}")
 
     # ========== SESSION COMPLETION ==========
@@ -1399,6 +1513,7 @@ class NightSmartCharge:
             self._night_charge_active = False
             self._active_mode = NIGHT_CHARGE_MODE_IDLE
             self._session_state = "ready"
+            self._release_control(STOP_REASON_BOOST_PREEMPTED)
             self.logger.info("Boost Charge override detected during completion - clearing state without cooldown")
             self.logger.info(f"   Previous mode: {previous_mode}")
             self.logger.separator()
@@ -1431,6 +1546,7 @@ class NightSmartCharge:
             self.logger.success("Session completed (non-terminal)")
             self.logger.info(f"   Previous mode: {previous_mode}")
             self.logger.info("   State reset to ready (no daily lock)")
+        self._release_control(stop_reason)
         self.logger.separator()
 
     async def _emergency_charge_with_defaults(self) -> None:
@@ -1456,6 +1572,7 @@ class NightSmartCharge:
             self.logger.warning(f"Using default amperage: {amperage}A")
 
         # Determine mode: prefer BATTERY if forecast good, else GRID
+        pv_forecast = 0.0
         try:
             pv_forecast = await self._get_pv_forecast()
             solar_threshold = self._get_solar_threshold()
@@ -1478,9 +1595,9 @@ class NightSmartCharge:
         # Start charging with determined mode
         try:
             if mode == NIGHT_CHARGE_MODE_BATTERY:
-                await self._start_battery_charge(amperage)
+                await self._start_battery_charge(pv_forecast)
             else:
-                await self._start_grid_charge(amperage)
+                await self._start_grid_charge(pv_forecast)
 
             self.logger.success("Emergency charge started successfully")
         except Exception as ex:
@@ -1489,7 +1606,7 @@ class NightSmartCharge:
             if mode == NIGHT_CHARGE_MODE_BATTERY:
                 self.logger.warning("Retrying with GRID mode as fallback")
                 try:
-                    await self._start_grid_charge(amperage)
+                    await self._start_grid_charge(pv_forecast)
                     self.logger.success("Emergency charge started (GRID fallback)")
                 except Exception as ex2:
                     self.logger.error(f"GRID fallback also failed: {ex2}")
@@ -1770,19 +1887,16 @@ class NightSmartCharge:
                 )
                 return
 
-            # Salva nel sensore target
-            self.hass.states.async_set(
-                energy_target_entity,
-                round(energy_required, 2),  # Arrotonda a 2 decimali
-                {
-                    "unit_of_measurement": "kWh",
-                    "friendly_name": "Night Charge Energy Forecast",
-                    "calculation_time": dt_util.now().isoformat(),
-                    "current_soc": current_soc,
-                    "target_soc": target_soc,
-                    "battery_capacity": battery_capacity,
-                    "mode": mode,
-                }
+            adapter = CurrentControlAdapter(self.hass, energy_target_entity)
+            await adapter.async_validate()
+            service_domain, service_name, service_data = adapter.build_service_call(
+                round(energy_required, 2)
+            )
+            await self.hass.services.async_call(
+                service_domain,
+                service_name,
+                service_data,
+                blocking=True,
             )
 
             # Log successo
@@ -1810,15 +1924,3 @@ class NightSmartCharge:
         self.logger.info(f"   Solar Forecast Threshold: {threshold} kWh")
         self.logger.info(f"   Night Charge Amperage: {amperage} A")
         self.logger.info(f"   PV Forecast Entity: {self._pv_forecast_entity or 'Not configured'}")
-
-
-async def async_setup_night_smart_charge(
-    hass: HomeAssistant,
-    entry_id: str,
-    config: dict,
-    priority_balancer,
-) -> NightSmartCharge:
-    """Set up Night Smart Charge automation."""
-    night_smart_charge = NightSmartCharge(hass, entry_id, config, priority_balancer)
-    await night_smart_charge.async_setup()
-    return night_smart_charge

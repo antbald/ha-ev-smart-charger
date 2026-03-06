@@ -6,11 +6,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.number import NumberEntity, NumberMode
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
-    DOMAIN,
-    VERSION,
     DEFAULT_CHECK_INTERVAL,
     DEFAULT_GRID_IMPORT_THRESHOLD,
     DEFAULT_GRID_IMPORT_DELAY,
@@ -24,6 +23,8 @@ from .const import (
     DEFAULT_BOOST_CHARGE_AMPERAGE,
     DEFAULT_BOOST_TARGET_SOC,
 )
+from .entity_base import EVSCEntityMixin
+from .runtime import get_runtime_data
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,11 +36,13 @@ async def async_setup_entry(
 ) -> None:
     """Set up EVSC number entities."""
 
+    runtime_data = get_runtime_data(entry)
     entities = []
 
     # Create Check Interval
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_check_interval",
             "EVSC Check Interval",
@@ -55,6 +58,7 @@ async def async_setup_entry(
     # Create Grid Import Threshold
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_grid_import_threshold",
             "EVSC Grid Import Threshold",
@@ -70,6 +74,7 @@ async def async_setup_entry(
     # Create Grid Import Delay
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_grid_import_delay",
             "EVSC Grid Import Delay",
@@ -85,6 +90,7 @@ async def async_setup_entry(
     # Create Surplus Drop Delay
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_surplus_drop_delay",
             "EVSC Surplus Drop Delay",
@@ -100,6 +106,7 @@ async def async_setup_entry(
     # Create Home Battery Minimum SOC
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_home_battery_min_soc",
             "EVSC Home Battery Min SOC",
@@ -115,6 +122,7 @@ async def async_setup_entry(
     # Create Battery Support Amperage
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_battery_support_amperage",
             "EVSC Battery Support Amperage",
@@ -131,6 +139,7 @@ async def async_setup_entry(
     # Monday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_ev_min_soc_monday",
             "EVSC EV Min SOC Monday",
@@ -146,6 +155,7 @@ async def async_setup_entry(
     # Tuesday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_ev_min_soc_tuesday",
             "EVSC EV Min SOC Tuesday",
@@ -161,6 +171,7 @@ async def async_setup_entry(
     # Wednesday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_ev_min_soc_wednesday",
             "EVSC EV Min SOC Wednesday",
@@ -176,6 +187,7 @@ async def async_setup_entry(
     # Thursday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_ev_min_soc_thursday",
             "EVSC EV Min SOC Thursday",
@@ -191,6 +203,7 @@ async def async_setup_entry(
     # Friday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_ev_min_soc_friday",
             "EVSC EV Min SOC Friday",
@@ -206,6 +219,7 @@ async def async_setup_entry(
     # Saturday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_ev_min_soc_saturday",
             "EVSC EV Min SOC Saturday",
@@ -221,6 +235,7 @@ async def async_setup_entry(
     # Sunday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_ev_min_soc_sunday",
             "EVSC EV Min SOC Sunday",
@@ -237,6 +252,7 @@ async def async_setup_entry(
     # Monday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_home_min_soc_monday",
             "EVSC Home Min SOC Monday",
@@ -252,6 +268,7 @@ async def async_setup_entry(
     # Tuesday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_home_min_soc_tuesday",
             "EVSC Home Min SOC Tuesday",
@@ -267,6 +284,7 @@ async def async_setup_entry(
     # Wednesday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_home_min_soc_wednesday",
             "EVSC Home Min SOC Wednesday",
@@ -282,6 +300,7 @@ async def async_setup_entry(
     # Thursday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_home_min_soc_thursday",
             "EVSC Home Min SOC Thursday",
@@ -297,6 +316,7 @@ async def async_setup_entry(
     # Friday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_home_min_soc_friday",
             "EVSC Home Min SOC Friday",
@@ -312,6 +332,7 @@ async def async_setup_entry(
     # Saturday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_home_min_soc_saturday",
             "EVSC Home Min SOC Saturday",
@@ -327,6 +348,7 @@ async def async_setup_entry(
     # Sunday
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_home_min_soc_sunday",
             "EVSC Home Min SOC Sunday",
@@ -343,6 +365,7 @@ async def async_setup_entry(
     # Minimum Solar Forecast Threshold
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_min_solar_forecast_threshold",
             "EVSC Min Solar Forecast Threshold",
@@ -358,6 +381,7 @@ async def async_setup_entry(
     # Night Charge Amperage
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_night_charge_amperage",
             "EVSC Night Charge Amperage",
@@ -373,6 +397,7 @@ async def async_setup_entry(
     # Boost Charge Amperage
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_boost_charge_amperage",
             "EVSC Boost Charge Amperage",
@@ -388,6 +413,7 @@ async def async_setup_entry(
     # Boost Charge Target SOC
     entities.append(
         EVSCNumber(
+            runtime_data,
             entry.entry_id,
             "evsc_boost_target_soc",
             "EVSC Boost Target SOC",
@@ -404,7 +430,7 @@ async def async_setup_entry(
     _LOGGER.info(f"✅ Created {len(entities)} EVSC number entities")
 
 
-class EVSCNumber(NumberEntity, RestoreEntity):
+class EVSCNumber(EVSCEntityMixin, NumberEntity, RestoreEntity):
     """EVSC Number Entity (behaves like input_number)."""
 
     _attr_should_poll = False
@@ -412,6 +438,7 @@ class EVSCNumber(NumberEntity, RestoreEntity):
 
     def __init__(
         self,
+        runtime_data,
         entry_id: str,
         suffix: str,
         name: str,
@@ -423,28 +450,20 @@ class EVSCNumber(NumberEntity, RestoreEntity):
         unit: str | None = None,
     ) -> None:
         """Initialize the number."""
-        self._entry_id = entry_id
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
-        self._attr_name = name
-        self._attr_icon = icon
+        self._init_evsc_entity(
+            runtime_data,
+            entry_id,
+            suffix,
+            "number",
+            name,
+            icon,
+            entity_category=EntityCategory.CONFIG,
+        )
         self._attr_native_min_value = min_value
         self._attr_native_max_value = max_value
         self._attr_native_step = step
         self._attr_native_unit_of_measurement = unit
         self._value = default_value
-        # Set explicit entity_id to match pattern
-        self.entity_id = f"number.{DOMAIN}_{entry_id}_{suffix}"
-
-    @property
-    def device_info(self):
-        """Return device info to group all entities under one device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "EV Smart Charger",
-            "manufacturer": "antbald",
-            "model": "EV Smart Charger",
-            "sw_version": VERSION,
-        }
 
     @property
     def native_value(self) -> float:

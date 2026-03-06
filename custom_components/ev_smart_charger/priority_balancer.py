@@ -19,8 +19,9 @@ from .const import (
     PRIORITY_HOME,
     PRIORITY_EV_FREE,
 )
+from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
-from .utils import entity_helper, state_helper
+from .utils import state_helper
 from .utils.mobile_notification_service import MobileNotificationService
 
 
@@ -31,11 +32,18 @@ class PriorityBalancer:
     Manages EV vs Home battery charging prioritization based on daily SOC targets.
     """
 
-    def __init__(self, hass: HomeAssistant, entry_id: str, config: dict):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        config: dict,
+        runtime_data: EVSCRuntimeData | None = None,
+    ):
         """Initialize Priority Balancer."""
         self.hass = hass
         self.entry_id = entry_id
         self.config = config
+        self._runtime_data = runtime_data
         self.logger = EVSCLogger("PRIORITY BALANCER")
 
         # User-mapped entities
@@ -49,10 +57,17 @@ class PriorityBalancer:
         self._home_min_soc_entities = {}
         self._today_ev_target_sensor = None  # v1.3.26
         self._today_home_target_sensor = None  # v1.3.26
+        self._priority_sensor_entity_obj = None
+        self._today_ev_target_sensor_obj = None
+        self._today_home_target_sensor_obj = None
 
         # Mobile notification service
         self._mobile_notifier = MobileNotificationService(
-            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id, config.get(CONF_CAR_OWNER)
+            hass,
+            config.get(CONF_NOTIFY_SERVICES, []),
+            entry_id,
+            config.get(CONF_CAR_OWNER),
+            runtime_data=runtime_data,
         )
 
         # Cached state
@@ -63,10 +78,13 @@ class PriorityBalancer:
         """Setup: discover helper entities."""
         self.logger.info("Setting up Priority Balancer")
 
+        def resolve_entity(key: str) -> str | None:
+            if self._runtime_data is None:
+                return None
+            return self._runtime_data.get_entity_id(key)
+
         # Discover enabled switch (optional for backward compatibility)
-        self._enabled_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_PRIORITY_BALANCER_ENABLED_SUFFIX
-        )
+        self._enabled_entity = resolve_entity(HELPER_PRIORITY_BALANCER_ENABLED_SUFFIX)
 
         if not self._enabled_entity:
             self.logger.warning(
@@ -81,27 +99,17 @@ class PriorityBalancer:
         for day in days:
             # EV targets
             ev_suffix = f"evsc_ev_min_soc_{day}"
-            self._ev_min_soc_entities[day] = entity_helper.find_by_suffix(
-                self.hass, ev_suffix
-            )
+            self._ev_min_soc_entities[day] = resolve_entity(ev_suffix)
 
             # Home targets
             home_suffix = f"evsc_home_min_soc_{day}"
-            self._home_min_soc_entities[day] = entity_helper.find_by_suffix(
-                self.hass, home_suffix
-            )
+            self._home_min_soc_entities[day] = resolve_entity(home_suffix)
 
         # Discover cached EV SOC sensor (v1.4.0)
-        self._soc_car = entity_helper.find_by_suffix(
-            self.hass, HELPER_CACHED_EV_SOC_SUFFIX
-        )
+        self._soc_car = resolve_entity(HELPER_CACHED_EV_SOC_SUFFIX)
 
         if not self._soc_car:
-            self.logger.warning(
-                f"Cached EV SOC sensor not found - falling back to direct source. "
-                f"This should only happen on first setup before restart."
-            )
-            self._soc_car = self._soc_car_source  # Fallback to cloud sensor
+            self.logger.error("Cached EV SOC sensor not found in runtime data")
         else:
             self.logger.info(
                 f"✅ Using cached EV SOC sensor: {self._soc_car} "
@@ -109,12 +117,12 @@ class PriorityBalancer:
             )
 
         # Discover today's target sensors (v1.3.26)
-        self._today_ev_target_sensor = entity_helper.find_by_suffix(
-            self.hass, HELPER_TODAY_EV_TARGET_SUFFIX
-        )
-        self._today_home_target_sensor = entity_helper.find_by_suffix(
-            self.hass, HELPER_TODAY_HOME_TARGET_SUFFIX
-        )
+        self._today_ev_target_sensor = resolve_entity(HELPER_TODAY_EV_TARGET_SUFFIX)
+        self._today_home_target_sensor = resolve_entity(HELPER_TODAY_HOME_TARGET_SUFFIX)
+        if self._runtime_data is not None:
+            self._priority_sensor_entity_obj = self._runtime_data.get_entity("evsc_priority_daily_state")
+            self._today_ev_target_sensor_obj = self._runtime_data.get_entity(HELPER_TODAY_EV_TARGET_SUFFIX)
+            self._today_home_target_sensor_obj = self._runtime_data.get_entity(HELPER_TODAY_HOME_TARGET_SUFFIX)
 
         if self._today_ev_target_sensor:
             self.logger.info(f"Discovered Today EV Target sensor: {self._today_ev_target_sensor}")
@@ -343,52 +351,71 @@ class PriorityBalancer:
         today: str,
     ):
         """Update priority state sensor and today's target sensors (v1.3.26)."""
-        sensor_entity = entity_helper.find_by_suffix(
-            self.hass, "evsc_priority_daily_state"
-        )
+        sensor_entity = None
+        if self._runtime_data is not None:
+            sensor_entity = self._runtime_data.get_entity_id("evsc_priority_daily_state")
+            self._priority_sensor_entity_obj = self._runtime_data.get_entity(
+                "evsc_priority_daily_state"
+            )
 
         if not sensor_entity:
             self.logger.warning("Priority state sensor not found")
             return
 
         try:
+            priority_attributes = {
+                "balancer_enabled": self.is_enabled(),
+                "today": today.capitalize(),
+                "current_ev_soc": round(ev_soc, 1),
+                "target_ev_soc": ev_target,
+                "current_home_soc": round(home_soc, 1),
+                "target_home_soc": home_target,
+                "reason": reason,
+                "last_update": dt_util.now().isoformat(),
+            }
+
             # Update priority state sensor
-            self.hass.states.async_set(
-                sensor_entity,
-                priority,
-                {
-                    "balancer_enabled": self.is_enabled(),
-                    "today": today.capitalize(),
-                    "current_ev_soc": round(ev_soc, 1),
-                    "target_ev_soc": ev_target,
-                    "current_home_soc": round(home_soc, 1),
-                    "target_home_soc": home_target,
-                    "reason": reason,
-                    "last_update": dt_util.now().isoformat(),
-                },
-            )
+            if self._priority_sensor_entity_obj and hasattr(
+                self._priority_sensor_entity_obj, "async_publish"
+            ):
+                await self._priority_sensor_entity_obj.async_publish(
+                    priority,
+                    priority_attributes,
+                )
+            else:
+                self.logger.warning("Priority state sensor object not registered in runtime data")
 
             # Update today's EV target sensor (v1.3.26)
             if self._today_ev_target_sensor:
-                self.hass.states.async_set(
-                    self._today_ev_target_sensor,
-                    ev_target,
-                    {
-                        "day": today.capitalize(),
-                        "unit_of_measurement": "%",
-                    },
-                )
+                ev_attributes = {
+                    "day": today.capitalize(),
+                    "unit_of_measurement": "%",
+                }
+                if self._today_ev_target_sensor_obj and hasattr(
+                    self._today_ev_target_sensor_obj, "async_publish"
+                ):
+                    await self._today_ev_target_sensor_obj.async_publish(
+                        ev_target,
+                        ev_attributes,
+                    )
+                else:
+                    self.logger.warning("Today EV target sensor object not registered in runtime data")
 
             # Update today's Home target sensor (v1.3.26)
             if self._today_home_target_sensor:
-                self.hass.states.async_set(
-                    self._today_home_target_sensor,
-                    home_target,
-                    {
-                        "day": today.capitalize(),
-                        "unit_of_measurement": "%",
-                    },
-                )
+                home_attributes = {
+                    "day": today.capitalize(),
+                    "unit_of_measurement": "%",
+                }
+                if self._today_home_target_sensor_obj and hasattr(
+                    self._today_home_target_sensor_obj, "async_publish"
+                ):
+                    await self._today_home_target_sensor_obj.async_publish(
+                        home_target,
+                        home_attributes,
+                    )
+                else:
+                    self.logger.warning("Today Home target sensor object not registered in runtime data")
 
         except Exception as e:
             self.logger.error(f"Failed to update priority sensor: {e}")

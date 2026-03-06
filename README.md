@@ -17,6 +17,7 @@
 - [Charging Modes](#-charging-modes)
 - [Automation Features](#-automation-features)
 - [Dashboard Setup](#-dashboard-setup)
+- [Documentation](#-documentation)
 - [Troubleshooting](#-troubleshooting)
 - [Version History](#-version-history)
 
@@ -47,9 +48,11 @@ EV Smart Charger transforms your Home Assistant into an intelligent EV charging 
 
 1. **Install via HACS** (recommended) or manual installation
 2. **Add integration**: Settings → Devices & Services → Add Integration → "EV Smart Charger"
-3. **Configure entities** in 4-step wizard (charger, sensors, solar forecast)
+3. **Configure entities** in the 6-step wizard (name, charger, sensors, PV forecast, notifications, external connectors)
 4. **Enable features** you want via dashboard switches
 5. **Start charging!** 🎉
+
+Supported charging profiles in the UI: `manual` and `solar_surplus`. Night Smart Charge and Boost Charge are enabled through their dedicated helper entities.
 
 ---
 
@@ -138,7 +141,7 @@ Charge your EV **only** when excess solar energy is available. Never import from
 3. Search for **"EV Smart Charger"**
 4. Click to start setup wizard
 
-### Step 2: Setup Wizard (4 Steps)
+### Step 2: Setup Wizard (6 Steps)
 
 #### 📝 Step 1: Name Your Integration
 - Enter a friendly name (e.g., "EV Smart Charger")
@@ -183,6 +186,14 @@ For Night Smart Charge feature:
 - OpenWeatherMap (with solar forecast)
 
 **Skip this step** if you don't want Night Smart Charge feature.
+
+#### 📱 Step 5: Configure Notifications
+- Select mobile app notify services (optional)
+- Select the person entity representing the car owner
+
+#### 🔗 Step 6: Configure External Connectors
+- Set EV battery capacity in kWh
+- Optionally choose a `number` or `input_number` helper for the energy forecast output
 
 ### Step 3: Automatic Helper Entities
 
@@ -258,6 +269,17 @@ After setup, the integration **automatically creates 51 entities**:
 ✅ **Home battery support** - Optional fallback when surplus drops
 
 #### Configuration Entities
+
+---
+
+## 📚 Documentation
+
+For maintainers and deeper technical analysis:
+
+- [Documentation index](docs/README.md)
+- [Architecture SSOT](docs/SSOT.md)
+- [Codebase map](docs/CODEBASE_MAP.md)
+- [Hardening cycle status](docs/REFACTOR_PLAN.md)
 
 | Entity | Default | Range | Description |
 |--------|---------|-------|-------------|
@@ -1133,9 +1155,9 @@ This keeps the first screen fast and visually clean, while still exposing every 
           name: Log File Path
 ```
 
-### Animated Custom Dashboard
+### Vertical Stack Custom Dashboard
 
-This integration now ships a bundled frontend module for a full custom Lovelace dashboard card with animated HTML/CSS UI.
+This integration now ships a bundled frontend module for a custom Lovelace dashboard card with animated HTML/CSS UI, but the layout is intentionally a strict vertical stack instead of a wide pannable surface.
 
 1. Add the resource:
 
@@ -1146,27 +1168,35 @@ lovelace:
       type: module
 ```
 
-2. Add the card:
+2. Add the card inside a standard `vertical-stack`:
 
 ```yaml
-type: custom:ev-smart-charger-dashboard
-title: Tesla Charge Deck
-entity_prefix: ev_smart_charger_YOUR_ENTRY_ID
-charging_power_entity: sensor.current_charging_power_tesla
-ev_soc_entity: sensor.tesla_battery
-home_battery_soc_entity: sensor.stato_batteria_luxpower
-solar_power_entity: sensor.produzione_solare_totale
-grid_import_entity: sensor.grid_power_import_w
-current_entity: number.wallbox_current
+type: vertical-stack
+cards:
+  - type: custom:ev-smart-charger-dashboard
+    title: Tesla Charge Deck
+    entity_prefix: ev_smart_charger_YOUR_ENTRY_ID
+    charging_power_entity: sensor.current_charging_power_tesla
+    ev_soc_entity: sensor.tesla_battery
+    home_battery_soc_entity: sensor.stato_batteria_luxpower
+    solar_power_entity: sensor.produzione_solare_totale
+    grid_import_entity: sensor.grid_power_import_w
+    current_entity: number.wallbox_current
 ```
 
 The custom card exposes the integration helpers with a single animated control surface:
 
-- gradient hero panel with live telemetry
+- stacked telemetry cards in one column
 - native toggles for override, boost, night charge, solar surplus, and blockers
 - stepper controls for number entities
 - selectable charging profile chips
 - direct Home Assistant service calls from the UI
+
+Recommended placement:
+
+- use it as a normal card in a standard dashboard view
+- keep it in one column or inside `vertical-stack`
+- avoid panel-style layouts if you want a phone-like stacked view with no horizontal panning
 
 ### Complete Control Dashboard
 

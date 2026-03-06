@@ -15,7 +15,8 @@ from .const import (
     HELPER_BOOST_TARGET_SOC_SUFFIX,
     PRIORITY_BOOST_CHARGE,
 )
-from .utils import entity_helper, state_helper
+from .runtime import EVSCRuntimeData
+from .utils import state_helper
 from .utils.logging_helper import EVSCLogger
 from .utils.mobile_notification_service import MobileNotificationService
 from .utils.notification_service import NotificationService
@@ -34,6 +35,7 @@ class BoostCharge:
         config: dict,
         priority_balancer,
         charger_controller,
+        runtime_data: EVSCRuntimeData | None = None,
         coordinator=None,
         night_smart_charge=None,
         solar_surplus=None,
@@ -44,6 +46,7 @@ class BoostCharge:
         self.config = config
         self.priority_balancer = priority_balancer
         self.charger_controller = charger_controller
+        self._runtime_data = runtime_data
         self._coordinator = coordinator
         self._night_smart_charge = night_smart_charge
         self._solar_surplus = solar_surplus
@@ -51,12 +54,17 @@ class BoostCharge:
         self.logger = EVSCLogger("BOOST CHARGE")
         self._notification_service = NotificationService(hass)
         self._mobile_notifier = MobileNotificationService(
-            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id, config.get(CONF_CAR_OWNER)
+            hass,
+            config.get(CONF_NOTIFY_SERVICES, []),
+            entry_id,
+            config.get(CONF_CAR_OWNER),
+            runtime_data=runtime_data,
         )
 
         self._boost_switch_entity = None
         self._boost_amperage_entity = None
         self._boost_target_soc_entity = None
+        self._boost_switch_entity_obj = None
 
         self._boost_active = False
         self._monitor_unsub = None
@@ -65,15 +73,13 @@ class BoostCharge:
 
     async def async_setup(self) -> None:
         """Set up Boost Charge automation."""
-        self._boost_switch_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_BOOST_CHARGE_ENABLED_SUFFIX
-        )
-        self._boost_amperage_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_BOOST_CHARGE_AMPERAGE_SUFFIX
-        )
-        self._boost_target_soc_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_BOOST_TARGET_SOC_SUFFIX
-        )
+        self._boost_switch_entity = self._resolve_entity(HELPER_BOOST_CHARGE_ENABLED_SUFFIX)
+        self._boost_amperage_entity = self._resolve_entity(HELPER_BOOST_CHARGE_AMPERAGE_SUFFIX)
+        self._boost_target_soc_entity = self._resolve_entity(HELPER_BOOST_TARGET_SOC_SUFFIX)
+        if self._runtime_data is not None:
+            self._boost_switch_entity_obj = self._runtime_data.get_entity(
+                HELPER_BOOST_CHARGE_ENABLED_SUFFIX
+            )
 
         missing_entities = []
         if not self._boost_switch_entity:
@@ -101,6 +107,12 @@ class BoostCharge:
             await self._set_boost_switch(False)
 
         self.logger.success("Boost Charge setup completed")
+
+    def _resolve_entity(self, key: str) -> str | None:
+        """Resolve an integration-owned helper entity."""
+        if self._runtime_data is None:
+            return None
+        return self._runtime_data.get_entity_id(key)
 
     async def async_remove(self) -> None:
         """Remove Boost Charge automation."""
@@ -405,7 +417,15 @@ class BoostCharge:
                 self.logger.debug(f"Switch service call failed, falling back to state set: {ex}")
 
         if state_helper.get_state(self.hass, self._boost_switch_entity) != desired_state:
-            self.hass.states.async_set(self._boost_switch_entity, desired_state)
+            if self._boost_switch_entity_obj is not None:
+                if enabled:
+                    await self._boost_switch_entity_obj.async_turn_on()
+                else:
+                    await self._boost_switch_entity_obj.async_turn_off()
+            else:
+                self.logger.warning(
+                    "Boost helper state did not update via service and no entity object is registered"
+                )
 
     async def _read_ev_soc(self) -> float | None:
         """Read EV SOC and gracefully handle transient failures."""

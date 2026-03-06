@@ -1,0 +1,235 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurazione EV Smart Charger - Passo {step}/{total_steps}",
+        "description": "Imposta un nome per questa istanza del charger. L'integrazione espone pubblicamente solo i profili `manual` e `solar_surplus`; Night Smart Charge e Boost Charge vengono gestiti tramite helper dedicati dopo il setup.",
+        "data": {
+          "name": "Nome integrazione"
+        },
+        "data_description": {
+          "name": "Nome descrittivo mostrato in Home Assistant."
+        }
+      },
+      "entities": {
+        "title": "Entita Charger - Passo {step}/{total_steps}",
+        "description": "Mappa le entita che avviano o fermano il charger, impostano la corrente di ricarica e riportano lo stato del charger.",
+        "data": {
+          "ev_charger_switch": "Switch charger",
+          "ev_charger_current": "Controllo corrente di ricarica",
+          "ev_charger_status": "Sensore stato charger"
+        },
+        "data_description": {
+          "ev_charger_switch": "Entita switch che accende o spegne il charger.",
+          "ev_charger_current": "Entita per la corrente. Domini supportati: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Sensore stato che riporta `charger_charging`, `charger_free`, `charger_end` o `charger_wait`."
+        }
+      },
+      "sensors": {
+        "title": "Sensori Energia - Passo {step}/{total_steps}",
+        "description": "Mappa i sensori usati da Solar Surplus, Priority Balancer e Night Smart Charge.",
+        "data": {
+          "soc_car": "SOC batteria EV",
+          "soc_home": "SOC batteria casa",
+          "fv_production": "Produzione solare",
+          "home_consumption": "Consumo casa",
+          "grid_import": "Prelievo da rete"
+        },
+        "data_description": {
+          "soc_car": "Sensore con lo stato di carica EV in percentuale.",
+          "soc_home": "Sensore con lo stato di carica della batteria di casa in percentuale.",
+          "fv_production": "Sensore con la produzione FV corrente in watt.",
+          "home_consumption": "Sensore con il consumo di casa in watt, preferibilmente senza includere la ricarica EV.",
+          "grid_import": "Sensore con la potenza importata dalla rete in watt. Valori positivi indicano import."
+        }
+      },
+      "pv_forecast": {
+        "title": "Forecast Solare - Passo {step}/{total_steps}",
+        "description": "Sensore opzionale usato da Night Smart Charge per decidere se caricare di notte dalla batteria di casa o dalla rete.",
+        "data": {
+          "pv_forecast": "Sensore forecast solare"
+        },
+        "data_description": {
+          "pv_forecast": "Sensore forecast opzionale in kWh."
+        }
+      },
+      "notifications": {
+        "title": "Notifiche - Passo {step}/{total_steps}",
+        "description": "Seleziona i servizi mobile notify che devono ricevere gli avvisi e scegli la persona che rappresenta il proprietario dell'auto.",
+        "data": {
+          "notify_services": "Servizi mobile notify",
+          "car_owner": "Proprietario auto"
+        },
+        "data_description": {
+          "notify_services": "Servizi opzionali `notify.mobile_app_*`.",
+          "car_owner": "Entita person usata per filtrare le notifiche in base alla presenza."
+        }
+      },
+      "external_connectors": {
+        "title": "Connettori Esterni - Passo {step}/{total_steps}",
+        "description": "Configura le integrazioni opzionali usate per pubblicare il target energetico della ricarica notturna.",
+        "data": {
+          "battery_capacity": "Capacita batteria EV (kWh)",
+          "energy_forecast_target": "Helper target energy forecast"
+        },
+        "data_description": {
+          "battery_capacity": "Capacita batteria usata per calcolare l'energia necessaria a raggiungere il target EV configurato.",
+          "energy_forecast_target": "Helper opzionale in cui viene scritto il target calcolato. Domini supportati: `number`, `input_number`."
+        }
+      },
+      "reconfigure": {
+        "title": "Riconfigura Entita Charger - Passo {step}/{total_steps}",
+        "description": "Aggiorna le entita del charger per questa config entry.",
+        "data": {
+          "ev_charger_switch": "Switch charger",
+          "ev_charger_current": "Controllo corrente di ricarica",
+          "ev_charger_status": "Sensore stato charger"
+        },
+        "data_description": {
+          "ev_charger_switch": "Entita switch che accende o spegne il charger.",
+          "ev_charger_current": "Entita per la corrente. Domini supportati: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Sensore stato che riporta `charger_charging`, `charger_free`, `charger_end` o `charger_wait`."
+        }
+      },
+      "reconfigure_sensors": {
+        "title": "Riconfigura Sensori Energia - Passo {step}/{total_steps}",
+        "description": "Aggiorna i sensori energia e SOC usati dall'integrazione.",
+        "data": {
+          "soc_car": "SOC batteria EV",
+          "soc_home": "SOC batteria casa",
+          "fv_production": "Produzione solare",
+          "home_consumption": "Consumo casa",
+          "grid_import": "Prelievo da rete"
+        },
+        "data_description": {
+          "soc_car": "Sensore con lo stato di carica EV in percentuale.",
+          "soc_home": "Sensore con lo stato di carica della batteria di casa in percentuale.",
+          "fv_production": "Sensore con la produzione FV corrente in watt.",
+          "home_consumption": "Sensore con il consumo di casa in watt, preferibilmente senza includere la ricarica EV.",
+          "grid_import": "Sensore con la potenza importata dalla rete in watt. Valori positivi indicano import."
+        }
+      },
+      "reconfigure_pv_forecast": {
+        "title": "Riconfigura Forecast Solare - Passo {step}/{total_steps}",
+        "description": "Aggiorna o rimuovi il sensore forecast opzionale usato da Night Smart Charge.",
+        "data": {
+          "pv_forecast": "Sensore forecast solare"
+        },
+        "data_description": {
+          "pv_forecast": "Sensore forecast opzionale in kWh."
+        }
+      },
+      "reconfigure_notifications": {
+        "title": "Riconfigura Notifiche - Passo {step}/{total_steps}",
+        "description": "Aggiorna i servizi mobile notify e il proprietario auto usato per le notifiche dipendenti dalla presenza.",
+        "data": {
+          "notify_services": "Servizi mobile notify",
+          "car_owner": "Proprietario auto"
+        },
+        "data_description": {
+          "notify_services": "Servizi opzionali `notify.mobile_app_*`.",
+          "car_owner": "Entita person usata per filtrare le notifiche in base alla presenza."
+        }
+      },
+      "reconfigure_external_connectors": {
+        "title": "Riconfigura Connettori Esterni - Passo {step}/{total_steps}",
+        "description": "Aggiorna i connettori opzionali del target energetico notturno.",
+        "data": {
+          "battery_capacity": "Capacita batteria EV (kWh)",
+          "energy_forecast_target": "Helper target energy forecast"
+        },
+        "data_description": {
+          "battery_capacity": "Capacita batteria usata per calcolare l'energia necessaria a raggiungere il target EV configurato.",
+          "energy_forecast_target": "Helper opzionale in cui viene scritto il target calcolato. Domini supportati: `number`, `input_number`."
+        }
+      }
+    },
+    "error": {
+      "required": "Questo campo e obbligatorio.",
+      "invalid_battery_capacity": "La capacita della batteria deve essere compresa tra 10 e 200 kWh.",
+      "entity_not_found": "Entita non trovata.",
+      "invalid_domain": "L'entita deve appartenere al dominio `number` o `input_number`."
+    },
+    "abort": {
+      "already_configured": "Un'altra istanza di EV Smart Charger usa gia questo charger switch.",
+      "reconfigure_successful": "Configurazione aggiornata correttamente.",
+      "unknown_entry": "La config entry selezionata non puo essere caricata."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Aggiorna Entita Charger - Passo {step}/{total_steps}",
+        "description": "Wrapper di compatibilita del flow canonico di reconfigure. Aggiorna le entita del charger per questa entry.",
+        "data": {
+          "ev_charger_switch": "Switch charger",
+          "ev_charger_current": "Controllo corrente di ricarica",
+          "ev_charger_status": "Sensore stato charger"
+        },
+        "data_description": {
+          "ev_charger_switch": "Entita switch che accende o spegne il charger.",
+          "ev_charger_current": "Entita per la corrente. Domini supportati: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Sensore stato che riporta `charger_charging`, `charger_free`, `charger_end` o `charger_wait`."
+        }
+      },
+      "sensors": {
+        "title": "Aggiorna Sensori Energia - Passo {step}/{total_steps}",
+        "description": "Aggiorna i sensori energia e SOC usati dall'integrazione.",
+        "data": {
+          "soc_car": "SOC batteria EV",
+          "soc_home": "SOC batteria casa",
+          "fv_production": "Produzione solare",
+          "home_consumption": "Consumo casa",
+          "grid_import": "Prelievo da rete"
+        },
+        "data_description": {
+          "soc_car": "Sensore con lo stato di carica EV in percentuale.",
+          "soc_home": "Sensore con lo stato di carica della batteria di casa in percentuale.",
+          "fv_production": "Sensore con la produzione FV corrente in watt.",
+          "home_consumption": "Sensore con il consumo di casa in watt, preferibilmente senza includere la ricarica EV.",
+          "grid_import": "Sensore con la potenza importata dalla rete in watt. Valori positivi indicano import."
+        }
+      },
+      "pv_forecast": {
+        "title": "Aggiorna Forecast Solare - Passo {step}/{total_steps}",
+        "description": "Aggiorna o rimuovi il sensore forecast opzionale usato da Night Smart Charge.",
+        "data": {
+          "pv_forecast": "Sensore forecast solare"
+        },
+        "data_description": {
+          "pv_forecast": "Sensore forecast opzionale in kWh."
+        }
+      },
+      "notifications": {
+        "title": "Aggiorna Notifiche - Passo {step}/{total_steps}",
+        "description": "Aggiorna i servizi mobile notify e il proprietario auto usato per le notifiche dipendenti dalla presenza.",
+        "data": {
+          "notify_services": "Servizi mobile notify",
+          "car_owner": "Proprietario auto"
+        },
+        "data_description": {
+          "notify_services": "Servizi opzionali `notify.mobile_app_*`.",
+          "car_owner": "Entita person usata per filtrare le notifiche in base alla presenza."
+        }
+      },
+      "external_connectors": {
+        "title": "Aggiorna Connettori Esterni - Passo {step}/{total_steps}",
+        "description": "Aggiorna i connettori opzionali del target energetico notturno.",
+        "data": {
+          "battery_capacity": "Capacita batteria EV (kWh)",
+          "energy_forecast_target": "Helper target energy forecast"
+        },
+        "data_description": {
+          "battery_capacity": "Capacita batteria usata per calcolare l'energia necessaria a raggiungere il target EV configurato.",
+          "energy_forecast_target": "Helper opzionale in cui viene scritto il target calcolato. Domini supportati: `number`, `input_number`."
+        }
+      }
+    },
+    "error": {
+      "required": "Questo campo e obbligatorio.",
+      "invalid_battery_capacity": "La capacita della batteria deve essere compresa tra 10 e 200 kWh.",
+      "entity_not_found": "Entita non trovata.",
+      "invalid_domain": "L'entita deve appartenere al dominio `number` o `input_number`."
+    }
+  }
+}

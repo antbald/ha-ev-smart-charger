@@ -7,14 +7,15 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.const import STATE_ON
 
 from .const import (
-    DOMAIN,
-    VERSION,
     DEFAULT_CAR_READY_WEEKDAY,
     DEFAULT_CAR_READY_WEEKEND,
 )
+from .entity_base import EVSCEntityMixin
+from .runtime import get_runtime_data
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,14 +28,16 @@ async def async_setup_entry(
     """Set up EVSC switch entities."""
     _LOGGER.info(f"🔄 switch.py async_setup_entry called for entry {entry.entry_id}")
 
+    runtime_data = get_runtime_data(entry)
     entities = []
 
     # Create Forza Ricarica (Global Kill Switch)
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_forza_ricarica",
-            "EVSC Forza Ricarica",
+            "Forza Ricarica",
             "mdi:power",
         )
     )
@@ -42,9 +45,10 @@ async def async_setup_entry(
     # Create Boost Charge switch
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_boost_charge_enabled",
-            "EVSC Boost Charge",
+            "Boost Charge",
             "mdi:flash",
         )
     )
@@ -52,9 +56,10 @@ async def async_setup_entry(
     # Create Smart Charger Blocker Enable
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_smart_charger_blocker_enabled",
-            "EVSC Smart Charger Blocker",
+            "Smart Charger Blocker",
             "mdi:solar-power",
         )
     )
@@ -62,9 +67,10 @@ async def async_setup_entry(
     # Create Use Home Battery switch
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_use_home_battery",
-            "EVSC Use Home Battery",
+            "Use Home Battery",
             "mdi:home-battery",
         )
     )
@@ -72,9 +78,10 @@ async def async_setup_entry(
     # Create Priority Balancer switch
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_priority_balancer_enabled",
-            "EVSC Priority Balancer",
+            "Priority Balancer",
             "mdi:scale-balance",
         )
     )
@@ -82,9 +89,10 @@ async def async_setup_entry(
     # Create Night Smart Charge switch
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_night_smart_charge_enabled",
-            "EVSC Night Smart Charge",
+            "Night Smart Charge",
             "mdi:moon-waning-crescent",
         )
     )
@@ -92,9 +100,10 @@ async def async_setup_entry(
     # Notification switches (default ON)
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_notify_smart_blocker_enabled",
-            "EVSC Notify Smart Blocker",
+            "Notify Smart Blocker",
             "mdi:bell-outline",
             default_state=True
         )
@@ -102,9 +111,10 @@ async def async_setup_entry(
 
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_notify_priority_balancer_enabled",
-            "EVSC Notify Priority Balancer",
+            "Notify Priority Balancer",
             "mdi:bell-outline",
             default_state=True
         )
@@ -112,9 +122,10 @@ async def async_setup_entry(
 
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_notify_night_charge_enabled",
-            "EVSC Notify Night Charge",
+            "Notify Night Charge",
             "mdi:bell-outline",
             default_state=True
         )
@@ -123,9 +134,10 @@ async def async_setup_entry(
     # File Logging switch (v1.3.25)
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_enable_file_logging",
-            "EVSC Enable File Logging",
+            "Enable File Logging",
             "mdi:file-document-outline",
             default_state=False  # Default OFF to save storage
         )
@@ -134,9 +146,10 @@ async def async_setup_entry(
     # Car Ready switches (v1.3.13+)
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_car_ready_monday",
-            "EVSC Car Ready Monday",
+            "Car Ready Monday",
             "mdi:car-clock",
             default_state=DEFAULT_CAR_READY_WEEKDAY,
         )
@@ -144,9 +157,10 @@ async def async_setup_entry(
 
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_car_ready_tuesday",
-            "EVSC Car Ready Tuesday",
+            "Car Ready Tuesday",
             "mdi:car-clock",
             default_state=DEFAULT_CAR_READY_WEEKDAY,
         )
@@ -154,9 +168,10 @@ async def async_setup_entry(
 
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_car_ready_wednesday",
-            "EVSC Car Ready Wednesday",
+            "Car Ready Wednesday",
             "mdi:car-clock",
             default_state=DEFAULT_CAR_READY_WEEKDAY,
         )
@@ -164,9 +179,10 @@ async def async_setup_entry(
 
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_car_ready_thursday",
-            "EVSC Car Ready Thursday",
+            "Car Ready Thursday",
             "mdi:car-clock",
             default_state=DEFAULT_CAR_READY_WEEKDAY,
         )
@@ -174,9 +190,10 @@ async def async_setup_entry(
 
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_car_ready_friday",
-            "EVSC Car Ready Friday",
+            "Car Ready Friday",
             "mdi:car-clock",
             default_state=DEFAULT_CAR_READY_WEEKDAY,
         )
@@ -184,9 +201,10 @@ async def async_setup_entry(
 
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_car_ready_saturday",
-            "EVSC Car Ready Saturday",
+            "Car Ready Saturday",
             "mdi:car-clock",
             default_state=DEFAULT_CAR_READY_WEEKEND,
         )
@@ -194,9 +212,10 @@ async def async_setup_entry(
 
     entities.append(
         EVSCSwitch(
+            runtime_data,
             entry.entry_id,
             "evsc_car_ready_sunday",
-            "EVSC Car Ready Sunday",
+            "Car Ready Sunday",
             "mdi:car-clock",
             default_state=DEFAULT_CAR_READY_WEEKEND,
         )
@@ -206,13 +225,14 @@ async def async_setup_entry(
     _LOGGER.info(f"✅ Created {len(entities)} EVSC switch entities")
 
 
-class EVSCSwitch(SwitchEntity, RestoreEntity):
+class EVSCSwitch(EVSCEntityMixin, SwitchEntity, RestoreEntity):
     """EVSC Switch Entity (behaves like input_boolean)."""
 
     _attr_should_poll = False
 
     def __init__(
         self,
+        runtime_data,
         entry_id: str,
         suffix: str,
         name: str,
@@ -220,25 +240,17 @@ class EVSCSwitch(SwitchEntity, RestoreEntity):
         default_state: bool = False,
     ) -> None:
         """Initialize the switch."""
-        self._entry_id = entry_id
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
-        self._attr_name = name
-        self._attr_icon = icon
+        self._init_evsc_entity(
+            runtime_data,
+            entry_id,
+            suffix,
+            "switch",
+            name,
+            icon,
+            entity_category=EntityCategory.CONFIG,
+        )
         self._is_on = default_state
         self._default_state = default_state
-        # Set explicit entity_id to match pattern
-        self.entity_id = f"switch.{DOMAIN}_{entry_id}_{suffix}"
-
-    @property
-    def device_info(self):
-        """Return device info to group all entities under one device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "EV Smart Charger",
-            "manufacturer": "antbald",
-            "model": "EV Smart Charger",
-            "sw_version": VERSION,
-        }
 
     @property
     def is_on(self) -> bool:

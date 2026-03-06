@@ -2,6 +2,8 @@
 
 Monitors cloud-based EV SOC sensor and maintains reliable cached value.
 """
+from __future__ import annotations
+
 from datetime import datetime, timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
@@ -12,8 +14,8 @@ from .const import (
     EV_SOC_MONITOR_INTERVAL,
     HELPER_CACHED_EV_SOC_SUFFIX,
 )
+from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
-from .utils import entity_helper
 
 
 class EVSOCMonitor:
@@ -25,11 +27,18 @@ class EVSOCMonitor:
     cloud sensor is unavailable.
     """
 
-    def __init__(self, hass: HomeAssistant, entry_id: str, config: dict):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        config: dict,
+        runtime_data: EVSCRuntimeData | None = None,
+    ):
         """Initialize EV SOC Monitor."""
         self.hass = hass
         self.entry_id = entry_id
         self.config = config
+        self._runtime_data = runtime_data
         self.logger = EVSCLogger("EV SOC MONITOR")
 
         # Source sensor (cloud-based, user-configured)
@@ -37,6 +46,7 @@ class EVSOCMonitor:
 
         # Cache sensor (internal, reliable)
         self._cache_entity = None  # Discovered in async_setup
+        self._cache_sensor = None
 
         # State tracking
         self._last_valid_value = None
@@ -48,10 +58,9 @@ class EVSOCMonitor:
         """Setup: discover cache sensor and start polling timer."""
         self.logger.info("Setting up EV SOC Monitor")
 
-        # Discover cached sensor entity
-        self._cache_entity = entity_helper.find_by_suffix(
-            self.hass, HELPER_CACHED_EV_SOC_SUFFIX
-        )
+        if self._runtime_data is not None:
+            self._cache_entity = self._runtime_data.get_entity_id(HELPER_CACHED_EV_SOC_SUFFIX)
+            self._cache_sensor = self._runtime_data.get_entity(HELPER_CACHED_EV_SOC_SUFFIX)
 
         if not self._cache_entity:
             self.logger.error(
@@ -149,18 +158,15 @@ class EVSOCMonitor:
         # Calculate cache age for diagnostics
         cache_age_seconds = 0  # Just updated
 
-        # Update cache sensor state
-        self.hass.states.async_set(
-            self._cache_entity,
-            value,
-            {
-                "unit_of_measurement": "%",
-                "source_entity": self._source_entity,
-                "last_valid_update": self._last_valid_time.isoformat(),
-                "is_cached": False,  # Fresh value
-                "cache_age_seconds": cache_age_seconds,
-            },
-        )
+        if self._cache_sensor and hasattr(self._cache_sensor, "async_publish_cache"):
+            await self._cache_sensor.async_publish_cache(
+                value,
+                last_valid_update=self._last_valid_time,
+                is_cached=False,
+                cache_age_seconds=cache_age_seconds,
+            )
+            return
+        self.logger.warning("Cached EV SOC entity object not registered in runtime data")
 
     async def async_remove(self):
         """Cleanup: cancel timer."""

@@ -4,9 +4,11 @@ import pytest
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_NAME
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ev_smart_charger.const import (
     DOMAIN,
+    DEFAULT_BATTERY_CAPACITY,
     CONF_EV_CHARGER_SWITCH,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
@@ -18,6 +20,8 @@ from custom_components.ev_smart_charger.const import (
     CONF_PV_FORECAST,
     CONF_NOTIFY_SERVICES,
     CONF_BATTERY_CAPACITY,
+    CONF_CAR_OWNER,
+    CONF_ENERGY_FORECAST_TARGET,
 )
 
 async def test_form(hass: HomeAssistant):
@@ -101,3 +105,87 @@ async def test_form(hass: HomeAssistant):
         
         await hass.async_block_till_done()
         assert len(mock_setup_entry.mock_calls) == 1
+
+
+async def test_duplicate_config_entry_aborts_on_entities_step(hass: HomeAssistant):
+    """The charger switch is used as unique_id and duplicates are rejected."""
+    existing_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Existing Charger",
+        data={CONF_EV_CHARGER_SWITCH: "switch.charger"},
+        source=config_entries.SOURCE_USER,
+        unique_id="switch.charger",
+    )
+    existing_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_NAME: "Duplicate Charger"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_EV_CHARGER_SWITCH: "switch.charger",
+            CONF_EV_CHARGER_CURRENT: "number.charger_current",
+            CONF_EV_CHARGER_STATUS: "sensor.charger_status",
+        },
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
+async def test_external_connectors_validates_energy_target_entity_exists(hass: HomeAssistant):
+    """Energy forecast target must refer to an existing entity."""
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {CONF_NAME: "Test Charger"},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_EV_CHARGER_SWITCH: "switch.charger_2",
+            CONF_EV_CHARGER_CURRENT: "number.charger_current",
+            CONF_EV_CHARGER_STATUS: "sensor.charger_status",
+        },
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_SOC_CAR: "sensor.car_soc",
+            CONF_SOC_HOME: "sensor.home_soc",
+            CONF_FV_PRODUCTION: "sensor.solar",
+            CONF_HOME_CONSUMPTION: "sensor.consumption",
+            CONF_GRID_IMPORT: "sensor.grid",
+        },
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_PV_FORECAST: "sensor.forecast",
+        },
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_NOTIFY_SERVICES: [],
+            CONF_CAR_OWNER: "person.test",
+        },
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_BATTERY_CAPACITY: DEFAULT_BATTERY_CAPACITY,
+            CONF_ENERGY_FORECAST_TARGET: "number.missing_energy_target",
+        },
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["errors"] == {"energy_forecast_target": "entity_not_found"}

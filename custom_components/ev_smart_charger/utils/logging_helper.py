@@ -54,8 +54,10 @@ class EVSCLogger:
         """Log visual separator."""
         _LOGGER.info(self.SEPARATOR * length)
 
-    def info(self, message: str):
+    def info(self, message: str, *args):
         """Log info message."""
+        if args:
+            message = message % args
         _LOGGER.info(f"{self.INFO} [{self.component}] {message}")
 
     def decision(self, decision_type: str, decision: str, reason: str):
@@ -70,16 +72,22 @@ class EVSCLogger:
             msg += f" - {details}"
         _LOGGER.info(msg)
 
-    def success(self, message: str):
+    def success(self, message: str, *args):
         """Log success."""
+        if args:
+            message = message % args
         _LOGGER.info(f"{self.SUCCESS} [{self.component}] {message}")
 
-    def error(self, message: str):
+    def error(self, message: str, *args):
         """Log error."""
+        if args:
+            message = message % args
         _LOGGER.error(f"{self.ERROR} [{self.component}] {message}")
 
-    def warning(self, message: str):
+    def warning(self, message: str, *args):
         """Log warning."""
+        if args:
+            message = message % args
         _LOGGER.warning(f"{self.WARNING} [{self.component}] {message}")
 
     def skip(self, reason: str):
@@ -110,8 +118,10 @@ class EVSCLogger:
             msg += f" {unit}"
         _LOGGER.info(msg)
 
-    def debug(self, message: str):
+    def debug(self, message: str, *args):
         """Log debug message."""
+        if args:
+            message = message % args
         _LOGGER.debug(f"[{self.component}] {message}")
 
     # ========== FILE LOGGING METHODS (v1.4.15 - Daily files) ==========

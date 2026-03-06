@@ -2,159 +2,234 @@
   "config": {
     "step": {
       "user": {
-        "title": "⚡ EV Smart Charger Setup - Step {step}/{total_steps}",
-        "description": "**Welcome to EV Smart Charger!**\n\nThis integration intelligently manages your EV charging based on:\n• ☀️ Solar production (charge from excess energy)\n• 🔋 Battery levels (car & home)\n• 💰 Energy costs (charge when electricity is cheapest)\n• 🌍 Grid import protection (never pull from grid)\n\n---\n\n**Let's get started!**\n\nFirst, give this integration a name to identify it in Home Assistant.",
+        "title": "EV Smart Charger Setup - Step {step}/{total_steps}",
+        "description": "Set a name for this charger entry. The integration exposes the public charging profiles `manual` and `solar_surplus`; Night Smart Charge and Boost Charge are controlled through dedicated helper entities after setup.",
         "data": {
-          "name": "Integration Name"
+          "name": "Integration name"
         },
         "data_description": {
-          "name": "💡 Choose a descriptive name (e.g., 'Garage Wallbox', 'Main EV Charger', 'Tesla Charger'). This helps if you manage multiple chargers."
+          "name": "Friendly name shown in Home Assistant."
         }
       },
       "entities": {
-        "title": "🔌 EV Charger Controls - Step {step}/{total_steps}",
-        "description": "**Configure Your Charger Hardware**\n\nMap the entities that physically control your EV charger. These allow the integration to start/stop charging and adjust power levels.\n\n⚠️ **All fields are required** for proper operation.\n\n---",
+        "title": "Charger Entities - Step {step}/{total_steps}",
+        "description": "Map the entities that start or stop the charger, set the charging current, and report charger status.",
         "data": {
-          "ev_charger_switch": "🔴 Charger Power Switch",
-          "ev_charger_current": "⚡ Charging Current Control",
-          "ev_charger_status": "📊 Charger Status Sensor"
+          "ev_charger_switch": "Charger switch",
+          "ev_charger_current": "Charging current control",
+          "ev_charger_status": "Charger status sensor"
         },
         "data_description": {
-          "ev_charger_switch": "**What it does:** Turns your charger ON/OFF\n**Domain:** switch\n**Example:** `switch.wallbox_portal_status_description`\n\n💡 This is the main power control for your charger.",
-          "ev_charger_current": "**What it does:** Controls charging amperage (6-32A)\n**Domain:** number, select, input_number, input_select\n**Example:** `number.wallbox_portal_max_charging_current`\n\n💡 The integration adjusts this to match available solar surplus. Supported levels: 6A, 8A, 10A, 13A, 16A, 20A, 24A, 32A",
-          "ev_charger_status": "**What it does:** Reports charger state\n**Domain:** sensor\n**Example:** `sensor.wallbox_portal_status_description`\n\n💡 Must report one of these states:\n  • `charger_charging` - Actively charging\n  • `charger_free` - No car connected\n  • `charger_end` - Car plugged in, not charging\n  • `charger_wait` - Waiting to charge"
+          "ev_charger_switch": "Switch entity that turns the charger on or off.",
+          "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Status sensor that reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`."
         }
       },
       "sensors": {
-        "title": "📈 Energy Monitoring Sensors - Step {step}/{total_steps}",
-        "description": "**Configure Your Energy System**\n\nConnect sensors that monitor your solar, battery, and grid usage. These enable intelligent charging decisions based on real-time energy availability.\n\n⚠️ **All fields are required** for smart charging features.\n\n---",
+        "title": "Energy Sensors - Step {step}/{total_steps}",
+        "description": "Map the sensors used by Solar Surplus, Priority Balancer, and Night Smart Charge.",
         "data": {
-          "soc_car": "🚗 Car Battery Level (SOC %)",
-          "soc_home": "🏠 Home Battery Level (SOC %)",
-          "fv_production": "☀️ Solar Panel Production (W)",
-          "home_consumption": "⚡ Home Power Consumption (W)",
-          "grid_import": "🔌 Grid Import Power (W)"
+          "soc_car": "EV battery SOC",
+          "soc_home": "Home battery SOC",
+          "fv_production": "Solar production",
+          "home_consumption": "Home consumption",
+          "grid_import": "Grid import"
         },
         "data_description": {
-          "soc_car": "**What it does:** Tracks your EV's battery level\n**Domain:** sensor\n**Unit:** Percentage (0-100%)\n**Example:** `sensor.tesla_battery_level`\n\n💡 Used to determine if car needs charging and for charge target features.",
-          "soc_home": "**What it does:** Tracks your home battery level\n**Domain:** sensor\n**Unit:** Percentage (0-100%)\n**Example:** `sensor.powerwall_charge`\n\n💡 Ensures home battery has priority before charging EV in some modes.",
-          "fv_production": "**What it does:** Real-time solar power generation\n**Domain:** sensor\n**Unit:** Watts (W)\n**Example:** `sensor.solar_power`\n\n💡 **Critical for Solar Surplus mode** - measures how much solar energy is available for charging.",
-          "home_consumption": "**What it does:** Current household power usage\n**Domain:** sensor\n**Unit:** Watts (W)\n**Example:** `sensor.home_consumption`\n\n💡 **Important:** This should exclude EV charger power! Used to calculate: Surplus = Solar - Home Consumption",
-          "grid_import": "**What it does:** Power being pulled from the grid\n**Domain:** sensor\n**Unit:** Watts (W)\n**Example:** `sensor.grid_import_power`\n\n💡 **Grid Protection:** Positive value = importing from grid. Solar Surplus mode uses this to ensure you never import while charging."
+          "soc_car": "Sensor with the EV state of charge in percent.",
+          "soc_home": "Sensor with the home battery state of charge in percent.",
+          "fv_production": "Sensor with current PV production in watts.",
+          "home_consumption": "Sensor with current household consumption in watts, excluding EV charging when possible.",
+          "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid."
         }
       },
       "pv_forecast": {
-        "title": "🌙 Night Smart Charge (Optional) - Step {step}/{total_steps}",
-        "description": "**Configure Solar Forecast Sensor**\n\n🌙 **Night Smart Charge** optimizes overnight charging based on tomorrow's solar forecast:\n• ☀️ **High forecast (≥20 kWh):** Charge from home battery (solar will recharge it)\n• ☁️ **Low forecast (<20 kWh):** Charge from grid (preserve home battery)\n\n⚠️ **This step is OPTIONAL** - Skip if you don't have a solar forecast sensor or don't want Night Smart Charge.\n\n---",
+        "title": "Solar Forecast - Step {step}/{total_steps}",
+        "description": "Optional sensor used by Night Smart Charge to decide whether to charge from home battery or from the grid overnight.",
         "data": {
-          "pv_forecast": "☀️ Solar Forecast Sensor (Optional)"
+          "pv_forecast": "Solar forecast sensor"
         },
         "data_description": {
-          "pv_forecast": "**What it does:** Provides next-day solar production forecast\n**Domain:** sensor\n**Unit:** Kilowatt-hours (kWh)\n**Example:** `sensor.solcast_pv_forecast_forecast_today`, `sensor.forecast_solar_production`\n\n💡 **Leave empty** if you don't have a forecast sensor. Night Smart Charge will use grid mode as fallback.\n\n💡 **Popular integrations:**\n  • Solcast Solar (recommended)\n  • Forecast.Solar\n  • Custom solar forecast sensors"
+          "pv_forecast": "Optional forecast sensor in kWh."
         }
       },
       "notifications": {
-        "title": "📱 Mobile Notifications - Step {step}/{total_steps}",
-        "description": "**🔔 Stay Informed with Smart Notifications**\n\n**Get instant alerts on your mobile devices for:**\n\n🚫 **Smart Blocker Events**\n• Charging blocked outside permitted window\n• Includes reason (nighttime, insufficient solar)\n• Continuous monitoring active\n\n⚖️ **Priority Balancer Changes**\n• Priority switched: EV ↔ Home ↔ EV_Free\n• Current SOC levels (EV & Home)\n• Daily targets status\n\n🌙 **Night Smart Charge**\n• Charging started (battery/grid mode)\n• Solar forecast information\n• Target SOC progress\n\n---\n\n💡 **How it works:**\n• Select one or more mobile devices below\n• All notifications use title **\"BORGO\"** for easy filtering\n• After setup, use dashboard switches to enable/disable per feature\n• Notifications are **enabled by default**, disable if not needed\n\n⚠️ **Optional:** Leave empty to skip mobile notifications (can configure later)",
+        "title": "Notifications - Step {step}/{total_steps}",
+        "description": "Select the mobile notify services that should receive alerts and choose the person entity that represents the car owner.",
         "data": {
-          "notify_services": "📱 Select Mobile Devices"
+          "notify_services": "Mobile notify services",
+          "car_owner": "Car owner"
         },
         "data_description": {
-          "notify_services": "**Available:** All Home Assistant Mobile App devices\n**Examples:** mobile_app_johns_iphone, mobile_app_pixel_8\n\n✅ **Pro Tip:** Select all household devices for comprehensive monitoring"
+          "notify_services": "Optional `notify.mobile_app_*` services.",
+          "car_owner": "Person entity used to gate presence-aware notifications."
         }
       },
       "external_connectors": {
-        "title": "🔗 External Connectors - Step {step}/{total_steps}",
-        "description": "**📊 Energy Forecast Calculation**\n\n⚡ **Energy Forecast** automatically calculates the energy required for night charging:\n\n**How it works:**\n• 📐 Formula: `Energy (kWh) = (Target SOC % - Current SOC %) × Battery Capacity / 100`\n• 💾 Saves the value to an `input_number` sensor of your choice\n• ⏱️ Calculated at the start of each night charge session (BATTERY or GRID mode)\n• 🔒 Fixed value (not updated during charging)\n\n**Example:**\n• Current SOC: 45% | Target: 80% | Capacity: 75 kWh\n• Calculated Energy: **(80 - 45) × 75 / 100 = 26.25 kWh**\n\n💡 **Useful for:**\n• Energy planning\n• Integration with energy management systems\n• Tracking charging efficiency\n\n⚠️ **Optional:** Leave target sensor empty to skip this feature\n\n---",
+        "title": "External Connectors - Step {step}/{total_steps}",
+        "description": "Configure optional integrations used to publish the nightly energy forecast target.",
         "data": {
-          "battery_capacity": "🔋 EV Battery Capacity (kWh)",
-          "energy_forecast_target": "📊 Forecast Target Sensor (Optional)"
+          "battery_capacity": "EV battery capacity (kWh)",
+          "energy_forecast_target": "Energy forecast target helper"
         },
         "data_description": {
-          "battery_capacity": "**Total capacity of your EV battery in kWh**\n**Range:** 10-200 kWh\n**Examples:**\n  • Tesla Model 3 LR: 75 kWh\n  • VW ID.3: 58 kWh\n  • Nissan Leaf: 40 kWh\n\n💡 Used to calculate the energy needed to reach daily SOC target.",
-          "energy_forecast_target": "**`input_number` sensor where to save calculated energy**\n**Domain:** input_number\n**Unit:** kWh\n\n💡 **How to create:**\n  1. Settings → Devices & Services → Helpers\n  2. Create Helper → Number\n  3. Name: \"Night Charge Energy Forecast\"\n  4. Min: 0 | Max: 200 | Step: 0.1 | Unit: kWh\n\n💡 **Leave empty** to disable energy forecast feature."
+          "battery_capacity": "Battery capacity used to calculate the energy needed to reach the configured EV target.",
+          "energy_forecast_target": "Optional helper entity where the calculated target is written. Supported domains: `number`, `input_number`."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Charger Entities - Step {step}/{total_steps}",
+        "description": "Update the charger entities for this config entry.",
+        "data": {
+          "ev_charger_switch": "Charger switch",
+          "ev_charger_current": "Charging current control",
+          "ev_charger_status": "Charger status sensor"
+        },
+        "data_description": {
+          "ev_charger_switch": "Switch entity that turns the charger on or off.",
+          "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Status sensor that reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`."
+        }
+      },
+      "reconfigure_sensors": {
+        "title": "Reconfigure Energy Sensors - Step {step}/{total_steps}",
+        "description": "Update the energy and SOC sensors used by the integration.",
+        "data": {
+          "soc_car": "EV battery SOC",
+          "soc_home": "Home battery SOC",
+          "fv_production": "Solar production",
+          "home_consumption": "Home consumption",
+          "grid_import": "Grid import"
+        },
+        "data_description": {
+          "soc_car": "Sensor with the EV state of charge in percent.",
+          "soc_home": "Sensor with the home battery state of charge in percent.",
+          "fv_production": "Sensor with current PV production in watts.",
+          "home_consumption": "Sensor with current household consumption in watts, excluding EV charging when possible.",
+          "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid."
+        }
+      },
+      "reconfigure_pv_forecast": {
+        "title": "Reconfigure Solar Forecast - Step {step}/{total_steps}",
+        "description": "Update or clear the optional forecast sensor used by Night Smart Charge.",
+        "data": {
+          "pv_forecast": "Solar forecast sensor"
+        },
+        "data_description": {
+          "pv_forecast": "Optional forecast sensor in kWh."
+        }
+      },
+      "reconfigure_notifications": {
+        "title": "Reconfigure Notifications - Step {step}/{total_steps}",
+        "description": "Update mobile notify services and the car owner used for presence-aware notifications.",
+        "data": {
+          "notify_services": "Mobile notify services",
+          "car_owner": "Car owner"
+        },
+        "data_description": {
+          "notify_services": "Optional `notify.mobile_app_*` services.",
+          "car_owner": "Person entity used to gate presence-aware notifications."
+        }
+      },
+      "reconfigure_external_connectors": {
+        "title": "Reconfigure External Connectors - Step {step}/{total_steps}",
+        "description": "Update the optional nightly energy forecast connectors.",
+        "data": {
+          "battery_capacity": "EV battery capacity (kWh)",
+          "energy_forecast_target": "Energy forecast target helper"
+        },
+        "data_description": {
+          "battery_capacity": "Battery capacity used to calculate the energy needed to reach the configured EV target.",
+          "energy_forecast_target": "Optional helper entity where the calculated target is written. Supported domains: `number`, `input_number`."
         }
       }
     },
     "error": {
-      "required": "This field is required",
-      "invalid_battery_capacity": "Battery capacity must be between 10 and 200 kWh",
-      "entity_not_found": "Entity not found in system",
-      "invalid_domain": "Entity must be of type input_number"
+      "required": "This field is required.",
+      "invalid_battery_capacity": "Battery capacity must be between 10 and 200 kWh.",
+      "entity_not_found": "Entity not found.",
+      "invalid_domain": "Entity must belong to the `number` or `input_number` domain."
+    },
+    "abort": {
+      "already_configured": "Another EV Smart Charger entry already uses this charger switch.",
+      "reconfigure_successful": "Configuration updated successfully.",
+      "unknown_entry": "The selected config entry could not be loaded."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "🔌 Update Charger Controls - Step {step}/{total_steps}",
-        "description": "**Reconfigure Charger Hardware**\n\nUpdate the entities that control your EV charger.\n\n⚠️ **All fields are required**.\n\n---",
+        "title": "Update Charger Entities - Step {step}/{total_steps}",
+        "description": "Compatibility wrapper around the canonical reconfigure flow. Update the charger entities for this entry.",
         "data": {
-          "ev_charger_switch": "🔴 Charger Power Switch",
-          "ev_charger_current": "⚡ Charging Current Control",
-          "ev_charger_status": "📊 Charger Status Sensor"
+          "ev_charger_switch": "Charger switch",
+          "ev_charger_current": "Charging current control",
+          "ev_charger_status": "Charger status sensor"
         },
         "data_description": {
-          "ev_charger_switch": "**What it does:** Turns your charger ON/OFF\n**Domain:** switch",
-          "ev_charger_current": "**What it does:** Controls charging amperage (6-32A)\n**Domain:** number, select, input_number, input_select",
-          "ev_charger_status": "**What it does:** Reports charger state\n**Domain:** sensor\n**States:** charger_charging, charger_free, charger_end, charger_wait"
+          "ev_charger_switch": "Switch entity that turns the charger on or off.",
+          "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Status sensor that reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`."
         }
       },
       "sensors": {
-        "title": "📈 Update Energy Sensors - Step {step}/{total_steps}",
-        "description": "**Reconfigure Energy Monitoring**\n\nUpdate the sensors that monitor your energy system.\n\n⚠️ **All fields are required**.\n\n---",
+        "title": "Update Energy Sensors - Step {step}/{total_steps}",
+        "description": "Update the energy and SOC sensors used by the integration.",
         "data": {
-          "soc_car": "🚗 Car Battery Level (SOC %)",
-          "soc_home": "🏠 Home Battery Level (SOC %)",
-          "fv_production": "☀️ Solar Panel Production (W)",
-          "home_consumption": "⚡ Home Power Consumption (W)",
-          "grid_import": "🔌 Grid Import Power (W)"
+          "soc_car": "EV battery SOC",
+          "soc_home": "Home battery SOC",
+          "fv_production": "Solar production",
+          "home_consumption": "Home consumption",
+          "grid_import": "Grid import"
         },
         "data_description": {
-          "soc_car": "**Domain:** sensor | **Unit:** Percentage (0-100%)",
-          "soc_home": "**Domain:** sensor | **Unit:** Percentage (0-100%)",
-          "fv_production": "**Domain:** sensor | **Unit:** Watts (W) | **Critical for Solar Surplus mode**",
-          "home_consumption": "**Domain:** sensor | **Unit:** Watts (W) | **Should exclude EV charger**",
-          "grid_import": "**Domain:** sensor | **Unit:** Watts (W) | **Positive = importing from grid**"
+          "soc_car": "Sensor with the EV state of charge in percent.",
+          "soc_home": "Sensor with the home battery state of charge in percent.",
+          "fv_production": "Sensor with current PV production in watts.",
+          "home_consumption": "Sensor with current household consumption in watts, excluding EV charging when possible.",
+          "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid."
         }
       },
       "pv_forecast": {
-        "title": "🌙 Update Solar Forecast (Optional) - Step {step}/{total_steps}",
-        "description": "**Update Solar Forecast Sensor**\n\n🌙 Used by Night Smart Charge to optimize overnight charging.\n\n⚠️ **This is OPTIONAL** - Leave empty if not using Night Smart Charge.\n\n---",
+        "title": "Update Solar Forecast - Step {step}/{total_steps}",
+        "description": "Update or clear the optional forecast sensor used by Night Smart Charge.",
         "data": {
-          "pv_forecast": "☀️ Solar Forecast Sensor (Optional)"
+          "pv_forecast": "Solar forecast sensor"
         },
         "data_description": {
-          "pv_forecast": "**Domain:** sensor | **Unit:** kWh | **Example:** sensor.solcast_pv_forecast_forecast_today"
+          "pv_forecast": "Optional forecast sensor in kWh."
         }
       },
       "notifications": {
-        "title": "📱 Update Mobile Notifications - Step {step}/{total_steps}",
-        "description": "**🔔 Update Notification Devices**\n\n**Current notification types:**\n• 🚫 Smart Blocker alerts\n• ⚖️ Priority Balancer changes\n• 🌙 Night Smart Charge status\n\n💡 **Notification title:** BORGO (for filtering)\n💡 **Dashboard control:** Use switches to enable/disable per feature\n\n⚠️ **Leave empty** to disable all mobile notifications\n\n---",
+        "title": "Update Notifications - Step {step}/{total_steps}",
+        "description": "Update mobile notify services and the car owner used for presence-aware notifications.",
         "data": {
-          "notify_services": "📱 Select Mobile Devices"
+          "notify_services": "Mobile notify services",
+          "car_owner": "Car owner"
         },
         "data_description": {
-          "notify_services": "**Available:** All Home Assistant Mobile App devices\n**Note:** Changes apply immediately to new notifications"
+          "notify_services": "Optional `notify.mobile_app_*` services.",
+          "car_owner": "Person entity used to gate presence-aware notifications."
         }
       },
       "external_connectors": {
-        "title": "🔗 Update External Connectors",
-        "description": "**📊 Modify Energy Forecast Configuration**\n\nUpdate the EV battery capacity and target sensor for energy forecast calculation.\n\n⚠️ **Optional:** Leave target sensor empty to disable the feature\n\n---",
+        "title": "Update External Connectors - Step {step}/{total_steps}",
+        "description": "Update the optional nightly energy forecast connectors.",
         "data": {
-          "battery_capacity": "🔋 EV Battery Capacity (kWh)",
-          "energy_forecast_target": "📊 Forecast Target Sensor (Optional)"
+          "battery_capacity": "EV battery capacity (kWh)",
+          "energy_forecast_target": "Energy forecast target helper"
         },
         "data_description": {
-          "battery_capacity": "**Range:** 10-200 kWh | **Used to calculate required energy**",
-          "energy_forecast_target": "**Domain:** input_number | **Unit:** kWh | **Leave empty to disable**"
+          "battery_capacity": "Battery capacity used to calculate the energy needed to reach the configured EV target.",
+          "energy_forecast_target": "Optional helper entity where the calculated target is written. Supported domains: `number`, `input_number`."
         }
       }
     },
     "error": {
-      "required": "This field is required",
-      "invalid_battery_capacity": "Battery capacity must be between 10 and 200 kWh",
-      "entity_not_found": "Entity not found in system",
-      "invalid_domain": "Entity must be of type input_number"
+      "required": "This field is required.",
+      "invalid_battery_capacity": "Battery capacity must be between 10 and 200 kWh.",
+      "entity_not_found": "Entity not found.",
+      "invalid_domain": "Entity must belong to the `number` or `input_number` domain."
     }
   }
 }

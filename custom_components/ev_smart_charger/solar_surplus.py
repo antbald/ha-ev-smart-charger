@@ -20,15 +20,16 @@ from .const import (
     PRIORITY_EV,
     PRIORITY_HOME,
     PRIORITY_EV_FREE,
+    PRIORITY_SOLAR_SURPLUS,
     SOLAR_SURPLUS_MIN_CHECK_INTERVAL,
     SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE,
     HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX,
     SURPLUS_START_THRESHOLD,
     SURPLUS_STOP_THRESHOLD,
 )
+from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
 from .utils.state_helper import get_state, get_float, get_bool, validate_sensor
-from .utils.entity_registry_service import EntityRegistryService
 from .utils.astral_time_service import AstralTimeService
 
 EV_SOC_STALE_WARNING_SECONDS = 300
@@ -44,6 +45,7 @@ class SolarSurplusAutomation:
         config: dict,
         priority_balancer,
         charger_controller,
+        runtime_data: EVSCRuntimeData | None = None,
         night_smart_charge=None,
         coordinator=None,
         boost_charge=None,
@@ -63,13 +65,13 @@ class SolarSurplusAutomation:
         self.config = config
         self.priority_balancer = priority_balancer
         self.charger_controller = charger_controller
+        self._runtime_data = runtime_data
         self._night_smart_charge = night_smart_charge
         self._coordinator = coordinator
         self._boost_charge = boost_charge
 
-        # Initialize logger, registry service, and astral time service
+        # Initialize logger and astral time service
         self.logger = EVSCLogger("SOLAR SURPLUS")
-        self._registry_service = EntityRegistryService(hass, entry_id)
         self._astral_service = AstralTimeService(hass)
 
         # User-configured entities
@@ -90,6 +92,7 @@ class SolarSurplusAutomation:
         self._home_battery_min_soc_entity = None
         self._battery_support_amperage_entity = None
         self._solar_surplus_diagnostic_sensor_entity = None
+        self._solar_surplus_diagnostic_sensor_obj = None
 
         # Timer for periodic checks
         self._timer_unsub = None
@@ -113,18 +116,54 @@ class SolarSurplusAutomation:
         # Sensor error tracking (prevent log spam)
         self._sensor_error_state = {}  # {sensor_entity_id: error_message}
 
+    @property
+    def _automation_name(self) -> str:
+        """Return the coordinator owner name for Solar Surplus."""
+        return "Solar Surplus"
+
+    def _has_control(self) -> bool:
+        """Return True when Solar Surplus currently owns the session."""
+        if self._coordinator is None:
+            return True
+        return self._coordinator.is_automation_active(self._automation_name)
+
+    async def _acquire_control(self, action: str, reason: str) -> bool:
+        """Acquire coordinator ownership for a start/stop action."""
+        if self._coordinator is None or self._has_control():
+            return True
+
+        allowed, denial_reason = await self._coordinator.request_charger_action(
+            automation_name=self._automation_name,
+            action=action,
+            reason=reason,
+            priority=PRIORITY_SOLAR_SURPLUS,
+        )
+        if not allowed:
+            self.logger.info(f"Coordinator denied Solar Surplus action: {denial_reason}")
+            self._handle_control_loss(denial_reason)
+            return False
+        return True
+
+    async def _ensure_control(self, reason: str) -> bool:
+        """Ensure Solar Surplus owns the session before mutating the charger."""
+        return await self._acquire_control("turn_on", reason)
+
+    def _release_control(self, reason: str) -> None:
+        """Release coordinator ownership when Solar Surplus is done."""
+        if self._coordinator is not None:
+            self._coordinator.release_control(self._automation_name, reason)
+
+    def _handle_control_loss(self, reason: str) -> None:
+        """Reset transient session state after Solar Surplus loses ownership."""
+        self._battery_support_active = False
+        self._reset_state_tracking()
+        self.logger.info(f"Solar Surplus standing down: {reason}")
+
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
-        """Find an entity by its suffix using EntityRegistryService."""
-        entity_id = self._registry_service.find_by_suffix_filtered(suffix)
-
-        if entity_id:
-            self.logger.debug(f"Found helper entity: {entity_id}")
-        else:
-            self.logger.warning(
-                f"Helper entity with suffix '{suffix}' not found for config_entry {self.entry_id}"
-            )
-
-        return entity_id
+        """Resolve an integration-owned helper entity from runtime data."""
+        if self._runtime_data is None:
+            return None
+        return self._runtime_data.get_entity_id(suffix)
 
     async def async_setup(self) -> None:
         """Set up the Solar Surplus automation."""
@@ -139,6 +178,10 @@ class SolarSurplusAutomation:
         self._home_battery_min_soc_entity = self._find_entity_by_suffix("evsc_home_battery_min_soc")
         self._battery_support_amperage_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
         self._solar_surplus_diagnostic_sensor_entity = self._find_entity_by_suffix("evsc_solar_surplus_diagnostic")
+        if self._runtime_data is not None:
+            self._solar_surplus_diagnostic_sensor_obj = self._runtime_data.get_entity(
+                "evsc_solar_surplus_diagnostic"
+            )
 
         # Warn about missing entities (backward compatibility)
         missing_entities = []
@@ -289,6 +332,9 @@ class SolarSurplusAutomation:
 
         # === 2. Check Boost Charge (manual override) ===
         if self._boost_charge and self._boost_charge.is_active():
+            if self._has_control():
+                self._release_control("Boost Charge active")
+                self._handle_control_loss("Boost Charge active")
             self.logger.skip("Boost Charge active")
             await self._update_diagnostic_sensor(
                 "SKIPPED: Boost Charge Active",
@@ -309,6 +355,9 @@ class SolarSurplusAutomation:
 
         # === 4. Check Night Smart Charge ===
         if self._night_smart_charge and self._night_smart_charge.is_active():
+            if self._has_control():
+                self._release_control("Night Smart Charge active")
+                self._handle_control_loss("Night Smart Charge active")
             night_mode = self._night_smart_charge.get_active_mode()
             self.logger.skip(f"Night Smart Charge active (mode: {night_mode})")
             await self._update_diagnostic_sensor(
@@ -339,6 +388,9 @@ class SolarSurplusAutomation:
 
         # === 6. Check Charging Profile ===
         if current_profile != "solar_surplus":
+            if self._has_control():
+                self._release_control("Charging profile changed away from solar_surplus")
+                self._handle_control_loss("Charging profile changed")
             self.logger.skip(f"Profile not 'solar_surplus' (current: {current_profile})")
             await self._update_diagnostic_sensor(
                 "SKIPPED: Wrong Profile",
@@ -355,6 +407,9 @@ class SolarSurplusAutomation:
             return
 
         if charger_status == CHARGER_STATUS_FREE:
+            if self._has_control():
+                self._release_control("Charger disconnected")
+                self._handle_control_loss("Charger disconnected")
             self.logger.skip("Charger is free (not connected)")
             self.logger.separator()
             return
@@ -379,7 +434,15 @@ class SolarSurplusAutomation:
 
             if priority == PRIORITY_HOME:
                 self.logger.warning("Priority = HOME - Stopping EV charger")
-                await self.charger_controller.stop_charger("Home battery needs charging (Priority = HOME)")
+                if await self._acquire_control(
+                    "turn_off",
+                    "Home battery needs charging (Priority = HOME)",
+                ):
+                    await self.charger_controller.stop_charger(
+                        "Home battery needs charging (Priority = HOME)"
+                    )
+                    self._release_control("Priority = HOME")
+                    self._handle_control_loss("Priority = HOME")
                 self.logger.separator()
                 return
 
@@ -390,10 +453,15 @@ class SolarSurplusAutomation:
                         f"{self.logger.SUCCESS} Both targets met (Priority = EV_FREE) - "
                         "Stopping opportunistic charging"
                     )
-                    await self.charger_controller.stop_charger(
-                        "Both EV and Home targets reached (Priority = EV_FREE)"
-                    )
-                    self._battery_support_active = False  # Force deactivation
+                    if await self._acquire_control(
+                        "turn_off",
+                        "Both EV and Home targets reached (Priority = EV_FREE)",
+                    ):
+                        await self.charger_controller.stop_charger(
+                            "Both EV and Home targets reached (Priority = EV_FREE)"
+                        )
+                        self._release_control("Priority = EV_FREE")
+                        self._handle_control_loss("Priority = EV_FREE")
                     self.logger.separator()
                 return
         else:
@@ -505,7 +573,11 @@ class SolarSurplusAutomation:
         # Start charger if OFF and we have target amperage
         if not charger_is_on and target_amps > 0:
             self.logger.action(f"Starting charger with {target_amps}A")
-            await self.charger_controller.start_charger(target_amps, "Solar surplus available")
+            if await self._acquire_control("turn_on", "Solar surplus available"):
+                await self.charger_controller.start_charger(
+                    target_amps,
+                    "Solar surplus available",
+                )
             self.logger.separator()
             return
 
@@ -535,8 +607,15 @@ class SolarSurplusAutomation:
             self.logger.warning(
                 f"EV_FREE mode: Delay elapsed - Stopping (insufficient surplus for {surplus_drop_delay}s)"
             )
-            await self.charger_controller.stop_charger("EV_FREE: Insufficient surplus confirmed after delay")
-            self._reset_state_tracking()
+            if await self._acquire_control(
+                "turn_off",
+                "EV_FREE: Insufficient surplus confirmed after delay",
+            ):
+                await self.charger_controller.stop_charger(
+                    "EV_FREE: Insufficient surplus confirmed after delay"
+                )
+                self._release_control("EV_FREE stop after delay")
+                self._handle_control_loss("EV_FREE stop after delay")
             self.logger.separator()
             return
 
@@ -629,18 +708,21 @@ class SolarSurplusAutomation:
                 f"({ev_soc}% >= {ev_target}%)"
             )
             self.logger.warning(f"Target hard cap enforced [{context}] - stopping charger")
-            await self.charger_controller.stop_charger(reason)
-            await self._update_diagnostic_sensor(
-                "STOPPED: Target hard cap enforced",
-                {
-                    "reason": reason,
-                    "context": context,
-                    "ev_soc": ev_soc,
-                    "ev_target": ev_target,
-                    "last_check": datetime.now().isoformat(),
-                    **self._build_ev_soc_stale_attributes(stale_info),
-                },
-            )
+            if await self._acquire_control("turn_off", reason):
+                await self.charger_controller.stop_charger(reason)
+                self._release_control("Target hard cap enforced")
+                self._handle_control_loss("Target hard cap enforced")
+                await self._update_diagnostic_sensor(
+                    "STOPPED: Target hard cap enforced",
+                    {
+                        "reason": reason,
+                        "context": context,
+                        "ev_soc": ev_soc,
+                        "ev_target": ev_target,
+                        "last_check": datetime.now().isoformat(),
+                        **self._build_ev_soc_stale_attributes(stale_info),
+                    },
+                )
             return True
 
         self.logger.info(
@@ -664,6 +746,9 @@ class SolarSurplusAutomation:
         charger_is_on = await self.charger_controller.is_charging()
 
         if not charger_is_on:
+            if self._has_control():
+                self._release_control("Nighttime with charger off")
+                self._handle_control_loss("Nighttime with charger off")
             self.logger.skip("Nighttime - Solar Surplus only operates during daytime (sunrise to sunset)")
             await self._update_diagnostic_sensor(
                 "SKIPPED: Nighttime",
@@ -712,7 +797,8 @@ class SolarSurplusAutomation:
             self.logger.warning("Sunset transition - Night Smart Charge handover API unavailable")
 
         if handover_accepted:
-            self._battery_support_active = False
+            self._release_control("Night Smart Charge accepted sunset handover")
+            self._handle_control_loss("Night Smart Charge accepted sunset handover")
             self.logger.success("Sunset transition - Handover accepted by Night Smart Charge")
             await self._update_diagnostic_sensor(
                 "TRANSITION: Sunset handover accepted",
@@ -728,16 +814,18 @@ class SolarSurplusAutomation:
             "Sunset transition safe stop: Solar Surplus cannot continue at night and handover was rejected"
         )
         self.logger.warning("Sunset transition - Handover rejected, applying safe stop")
-        await self.charger_controller.stop_charger(stop_reason)
-        self._battery_support_active = False
-        await self._update_diagnostic_sensor(
-            "STOPPED: Sunset transition safe stop",
-            {
-                "reason": stop_reason,
-                "handover": "rejected_or_failed",
-                "last_check": datetime.now().isoformat(),
-            },
-        )
+        if await self._acquire_control("turn_off", stop_reason):
+            await self.charger_controller.stop_charger(stop_reason)
+            self._release_control("Sunset transition safe stop")
+            self._handle_control_loss("Sunset transition safe stop")
+            await self._update_diagnostic_sensor(
+                "STOPPED: Sunset transition safe stop",
+                {
+                    "reason": stop_reason,
+                    "handover": "rejected_or_failed",
+                    "last_check": datetime.now().isoformat(),
+                },
+            )
 
     async def _handle_home_battery_usage(self, surplus_watts: float, priority: str | None) -> None:
         """Handle home battery support mode.
@@ -885,17 +973,34 @@ class SolarSurplusAutomation:
             if current_index > 0:
                 next_amps = CHARGER_AMP_LEVELS[current_index - 1]
                 self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")
-                await self.charger_controller.set_amperage(next_amps, "Grid import protection")
+                if await self._ensure_control("Grid import protection"):
+                    await self.charger_controller.set_amperage(next_amps, "Grid import protection")
             else:
                 self.logger.info("Already at minimum level - stopping charger")
-                await self.charger_controller.stop_charger("Grid import protection - minimum level reached")
+                if await self._acquire_control(
+                    "turn_off",
+                    "Grid import protection - minimum level reached",
+                ):
+                    await self.charger_controller.stop_charger(
+                        "Grid import protection - minimum level reached"
+                    )
+                    self._release_control("Grid import protection stop")
+                    self._handle_control_loss("Grid import protection stop")
         except ValueError:
             # Handle 0A (charger off) or other non-standard levels
             if current_amps == 0:
                 self.logger.info("Charger is already off (0A) - keeping charger stopped")
             else:
                 self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
-                await self.charger_controller.stop_charger("Grid import protection - invalid amperage level")
+                if await self._acquire_control(
+                    "turn_off",
+                    "Grid import protection - invalid amperage level",
+                ):
+                    await self.charger_controller.stop_charger(
+                        "Grid import protection - invalid amperage level"
+                    )
+                    self._release_control("Grid import invalid amperage")
+                    self._handle_control_loss("Grid import invalid amperage")
 
     async def _handle_surplus_decrease(
         self,
@@ -928,18 +1033,35 @@ class SolarSurplusAutomation:
             if current_index > 0:
                 next_amps = CHARGER_AMP_LEVELS[current_index - 1]
                 self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")
-                await self.charger_controller.set_amperage(next_amps, "Surplus decrease")
+                if await self._ensure_control("Surplus decrease"):
+                    await self.charger_controller.set_amperage(next_amps, "Surplus decrease")
             else:
                 self.logger.info("Already at minimum level - stopping charger")
-                await self.charger_controller.stop_charger("Surplus decrease - minimum level reached")
+                if await self._acquire_control(
+                    "turn_off",
+                    "Surplus decrease - minimum level reached",
+                ):
+                    await self.charger_controller.stop_charger(
+                        "Surplus decrease - minimum level reached"
+                    )
+                    self._release_control("Surplus decrease stop")
+                    self._handle_control_loss("Surplus decrease stop")
         except ValueError:
             # Handle 0A (charger off) or other non-standard levels
             if current_amps == 0:
                 self.logger.warning("Charger is off (0A) - starting at minimum 6A")
-                await self.charger_controller.set_amperage(6, "Surplus decrease - charger was off, starting at 6A")
+                if await self._ensure_control("Surplus decrease - start at 6A"):
+                    await self.charger_controller.set_amperage(
+                        6,
+                        "Surplus decrease - charger was off, starting at 6A",
+                    )
             else:
                 self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
-                await self.charger_controller.set_amperage(6, "Surplus decrease - fallback to 6A")
+                if await self._ensure_control("Surplus decrease - fallback to 6A"):
+                    await self.charger_controller.set_amperage(
+                        6,
+                        "Surplus decrease - fallback to 6A",
+                    )
 
     async def _handle_surplus_increase(self, target_amps: int, current_amps: int) -> None:
         """Handle surplus increase with stability requirement.
@@ -974,7 +1096,8 @@ class SolarSurplusAutomation:
                 f"Surplus stable for {SURPLUS_INCREASE_DELAY}s - Starting at {target_amps}A"
             )
             self._reset_state_tracking()
-            await self.charger_controller.start_charger(target_amps, "Stable surplus confirmed")
+            if await self._acquire_control("turn_on", "Stable surplus confirmed"):
+                await self.charger_controller.start_charger(target_amps, "Stable surplus confirmed")
         else:
             # Already charging, require stability for INCREASES (cloud protection)
             if self._surplus_stable_since is None:
@@ -999,7 +1122,8 @@ class SolarSurplusAutomation:
                 f"Increasing from {current_amps}A to {target_amps}A"
             )
             self._reset_state_tracking()
-            await self.charger_controller.set_amperage(target_amps, "Stable surplus increase")
+            if await self._ensure_control("Stable surplus increase"):
+                await self.charger_controller.set_amperage(target_amps, "Stable surplus increase")
 
     def _reset_state_tracking(self) -> None:
         """Reset state tracking flags."""
@@ -1019,11 +1143,12 @@ class SolarSurplusAutomation:
         if not self._solar_surplus_diagnostic_sensor_entity:
             return
 
-        self.hass.states.async_set(
-            self._solar_surplus_diagnostic_sensor_entity,
-            state,
-            attributes,
-        )
+        if self._solar_surplus_diagnostic_sensor_obj and hasattr(
+            self._solar_surplus_diagnostic_sensor_obj, "async_publish"
+        ):
+            await self._solar_surplus_diagnostic_sensor_obj.async_publish(state, attributes)
+            return
+        self.logger.warning("Solar Surplus diagnostic entity object not registered in runtime data")
 
     async def async_request_immediate_check(self, reason: str = "") -> None:
         """Force an immediate periodic check, bypassing the rate limit."""

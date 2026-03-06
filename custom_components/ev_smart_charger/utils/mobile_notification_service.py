@@ -5,7 +5,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.const import STATE_ON
 from homeassistant.util import dt as dt_util
 
-from ..utils.entity_registry_service import EntityRegistryService
+from ..runtime import EVSCRuntimeData
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,7 +26,8 @@ class MobileNotificationService:
         hass: HomeAssistant,
         notify_services: list[str],
         entry_id: str,
-        car_owner_entity: str = None
+        car_owner_entity: str = None,
+        runtime_data: EVSCRuntimeData | None = None,
     ):
         """
         Initialize Mobile Notification Service.
@@ -41,7 +42,7 @@ class MobileNotificationService:
         self.notify_services = notify_services or []
         self.entry_id = entry_id
         self.car_owner_entity = car_owner_entity
-        self._registry_service = EntityRegistryService(hass, entry_id)
+        self._runtime_data = runtime_data
 
     async def send_smart_blocker_notification(self, reason: str) -> None:
         """
@@ -253,7 +254,9 @@ class MobileNotificationService:
         Returns:
             True if enabled, False otherwise
         """
-        entity_id = self._registry_service.find_by_suffix_filtered(suffix)
+        entity_id = None
+        if self._runtime_data is not None:
+            entity_id = self._runtime_data.get_entity_id(suffix)
         if not entity_id:
             _LOGGER.warning(f"Notification switch {suffix} not found, defaulting to enabled")
             return True  # Default to enabled if switch not found

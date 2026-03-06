@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.ev_smart_charger.night_smart_charge import NightSmartCharge
+from custom_components.ev_smart_charger.runtime import EVSCRuntimeData
 from custom_components.ev_smart_charger.const import (
     CONF_EV_CHARGER_STATUS,
     CONF_EV_CHARGER_SWITCH,
@@ -29,9 +30,32 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
         CONF_PV_FORECAST: "sensor.pv_forecast",
         CONF_NOTIFY_SERVICES: [],
     }
-    
+    runtime_data = EVSCRuntimeData(config=config, expected_entity_count=0)
+    helper_map = {
+        "evsc_night_smart_charge_enabled": "switch.test_evsc_night_smart_charge_enabled",
+        "evsc_night_charge_time": "input_datetime.test_evsc_night_charge_time",
+        "evsc_car_ready_time": "input_datetime.test_evsc_car_ready_time",
+        "evsc_night_charge_amperage": "number.test_evsc_night_charge_amperage",
+        "evsc_min_solar_forecast_threshold": "number.test_evsc_min_solar_forecast_threshold",
+        "evsc_home_battery_min_soc": "number.test_evsc_home_battery_min_soc",
+        "evsc_car_ready_monday": "input_boolean.test_evsc_car_ready_monday",
+        "evsc_car_ready_tuesday": "input_boolean.test_evsc_car_ready_tuesday",
+        "evsc_car_ready_wednesday": "input_boolean.test_evsc_car_ready_wednesday",
+        "evsc_car_ready_thursday": "input_boolean.test_evsc_car_ready_thursday",
+        "evsc_car_ready_friday": "input_boolean.test_evsc_car_ready_friday",
+        "evsc_car_ready_saturday": "input_boolean.test_evsc_car_ready_saturday",
+        "evsc_car_ready_sunday": "input_boolean.test_evsc_car_ready_sunday",
+    }
+    for key, entity_id in helper_map.items():
+        runtime_data.register_entity(key, entity_id, object())
+
     night_charge = NightSmartCharge(
-        hass, "test_entry", config, mock_priority_balancer, mock_charger_controller
+        hass,
+        "test_entry",
+        config,
+        mock_priority_balancer,
+        mock_charger_controller,
+        runtime_data=runtime_data,
     )
     
     # Setup helper entities

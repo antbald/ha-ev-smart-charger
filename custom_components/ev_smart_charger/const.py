@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -43,6 +43,9 @@ PROFILE_CHEAPEST = "cheapest"  # Not implemented
 CHARGING_PROFILES = [
     PROFILE_MANUAL,
     PROFILE_SOLAR_SURPLUS,
+]
+
+LEGACY_CHARGING_PROFILES = [
     PROFILE_CHARGE_TARGET,
     PROFILE_CHEAPEST,
 ]
@@ -222,3 +225,6 @@ SERVICE_CALL_TIMEOUT = 10  # seconds for service calls
 
 # ========== EV SOC MONITOR SETTINGS (v1.4.0) ==========
 EV_SOC_MONITOR_INTERVAL = 5  # seconds - polling frequency for cloud sensor reliability
+
+# ========== ENTITY REGISTRATION ==========
+TOTAL_INTEGRATION_ENTITIES = 51

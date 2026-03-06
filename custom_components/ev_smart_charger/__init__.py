@@ -11,13 +11,14 @@ except ImportError:  # pragma: no cover - compatibility branch for older HA core
     StaticPathConfig = None
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers import entity_registry as er
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import (
     DOMAIN,
     FRONTEND_CARD_FILENAME,
     FRONTEND_URL_BASE,
     PLATFORMS,
+    TOTAL_INTEGRATION_ENTITIES,
     VERSION,
 )
 from .automation_coordinator import AutomationCoordinator
@@ -29,6 +30,7 @@ from .boost_charge import BoostCharge
 from .automations import SmartChargerBlocker
 from .solar_surplus import SolarSurplusAutomation
 from .log_manager import LogManager
+from .runtime import EVSCRuntimeData, get_runtime_data
 
 _LOGGER = logging.getLogger(__name__)
 FRONTEND_DIR = Path(__file__).parent / "frontend"
@@ -66,6 +68,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up EV Smart Charger from a config entry."""
     hass.data.setdefault(DOMAIN, {})
     await _async_register_frontend(hass)
+    runtime_data = EVSCRuntimeData(
+        config=dict(entry.data),
+        expected_entity_count=TOTAL_INTEGRATION_ENTITIES,
+    )
+    entry.runtime_data = runtime_data
 
     _LOGGER.info("=" * 64)
     _LOGGER.info(f"🚗 EV Smart Charger v{VERSION} - Starting setup")
@@ -76,56 +83,56 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _LOGGER.info(f"✅ Platforms registered: {', '.join(PLATFORMS)}")
 
-    # Wait for entity registration
-    _LOGGER.info("⏳ Waiting 2 seconds for entity registration...")
-    await asyncio.sleep(2)
+    # Wait for entity registration barrier
+    try:
+        await asyncio.wait_for(runtime_data.registration_event.wait(), timeout=10)
+    except TimeoutError as err:
+        raise ConfigEntryNotReady(
+            "Timed out while waiting for EV Smart Charger helper entities registration"
+        ) from err
 
-    # Verify entity registration
-    entity_registry = er.async_get(hass)
-    registry_entities = [
-        entity.entity_id
-        for entity in entity_registry.entities.values()
-        if entity.config_entry_id == entry.entry_id
-    ]
-    _LOGGER.info(f"✅ {len(registry_entities)} helper entities registered")
+    _LOGGER.info(
+        "✅ %s helper entities registered",
+        runtime_data.registered_entity_count,
+    )
 
     # ========== PHASE 2: CREATE CHARGER CONTROLLER (Centralized Charger Control) ==========
     _LOGGER.info("🔌 Phase 2: Creating Charger Controller")
-    charger_controller = ChargerController(hass, entry.entry_id, entry.data)
+    charger_controller = ChargerController(hass, entry.entry_id, entry.data, runtime_data=runtime_data)
     try:
         await charger_controller.async_setup()
         _LOGGER.info("✅ Charger Controller setup complete")
     except Exception as e:
         _LOGGER.error(f"❌ Failed to set up Charger Controller: {e}")
         _LOGGER.exception("Charger Controller setup error details:")
-        return False
+        raise
 
     # ========== PHASE 2.5: CREATE EV SOC MONITOR (Cache Reliability Layer) ==========
     _LOGGER.info("⏳ Phase 2.5: Creating EV SOC Monitor (cache reliability)")
-    ev_soc_monitor = EVSOCMonitor(hass, entry.entry_id, entry.data)
+    ev_soc_monitor = EVSOCMonitor(hass, entry.entry_id, entry.data, runtime_data=runtime_data)
     try:
         await ev_soc_monitor.async_setup()
         _LOGGER.info("✅ EV SOC Monitor setup complete")
     except Exception as e:
         _LOGGER.error(f"❌ Failed to set up EV SOC Monitor: {e}")
         _LOGGER.exception("EV SOC Monitor setup error details:")
-        return False
+        raise
 
     # ========== PHASE 3: CREATE AUTOMATION COORDINATOR ==========
     _LOGGER.info("🔧 Phase 3: Creating Automation Coordinator")
-    coordinator = AutomationCoordinator(hass, entry.entry_id)
+    coordinator = AutomationCoordinator(hass, entry.entry_id, runtime_data=runtime_data)
     _LOGGER.info("✅ Automation Coordinator created")
 
     # ========== PHASE 4: CREATE PRIORITY BALANCER (Independent Component) ==========
     _LOGGER.info("⚖️  Phase 4: Creating Priority Balancer")
-    priority_balancer = PriorityBalancer(hass, entry.entry_id, entry.data)
+    priority_balancer = PriorityBalancer(hass, entry.entry_id, entry.data, runtime_data=runtime_data)
     try:
         await priority_balancer.async_setup()
         _LOGGER.info("✅ Priority Balancer setup complete")
     except Exception as e:
         _LOGGER.error(f"❌ Failed to set up Priority Balancer: {e}")
         _LOGGER.exception("Priority Balancer setup error details:")
-        return False
+        raise
 
     # ========== PHASE 5: CREATE NIGHT SMART CHARGE (depends on Priority Balancer & Charger Controller) ==========
     _LOGGER.info("🌙 Phase 5: Creating Night Smart Charge")
@@ -135,6 +142,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data,
         priority_balancer,
         charger_controller,
+        runtime_data=runtime_data,
         coordinator=coordinator,
     )
     try:
@@ -153,6 +161,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data,
         priority_balancer,
         charger_controller,
+        runtime_data=runtime_data,
         coordinator=coordinator,
         night_smart_charge=night_smart_charge,
     )
@@ -172,6 +181,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data,
         night_smart_charge,
         charger_controller,
+        runtime_data=runtime_data,
         coordinator=coordinator,
         boost_charge=boost_charge,
     )
@@ -191,6 +201,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data,
         priority_balancer,
         charger_controller,
+        runtime_data=runtime_data,
         night_smart_charge=night_smart_charge,
         coordinator=coordinator,
         boost_charge=boost_charge,
@@ -228,25 +239,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         evsc_loggers.append(boost_charge.logger)
 
     # Setup log manager with toggle listener
-    log_manager = LogManager(hass, entry.entry_id)
+    log_manager = LogManager(hass, entry.entry_id, runtime_data=runtime_data)
     await log_manager.async_setup(evsc_loggers)
 
     _LOGGER.info(f"✅ Log manager setup complete ({len(evsc_loggers)} loggers)")
 
     # ========== PHASE 8: STORE REFERENCES ==========
     _LOGGER.info("💾 Phase 8: Storing component references")
-    hass.data[DOMAIN][entry.entry_id] = {
-        "config": entry.data,
-        "charger_controller": charger_controller,
-        "ev_soc_monitor": ev_soc_monitor,
-        "coordinator": coordinator,
-        "priority_balancer": priority_balancer,
-        "night_smart_charge": night_smart_charge,
-        "boost_charge": boost_charge,
-        "smart_blocker": smart_blocker,
-        "solar_surplus": solar_surplus,
-        "log_manager": log_manager,
-    }
+    runtime_data.charger_controller = charger_controller
+    runtime_data.ev_soc_monitor = ev_soc_monitor
+    runtime_data.coordinator = coordinator
+    runtime_data.priority_balancer = priority_balancer
+    runtime_data.night_smart_charge = night_smart_charge
+    runtime_data.boost_charge = boost_charge
+    runtime_data.smart_blocker = smart_blocker
+    runtime_data.solar_surplus = solar_surplus
+    runtime_data.log_manager = log_manager
 
     # Register update listener
     entry.async_on_unload(entry.add_update_listener(_reload_on_update))
@@ -270,46 +278,45 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("🔄 EV Smart Charger - Starting unload")
     _LOGGER.info("=" * 64)
 
-    # Get stored components
-    entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
+    runtime_data = get_runtime_data(entry)
 
     # Remove automations in reverse order (opposite of setup)
-    solar_surplus = entry_data.get("solar_surplus")
+    solar_surplus = runtime_data.solar_surplus
     if solar_surplus:
         _LOGGER.info("🗑️  Removing Solar Surplus automation")
         await solar_surplus.async_remove()
 
-    smart_blocker = entry_data.get("smart_blocker")
+    smart_blocker = runtime_data.smart_blocker
     if smart_blocker:
         _LOGGER.info("🗑️  Removing Smart Charger Blocker")
         await smart_blocker.async_remove()
 
-    boost_charge = entry_data.get("boost_charge")
+    boost_charge = runtime_data.boost_charge
     if boost_charge:
         _LOGGER.info("🗑️  Removing Boost Charge")
         await boost_charge.async_remove()
 
-    night_smart_charge = entry_data.get("night_smart_charge")
+    night_smart_charge = runtime_data.night_smart_charge
     if night_smart_charge:
         _LOGGER.info("🗑️  Removing Night Smart Charge")
         await night_smart_charge.async_remove()
 
-    priority_balancer = entry_data.get("priority_balancer")
+    priority_balancer = runtime_data.priority_balancer
     if priority_balancer:
         _LOGGER.info("🗑️  Removing Priority Balancer")
         await priority_balancer.async_remove()
 
-    log_manager = entry_data.get("log_manager")
+    log_manager = runtime_data.log_manager
     if log_manager:
         _LOGGER.info("🗑️  Removing Log Manager")
         await log_manager.async_remove()
 
-    ev_soc_monitor = entry_data.get("ev_soc_monitor")
+    ev_soc_monitor = runtime_data.ev_soc_monitor
     if ev_soc_monitor:
         _LOGGER.info("🗑️  Removing EV SOC Monitor")
         await ev_soc_monitor.async_remove()
 
-    charger_controller = entry_data.get("charger_controller")
+    charger_controller = runtime_data.charger_controller
     if charger_controller:
         _LOGGER.info("🗑️  Removing Charger Controller")
         # ChargerController doesn't need explicit cleanup, just logging
@@ -319,7 +326,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
+        entry.runtime_data = None
         _LOGGER.info("=" * 64)
         _LOGGER.info("✅ EV Smart Charger - Unloaded successfully")
         _LOGGER.info("=" * 64)

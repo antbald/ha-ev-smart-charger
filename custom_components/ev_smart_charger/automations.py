@@ -17,9 +17,9 @@ from .const import (
     SMART_BLOCKER_ENFORCEMENT_TIMEOUT,
 )
 from .automation_coordinator import PRIORITY_SMART_BLOCKER
+from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
 from .utils.state_helper import get_state
-from .utils.entity_registry_service import EntityRegistryService
 from .utils.notification_service import NotificationService
 from .utils.mobile_notification_service import MobileNotificationService
 from .utils.astral_time_service import AstralTimeService
@@ -39,6 +39,7 @@ class SmartChargerBlocker:
         config: dict,
         night_smart_charge,
         charger_controller,
+        runtime_data: EVSCRuntimeData | None = None,
         coordinator=None,
         boost_charge=None,
     ) -> None:
@@ -57,13 +58,17 @@ class SmartChargerBlocker:
         self.config = config
         self.night_smart_charge = night_smart_charge
         self.charger_controller = charger_controller
+        self._runtime_data = runtime_data
         self._coordinator = coordinator
         self._boost_charge = boost_charge
         self.logger = EVSCLogger("SMART BLOCKER")
-        self._registry_service = EntityRegistryService(hass, entry_id)
         self._notification_service = NotificationService(hass)
         self._mobile_notifier = MobileNotificationService(
-            hass, config.get(CONF_NOTIFY_SERVICES, []), entry_id, config.get(CONF_CAR_OWNER)
+            hass,
+            config.get(CONF_NOTIFY_SERVICES, []),
+            entry_id,
+            config.get(CONF_CAR_OWNER),
+            runtime_data=runtime_data,
         )
         self._astral_service = AstralTimeService(hass)
 
@@ -83,17 +88,10 @@ class SmartChargerBlocker:
         self._enforcement_start_time = None
 
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
-        """Find entity ID by suffix using EntityRegistryService."""
-        entity_id = self._registry_service.find_by_suffix_filtered(suffix)
-
-        if entity_id:
-            self.logger.debug(f"Found helper entity: {entity_id}")
-        else:
-            self.logger.warning(
-                f"Helper entity with suffix '{suffix}' not found for config_entry {self.entry_id}"
-            )
-
-        return entity_id
+        """Resolve an integration-owned helper entity from runtime data."""
+        if self._runtime_data is None:
+            return None
+        return self._runtime_data.get_entity_id(suffix)
 
     async def async_setup(self) -> None:
         """Set up the Smart Charger Blocker automation."""
@@ -578,4 +576,3 @@ class SmartChargerBlocker:
                 }
             )
             self.logger.separator()
-

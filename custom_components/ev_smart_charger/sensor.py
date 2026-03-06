@@ -1,14 +1,20 @@
 """Sensor platform for EV Smart Charger diagnostics."""
 from __future__ import annotations
-import logging
 
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from datetime import datetime
+import logging
+from typing import Any
+
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, VERSION, CONF_SOC_CAR
+from .const import CONF_SOC_CAR
+from .entity_base import EVSCEntityMixin
+from .runtime import EVSCRuntimeData, get_runtime_data
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,244 +25,224 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up EVSC diagnostic sensor entities."""
+    runtime_data = get_runtime_data(entry)
 
-    entities = []
-
-    # Create Diagnostic Sensor
-    entities.append(
+    entities = [
         EVSCDiagnosticSensor(
+            runtime_data,
             entry.entry_id,
             "evsc_diagnostic",
             "EVSC Diagnostic Status",
             "mdi:information-outline",
-        )
-    )
-
-    # Create Priority State Sensor
-    entities.append(
+        ),
         EVSCPriorityStateSensor(
+            runtime_data,
             entry.entry_id,
             "evsc_priority_daily_state",
             "EVSC Priority Daily State",
             "mdi:priority-high",
-        )
-    )
-
-    # Create Solar Surplus Diagnostic Sensor
-    entities.append(
+        ),
         EVSCSolarSurplusDiagnosticSensor(
+            runtime_data,
             entry.entry_id,
             "evsc_solar_surplus_diagnostic",
             "EVSC Solar Surplus Diagnostic",
             "mdi:solar-power",
-        )
-    )
-
-    # Create Log File Path Sensor (v1.3.25)
-    entities.append(
+        ),
         EVSCLogFilePathSensor(
             hass,
+            runtime_data,
             entry.entry_id,
             "evsc_log_file_path",
             "EVSC Log File Path",
             "mdi:file-document-outline",
-        )
-    )
-
-    # Create Today EV Target Sensor (v1.3.26)
-    entities.append(
+        ),
         EVSCTodayEVTargetSensor(
+            runtime_data,
             entry.entry_id,
             "evsc_today_ev_target",
             "EVSC Today EV Target",
             "mdi:battery-charging-80",
-        )
-    )
-
-    # Create Today Home Target Sensor (v1.3.26)
-    entities.append(
+        ),
         EVSCTodayHomeTargetSensor(
+            runtime_data,
             entry.entry_id,
             "evsc_today_home_target",
             "EVSC Today Home Target",
             "mdi:home-battery",
-        )
-    )
-
-    # Create Cached EV SOC Sensor (v1.4.0)
-    entities.append(
+        ),
         EVSCCachedEVSOCSensor(
-            hass,
+            runtime_data,
             entry.entry_id,
-            entry.data.get(CONF_SOC_CAR),  # Source cloud sensor
+            entry.data.get(CONF_SOC_CAR),
             "evsc_cached_ev_soc",
             "EVSC Cached EV SOC",
             "mdi:car-battery",
-        )
-    )
+        ),
+    ]
 
     async_add_entities(entities)
-    _LOGGER.info(f"✅ Created {len(entities)} EVSC sensors")
+    _LOGGER.info("✅ Created %s EVSC sensors", len(entities))
 
 
-class EVSCDiagnosticSensor(SensorEntity, RestoreEntity):
-    """EVSC Diagnostic Sensor showing real-time automation status."""
+class EVSCBaseSensor(EVSCEntityMixin, SensorEntity, RestoreEntity):
+    """Shared base for EVSC restoreable sensors."""
 
     _attr_should_poll = False
 
     def __init__(
         self,
+        runtime_data: EVSCRuntimeData,
+        entry_id: str,
+        suffix: str,
+        name: str,
+        icon: str,
+        *,
+        native_value: Any = None,
+        native_unit_of_measurement: str | None = None,
+        entity_category: EntityCategory = EntityCategory.DIAGNOSTIC,
+    ) -> None:
+        """Initialize the shared sensor state."""
+        self._init_evsc_entity(
+            runtime_data,
+            entry_id,
+            suffix,
+            "sensor",
+            name,
+            icon,
+            entity_category=entity_category,
+        )
+        self._attr_native_value = native_value
+        if native_unit_of_measurement is not None:
+            self._attr_native_unit_of_measurement = native_unit_of_measurement
+        self._attr_extra_state_attributes: dict[str, Any] = {}
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return current state attributes."""
+        return self._attr_extra_state_attributes
+
+    async def async_publish(
+        self,
+        value: Any,
+        attributes: dict[str, Any] | None = None,
+    ) -> None:
+        """Publish state updates through the entity object."""
+        self._attr_native_value = value
+        self._attr_extra_state_attributes = dict(attributes or {})
+        self.async_write_ha_state()
+
+
+class EVSCDiagnosticSensor(EVSCBaseSensor):
+    """EVSC Diagnostic Sensor showing real-time automation status."""
+
+    def __init__(
+        self,
+        runtime_data: EVSCRuntimeData,
         entry_id: str,
         suffix: str,
         name: str,
         icon: str,
     ) -> None:
         """Initialize the diagnostic sensor."""
-        self._entry_id = entry_id
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
-        self._attr_name = name
-        self._attr_icon = icon
-        self._attr_native_value = "Initializing"
-        # Set explicit entity_id to match pattern
-        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
-
-    @property
-    def device_info(self):
-        """Return device info to group all entities under one device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "EV Smart Charger",
-            "manufacturer": "antbald",
-            "model": "EV Smart Charger",
-            "sw_version": VERSION,
-        }
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return the state attributes."""
-        # Attributes will be set directly via hass.states.async_set
-        return {}
+        super().__init__(
+            runtime_data,
+            entry_id,
+            suffix,
+            name,
+            icon,
+            native_value="Initializing",
+        )
 
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
-        _LOGGER.info(f"✅ Diagnostic sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
-
+        _LOGGER.info(
+            "✅ Diagnostic sensor registered: %s (unique_id: %s)",
+            self.entity_id,
+            self.unique_id,
+        )
         if (last_state := await self.async_get_last_state()) is not None:
             self._attr_native_value = last_state.state
 
 
-class EVSCPriorityStateSensor(SensorEntity, RestoreEntity):
+class EVSCPriorityStateSensor(EVSCBaseSensor):
     """EVSC Priority State Sensor showing current charging priority."""
-
-    _attr_should_poll = False
 
     def __init__(
         self,
+        runtime_data: EVSCRuntimeData,
         entry_id: str,
         suffix: str,
         name: str,
         icon: str,
     ) -> None:
         """Initialize the priority sensor."""
-        self._entry_id = entry_id
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
-        self._attr_name = name
-        self._attr_icon = icon
-        self._attr_native_value = "EV_Free"
-        self._attr_extra_state_attributes = {}
-        # Set explicit entity_id to match pattern
-        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
-
-    @property
-    def device_info(self):
-        """Return device info to group all entities under one device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "EV Smart Charger",
-            "manufacturer": "antbald",
-            "model": "EV Smart Charger",
-            "sw_version": VERSION,
-        }
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return the state attributes."""
-        return self._attr_extra_state_attributes
+        super().__init__(
+            runtime_data,
+            entry_id,
+            suffix,
+            name,
+            icon,
+            native_value="EV_Free",
+        )
 
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
-        _LOGGER.info(f"✅ Priority sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
-
+        _LOGGER.info(
+            "✅ Priority sensor registered: %s (unique_id: %s)",
+            self.entity_id,
+            self.unique_id,
+        )
         if (last_state := await self.async_get_last_state()) is not None:
             self._attr_native_value = last_state.state
-            if last_state.attributes:
-                self._attr_extra_state_attributes = dict(last_state.attributes)
+            self._attr_extra_state_attributes = dict(last_state.attributes)
 
 
-class EVSCSolarSurplusDiagnosticSensor(SensorEntity, RestoreEntity):
+class EVSCSolarSurplusDiagnosticSensor(EVSCBaseSensor):
     """EVSC Solar Surplus Diagnostic Sensor with detailed check information."""
-
-    _attr_should_poll = False
 
     def __init__(
         self,
+        runtime_data: EVSCRuntimeData,
         entry_id: str,
         suffix: str,
         name: str,
         icon: str,
     ) -> None:
         """Initialize the solar surplus diagnostic sensor."""
-        self._entry_id = entry_id
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
-        self._attr_name = name
-        self._attr_icon = icon
-        self._attr_native_value = "Waiting for first check"
-        self._attr_extra_state_attributes = {}
-        # Set explicit entity_id to match pattern
-        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
-
-    @property
-    def device_info(self):
-        """Return device info to group all entities under one device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "EV Smart Charger",
-            "manufacturer": "antbald",
-            "model": "EV Smart Charger",
-            "sw_version": VERSION,
-        }
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return the state attributes."""
-        return self._attr_extra_state_attributes
+        super().__init__(
+            runtime_data,
+            entry_id,
+            suffix,
+            name,
+            icon,
+            native_value="Waiting for first check",
+        )
 
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
-        _LOGGER.info(f"✅ Solar Surplus Diagnostic sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
-
+        _LOGGER.info(
+            "✅ Solar Surplus Diagnostic sensor registered: %s (unique_id: %s)",
+            self.entity_id,
+            self.unique_id,
+        )
         if (last_state := await self.async_get_last_state()) is not None:
             self._attr_native_value = last_state.state
-            if last_state.attributes:
-                self._attr_extra_state_attributes = dict(last_state.attributes)
+            self._attr_extra_state_attributes = dict(last_state.attributes)
 
 
-class EVSCLogFilePathSensor(SensorEntity):
-    """EVSC Log File Path Sensor (v1.4.15).
+class EVSCLogFilePathSensor(EVSCEntityMixin, SensorEntity):
+    """EVSC Log File Path Sensor."""
 
-    Updated for date-based log structure:
-    - Shows today's log file path (logs/<year>/<month>/<day>.log)
-    - Updates automatically at midnight
-    """
-
-    _attr_should_poll = True  # Poll to update path at midnight
+    _attr_should_poll = True
 
     def __init__(
         self,
         hass: HomeAssistant,
+        runtime_data: EVSCRuntimeData,
         entry_id: str,
         suffix: str,
         name: str,
@@ -264,63 +250,51 @@ class EVSCLogFilePathSensor(SensorEntity):
     ) -> None:
         """Initialize the sensor."""
         self._hass = hass
-        self._entry_id = entry_id
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
-        self._attr_name = name
-        self._attr_icon = icon
-        # Set explicit entity_id to match pattern
-        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
-
-        # Get log file path from log manager
+        self._init_evsc_entity(
+            runtime_data,
+            entry_id,
+            suffix,
+            "sensor",
+            name,
+            icon,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        )
         self._attr_native_value = self._get_log_file_path()
+
+    def _get_log_manager(self):
+        """Return the runtime log manager when available."""
+        return self._runtime_data.log_manager if self._runtime_data is not None else None
 
     def _get_log_file_path(self) -> str:
         """Get today's log file path from log manager."""
-        entry_data = self._hass.data.get(DOMAIN, {}).get(self._entry_id, {})
-        log_manager = entry_data.get("log_manager")
-
+        log_manager = self._get_log_manager()
         if log_manager:
             return log_manager.get_log_file_path()
-        else:
-            # Fallback: construct path manually during initial setup
-            from datetime import datetime
-            now = datetime.now()
-            return self._hass.config.path(
-                "custom_components",
-                "ev_smart_charger",
-                "logs",
-                str(now.year),
-                f"{now.month:02d}",
-                f"{now.day:02d}.log"
-            )
+
+        now = datetime.now()
+        return self._hass.config.path(
+            "custom_components",
+            "ev_smart_charger",
+            "logs",
+            str(now.year),
+            f"{now.month:02d}",
+            f"{now.day:02d}.log",
+        )
 
     def _get_logs_directory(self) -> str:
         """Get base logs directory from log manager."""
-        entry_data = self._hass.data.get(DOMAIN, {}).get(self._entry_id, {})
-        log_manager = entry_data.get("log_manager")
-
+        log_manager = self._get_log_manager()
         if log_manager:
             return log_manager.get_logs_directory()
-        else:
-            return self._hass.config.path(
-                "custom_components",
-                "ev_smart_charger",
-                "logs"
-            )
+
+        return self._hass.config.path(
+            "custom_components",
+            "ev_smart_charger",
+            "logs",
+        )
 
     @property
-    def device_info(self):
-        """Return device info to group all entities under one device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "EV Smart Charger",
-            "manufacturer": "antbald",
-            "model": "EV Smart Charger",
-            "sw_version": VERSION,
-        }
-
-    @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, str]:
         """Return the state attributes."""
         return {
             "description": "Today's log file path (format: logs/<year>/<month>/<day>.log)",
@@ -330,130 +304,110 @@ class EVSCLogFilePathSensor(SensorEntity):
         }
 
     async def async_update(self) -> None:
-        """Update the sensor value (called periodically to update path at midnight)."""
+        """Update the sensor value."""
         self._attr_native_value = self._get_log_file_path()
 
     async def async_added_to_hass(self) -> None:
         """Entity added to hass."""
         await super().async_added_to_hass()
-        _LOGGER.info(f"✅ Log File Path sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
-        _LOGGER.info(f"  📄 Today's log file: {self._attr_native_value}")
+        _LOGGER.info(
+            "✅ Log File Path sensor registered: %s (unique_id: %s)",
+            self.entity_id,
+            self.unique_id,
+        )
+        _LOGGER.info("  📄 Today's log file: %s", self._attr_native_value)
 
 
-class EVSCTodayEVTargetSensor(SensorEntity, RestoreEntity):
-    """EVSC Today EV Target Sensor - shows today's EV SOC target (v1.3.26)."""
-
-    _attr_should_poll = False
+class EVSCTodayEVTargetSensor(EVSCBaseSensor):
+    """EVSC Today EV Target Sensor."""
 
     def __init__(
         self,
+        runtime_data: EVSCRuntimeData,
         entry_id: str,
         suffix: str,
         name: str,
         icon: str,
     ) -> None:
         """Initialize the sensor."""
-        self._entry_id = entry_id
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
-        self._attr_name = name
-        self._attr_icon = icon
-        self._attr_native_value = None
-        self._attr_native_unit_of_measurement = "%"
-        self._attr_extra_state_attributes = {}
-        # Set explicit entity_id to match pattern
-        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
-
-    @property
-    def device_info(self):
-        """Return device info to group all entities under one device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "EV Smart Charger",
-            "manufacturer": "antbald",
-            "model": "EV Smart Charger",
-            "sw_version": VERSION,
-        }
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return the state attributes."""
-        return self._attr_extra_state_attributes
+        super().__init__(
+            runtime_data,
+            entry_id,
+            suffix,
+            name,
+            icon,
+            native_value=None,
+            native_unit_of_measurement="%",
+        )
 
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
-        _LOGGER.info(f"✅ Today EV Target sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
-
+        _LOGGER.info(
+            "✅ Today EV Target sensor registered: %s (unique_id: %s)",
+            self.entity_id,
+            self.unique_id,
+        )
         if (last_state := await self.async_get_last_state()) is not None:
             try:
-                self._attr_native_value = float(last_state.state) if last_state.state not in [None, "unknown", "unavailable"] else None
+                self._attr_native_value = (
+                    float(last_state.state)
+                    if last_state.state not in (None, "unknown", "unavailable")
+                    else None
+                )
             except (ValueError, TypeError):
                 self._attr_native_value = None
-            if last_state.attributes:
-                self._attr_extra_state_attributes = dict(last_state.attributes)
+            self._attr_extra_state_attributes = dict(last_state.attributes)
 
 
-class EVSCTodayHomeTargetSensor(SensorEntity, RestoreEntity):
-    """EVSC Today Home Target Sensor - shows today's Home battery SOC target (v1.3.26)."""
-
-    _attr_should_poll = False
+class EVSCTodayHomeTargetSensor(EVSCBaseSensor):
+    """EVSC Today Home Target Sensor."""
 
     def __init__(
         self,
+        runtime_data: EVSCRuntimeData,
         entry_id: str,
         suffix: str,
         name: str,
         icon: str,
     ) -> None:
         """Initialize the sensor."""
-        self._entry_id = entry_id
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
-        self._attr_name = name
-        self._attr_icon = icon
-        self._attr_native_value = None
-        self._attr_native_unit_of_measurement = "%"
-        self._attr_extra_state_attributes = {}
-        # Set explicit entity_id to match pattern
-        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
-
-    @property
-    def device_info(self):
-        """Return device info to group all entities under one device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "EV Smart Charger",
-            "manufacturer": "antbald",
-            "model": "EV Smart Charger",
-            "sw_version": VERSION,
-        }
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return the state attributes."""
-        return self._attr_extra_state_attributes
+        super().__init__(
+            runtime_data,
+            entry_id,
+            suffix,
+            name,
+            icon,
+            native_value=None,
+            native_unit_of_measurement="%",
+        )
 
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
-        _LOGGER.info(f"✅ Today Home Target sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
-
+        _LOGGER.info(
+            "✅ Today Home Target sensor registered: %s (unique_id: %s)",
+            self.entity_id,
+            self.unique_id,
+        )
         if (last_state := await self.async_get_last_state()) is not None:
             try:
-                self._attr_native_value = float(last_state.state) if last_state.state not in [None, "unknown", "unavailable"] else None
+                self._attr_native_value = (
+                    float(last_state.state)
+                    if last_state.state not in (None, "unknown", "unavailable")
+                    else None
+                )
             except (ValueError, TypeError):
                 self._attr_native_value = None
-            if last_state.attributes:
-                self._attr_extra_state_attributes = dict(last_state.attributes)
+            self._attr_extra_state_attributes = dict(last_state.attributes)
 
 
-class EVSCCachedEVSOCSensor(SensorEntity, RestoreEntity):
-    """EVSC Cached EV SOC Sensor - reliable cache for cloud-based EV SOC sensor (v1.4.0)."""
-
-    _attr_should_poll = False
+class EVSCCachedEVSOCSensor(EVSCBaseSensor):
+    """Reliable cache for a cloud-based EV SOC sensor."""
 
     def __init__(
         self,
-        hass: HomeAssistant,
+        runtime_data: EVSCRuntimeData,
         entry_id: str,
         source_entity: str,
         suffix: str,
@@ -461,50 +415,59 @@ class EVSCCachedEVSOCSensor(SensorEntity, RestoreEntity):
         icon: str,
     ) -> None:
         """Initialize the cached sensor."""
-        self._hass = hass
-        self._entry_id = entry_id
+        super().__init__(
+            runtime_data,
+            entry_id,
+            suffix,
+            name,
+            icon,
+            native_value=None,
+            native_unit_of_measurement="%",
+        )
         self._source_entity = source_entity
-        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{suffix}"
-        self._attr_name = name
-        self._attr_icon = icon
-        self._attr_native_value = None
-        self._attr_native_unit_of_measurement = "%"
         self._attr_extra_state_attributes = {
             "source_entity": source_entity,
             "last_valid_update": None,
             "is_cached": False,
         }
-        # Set explicit entity_id to match pattern
-        self.entity_id = f"sensor.{DOMAIN}_{entry_id}_{suffix}"
 
-    @property
-    def device_info(self):
-        """Return device info to group all entities under one device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry_id)},
-            "name": "EV Smart Charger",
-            "manufacturer": "antbald",
-            "model": "EV Smart Charger",
-            "sw_version": VERSION,
-        }
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return the state attributes."""
-        return self._attr_extra_state_attributes
+    async def async_publish_cache(
+        self,
+        value: float,
+        *,
+        last_valid_update: datetime,
+        is_cached: bool,
+        cache_age_seconds: int,
+    ) -> None:
+        """Publish a cached EV SOC update."""
+        await self.async_publish(
+            value,
+            {
+                "source_entity": self._source_entity,
+                "last_valid_update": last_valid_update.isoformat(),
+                "is_cached": is_cached,
+                "cache_age_seconds": cache_age_seconds,
+            },
+        )
 
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
-        _LOGGER.info(f"✅ Cached EV SOC sensor registered: {self.entity_id} (unique_id: {self.unique_id})")
-        _LOGGER.info(f"  🔗 Source sensor: {self._source_entity}")
-
+        _LOGGER.info(
+            "✅ Cached EV SOC sensor registered: %s (unique_id: %s)",
+            self.entity_id,
+            self.unique_id,
+        )
+        _LOGGER.info("  🔗 Source sensor: %s", self._source_entity)
         if (last_state := await self.async_get_last_state()) is not None:
             try:
-                self._attr_native_value = float(last_state.state) if last_state.state not in [None, "unknown", "unavailable"] else None
-                _LOGGER.info(f"  🔄 Restored cached SOC: {self._attr_native_value}%")
+                self._attr_native_value = (
+                    float(last_state.state)
+                    if last_state.state not in (None, "unknown", "unavailable")
+                    else None
+                )
+                _LOGGER.info("  🔄 Restored cached SOC: %s%%", self._attr_native_value)
             except (ValueError, TypeError):
                 self._attr_native_value = None
-                _LOGGER.warning(f"  ⚠️ Failed to restore cached SOC from: {last_state.state}")
-            if last_state.attributes:
-                self._attr_extra_state_attributes = dict(last_state.attributes)
+                _LOGGER.warning("  ⚠️ Failed to restore cached SOC from: %s", last_state.state)
+            self._attr_extra_state_attributes = dict(last_state.attributes)

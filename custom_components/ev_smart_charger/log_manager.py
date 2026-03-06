@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change
 
 from .const import HELPER_ENABLE_FILE_LOGGING_SUFFIX
+from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,7 +31,12 @@ class LogManager:
     - Handles automatic daily file rotation at midnight
     """
 
-    def __init__(self, hass: HomeAssistant, entry_id: str):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        runtime_data: EVSCRuntimeData | None = None,
+    ):
         """
         Initialize log manager.
 
@@ -40,6 +46,7 @@ class LogManager:
         """
         self.hass = hass
         self.entry_id = entry_id
+        self._runtime_data = runtime_data
 
         # Base logs directory
         self._logs_base_path = hass.config.path(
@@ -111,12 +118,22 @@ class LogManager:
         self._current_date = datetime.now().date()
         _LOGGER.info(f"LogManager setup with {len(components)} component loggers")
 
-        # Find toggle switch entity
-        for entity_id in self.hass.states.async_entity_ids():
-            if entity_id.endswith(HELPER_ENABLE_FILE_LOGGING_SUFFIX):
-                self._toggle_entity = entity_id
-                _LOGGER.info(f"Found toggle entity: {entity_id}")
-                break
+        if self._runtime_data is not None:
+            self._toggle_entity = self._runtime_data.get_entity_id(HELPER_ENABLE_FILE_LOGGING_SUFFIX)
+
+        # Temporary compatibility fallback for older installs/tests
+        if not self._toggle_entity:
+            for entity_id in self.hass.states.async_entity_ids():
+                if entity_id.endswith(HELPER_ENABLE_FILE_LOGGING_SUFFIX):
+                    self._toggle_entity = entity_id
+                    _LOGGER.warning(
+                        "Falling back to global state scan for file logging toggle: %s",
+                        entity_id,
+                    )
+                    break
+
+        if self._toggle_entity:
+            _LOGGER.info(f"Found toggle entity: {self._toggle_entity}")
 
         if not self._toggle_entity:
             _LOGGER.warning(f"Toggle entity '{HELPER_ENABLE_FILE_LOGGING_SUFFIX}' not found")

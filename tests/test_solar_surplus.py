@@ -28,8 +28,7 @@ def automation(hass, mock_charger_controller, mock_priority_balancer):
     }
     
     # Mock dependencies
-    with patch("custom_components.ev_smart_charger.solar_surplus.EntityRegistryService"), \
-         patch("custom_components.ev_smart_charger.solar_surplus.AstralTimeService") as mock_astral:
+    with patch("custom_components.ev_smart_charger.solar_surplus.AstralTimeService") as mock_astral:
         
         mock_astral.return_value.is_nighttime.return_value = False
         
@@ -302,3 +301,30 @@ async def test_periodic_check_logs_stale_soc_but_continues_by_policy(hass, autom
 
     assert any("SOC stale (continue)" in rec.message for rec in caplog.records)
     automation.charger_controller.stop_charger.assert_not_called()
+
+
+async def test_periodic_check_does_not_start_without_coordinator_ownership(hass, automation):
+    """Solar Surplus must not start charging if the coordinator denies ownership."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+    hass.states.async_set("sensor.solar", "4000")
+    hass.states.async_set("sensor.consumption", "1000")
+    hass.states.async_set("sensor.grid", "0")
+    hass.states.async_set("number.grid_threshold", "50")
+    hass.states.async_set("number.grid_delay", "30")
+    hass.states.async_set("number.surplus_delay", "30")
+    hass.states.async_set("switch.use_battery", "off")
+
+    automation._coordinator = MagicMock()
+    automation._coordinator.is_automation_active.return_value = False
+    automation._coordinator.request_charger_action = AsyncMock(return_value=(False, "Boost active"))
+    automation.priority_balancer.is_enabled.return_value = False
+    automation.charger_controller.is_charging.return_value = False
+    automation.charger_controller.get_current_amperage.return_value = 0
+
+    with patch.object(automation, "_calculate_target_amperage", return_value=6):
+        await automation._async_periodic_check()
+
+    automation._coordinator.request_charger_action.assert_awaited_once()
+    automation.charger_controller.start_charger.assert_not_called()
