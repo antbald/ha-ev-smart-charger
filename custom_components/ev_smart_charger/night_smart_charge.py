@@ -53,6 +53,7 @@ STOP_REASON_HOME_BATTERY_MIN = "home_battery_min_reached"
 STOP_REASON_EV_TARGET = "ev_target_reached"
 STOP_REASON_CHARGER_NOT_CHARGING = "charger_not_charging"
 STOP_REASON_GRID_FALLBACK_FAILED = "grid_fallback_failed"
+STOP_REASON_GRID_IMPORT_CAR_NOT_READY = "grid_import_detected_car_not_ready"
 STOP_REASON_BOOST_PREEMPTED = "boost_preempted"
 
 
@@ -1390,6 +1391,27 @@ class NightSmartCharge:
                 f"({grid_delay}s elapsed)"
             )
 
+            car_ready_today = self._get_car_ready_for_today()
+            if not car_ready_today:
+                self.logger.warning(
+                    "   Car ready is OFF - stopping session to avoid importing from public grid"
+                )
+                self._grid_import_trigger_time = None
+                self._recovery_tracker.reset()
+
+                if await self._stop_charger_with_control(
+                    f"Grid import detected with car_ready OFF ({grid_import:.0f}W > {grid_threshold:.0f}W)"
+                ):
+                    await self._complete_night_charge(
+                        STOP_REASON_GRID_IMPORT_CAR_NOT_READY,
+                        terminal=True,
+                    )
+                else:
+                    self.logger.error(
+                        "Failed to stop charger after persistent grid import with car_ready OFF"
+                    )
+                return
+
             result = await self._adjust_for_grid_import_with_control(
                 reason=f"Grid import protection ({grid_import:.0f}W > {grid_threshold:.0f}W)"
             )
@@ -1469,6 +1491,7 @@ class NightSmartCharge:
             STOP_REASON_EV_TARGET,
             STOP_REASON_CHARGER_NOT_CHARGING,
             STOP_REASON_GRID_FALLBACK_FAILED,
+            STOP_REASON_GRID_IMPORT_CAR_NOT_READY,
         }
         non_terminal_reasons = {
             STOP_REASON_BOOST_PREEMPTED,

@@ -1,6 +1,6 @@
 """Tests for Night Smart Charge automation - WORKING VERSION."""
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
@@ -14,6 +14,7 @@ from custom_components.ev_smart_charger.const import (
     CONF_EV_CHARGER_STATUS,
     CONF_EV_CHARGER_SWITCH,
     CONF_EV_CHARGER_CURRENT,
+    CONF_GRID_IMPORT,
     CONF_SOC_HOME,
     CONF_PV_FORECAST,
     CONF_NOTIFY_SERVICES,
@@ -31,6 +32,7 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
         CONF_EV_CHARGER_STATUS: "sensor.charger_status",
         CONF_EV_CHARGER_SWITCH: "switch.charger_switch",
         CONF_EV_CHARGER_CURRENT: "sensor.charger_current",
+        CONF_GRID_IMPORT: "sensor.grid_import",
         CONF_SOC_HOME: "sensor.home_soc",
         CONF_PV_FORECAST: "sensor.pv_forecast",
         CONF_NOTIFY_SERVICES: [],
@@ -43,6 +45,8 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
         "evsc_night_charge_amperage": "number.test_evsc_night_charge_amperage",
         "evsc_min_solar_forecast_threshold": "number.test_evsc_min_solar_forecast_threshold",
         "evsc_home_battery_min_soc": "number.test_evsc_home_battery_min_soc",
+        "evsc_grid_import_threshold": "number.test_evsc_grid_import_threshold",
+        "evsc_grid_import_delay": "number.test_evsc_grid_import_delay",
         "evsc_car_ready_monday": "input_boolean.test_evsc_car_ready_monday",
         "evsc_car_ready_tuesday": "input_boolean.test_evsc_car_ready_tuesday",
         "evsc_car_ready_wednesday": "input_boolean.test_evsc_car_ready_wednesday",
@@ -72,6 +76,9 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
     hass.states.async_set("number.test_evsc_night_charge_amperage", "10")
     hass.states.async_set("number.test_evsc_min_solar_forecast_threshold", "10.0")
     hass.states.async_set("number.test_evsc_home_battery_min_soc", "20.0")
+    hass.states.async_set("number.test_evsc_grid_import_threshold", "50")
+    hass.states.async_set("number.test_evsc_grid_import_delay", "30")
+    hass.states.async_set("sensor.grid_import", "0")
     for day in [
         "monday",
         "tuesday",
@@ -350,6 +357,46 @@ async def test_monitor_battery_stops_terminal_when_car_ready_off(hass, night_cha
         await night_charge._async_monitor_battery_charge(None)
 
     night_charge.charger_controller.stop_charger.assert_awaited_once()
+    assert night_charge.is_active() is False
+    assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_IDLE
+    assert night_charge._session_state == "completed_today"
+    assert night_charge._last_completion_time is not None
+    assert night_charge._last_completion_date is not None
+
+
+async def test_monitor_battery_stops_terminal_on_persistent_grid_import_when_car_ready_off(
+    hass, night_charge
+):
+    """Persistent grid import in battery mode must stop the session when car_ready is OFF."""
+    night_charge._night_charge_active = True
+    night_charge._active_mode = NIGHT_CHARGE_MODE_BATTERY
+    night_charge._session_state = "active"
+    night_charge._last_completion_time = None
+    night_charge._last_completion_date = None
+    night_charge._grid_import_trigger_time = datetime.now() - timedelta(seconds=60)
+
+    hass.states.async_set("sensor.grid_import", "120")
+    hass.states.async_set("number.test_evsc_grid_import_threshold", "50")
+    hass.states.async_set("number.test_evsc_grid_import_delay", "30")
+    hass.states.async_set("number.test_evsc_home_battery_min_soc", "20")
+
+    night_charge._get_car_ready_for_today = MagicMock(return_value=False)
+    night_charge._should_stop_for_deadline = AsyncMock(return_value=(False, ""))
+    night_charge.priority_balancer.get_home_current_soc = AsyncMock(return_value=40)
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+    night_charge.priority_balancer.get_ev_current_soc = AsyncMock(return_value=40)
+    night_charge.priority_balancer.get_ev_target_for_today = MagicMock(return_value=80)
+    night_charge.charger_controller.get_current_amperage = AsyncMock(return_value=10)
+    night_charge.charger_controller.adjust_for_grid_import = AsyncMock()
+
+    with patch(
+        "custom_components.ev_smart_charger.night_smart_charge.dt_util.now",
+        return_value=datetime(2026, 3, 7, 2, 0, 0),
+    ):
+        await night_charge._async_monitor_battery_charge(None)
+
+    night_charge.charger_controller.stop_charger.assert_awaited_once()
+    night_charge.charger_controller.adjust_for_grid_import.assert_not_awaited()
     assert night_charge.is_active() is False
     assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_IDLE
     assert night_charge._session_state == "completed_today"
