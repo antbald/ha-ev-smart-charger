@@ -1,0 +1,311 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EV Smart Charger instellen - Stap {step}/{total_steps}",
+        "description": "Stel een naam in voor deze laderconfiguratie. De integratie biedt de openbare laadprofielen `manual` en `solar_surplus`; Night Smart Charge en Boost Charge worden na de installatie bediend via speciale helper-entiteiten.",
+        "data": {
+          "name": "Integratienaam"
+        },
+        "data_description": {
+          "name": "Vriendelijke naam die in Home Assistant wordt getoond."
+        }
+      },
+      "entities": {
+        "title": "Lader-entiteiten - Stap {step}/{total_steps}",
+        "description": "Koppel de entiteiten die de lader starten of stoppen, de laadstroom instellen en de laderstatus rapporteren.",
+        "data": {
+          "ev_charger_switch": "Lader-schakelaar",
+          "ev_charger_current": "Laadstroomregeling",
+          "ev_charger_status": "Laderstatussensor"
+        },
+        "data_description": {
+          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
+          "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Statussensor die `charger_charging`, `charger_free`, `charger_end` of `charger_wait` rapporteert."
+        }
+      },
+      "sensors": {
+        "title": "Energiesensoren - Stap {step}/{total_steps}",
+        "description": "Koppel de sensoren die door Solar Surplus, Priority Balancer en Night Smart Charge worden gebruikt.",
+        "data": {
+          "soc_car": "EV-batterij-SOC",
+          "soc_home": "Thuisbatterij-SOC",
+          "fv_production": "Zonneproductie",
+          "home_consumption": "Woningverbruik",
+          "grid_import": "Netafname"
+        },
+        "data_description": {
+          "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
+          "soc_home": "Sensor met de laadtoestand van de thuisbatterij in procenten.",
+          "fv_production": "Sensor met de actuele PV-productie in watt.",
+          "home_consumption": "Sensor met het actuele huishoudelijke verbruik in watt, indien mogelijk exclusief EV-laden.",
+          "grid_import": "Sensor met uit het net afgenomen vermogen in watt. Positieve waarden betekenen afname uit het net."
+        }
+      },
+      "pv_forecast": {
+        "title": "Zonneverwachting - Stap {step}/{total_steps}",
+        "description": "Optionele sensor die door Night Smart Charge wordt gebruikt om te beslissen of er 's nachts vanuit de thuisbatterij of het net geladen moet worden.",
+        "data": {
+          "pv_forecast": "Sensor zonneverwachting"
+        },
+        "data_description": {
+          "pv_forecast": "Optionele verwachtingssensor in kWh."
+        }
+      },
+      "notifications": {
+        "title": "Meldingen - Stap {step}/{total_steps}",
+        "description": "Selecteer de mobiele notify-services die waarschuwingen moeten ontvangen en kies de persoonsentiteit die de eigenaar van de auto vertegenwoordigt.",
+        "data": {
+          "notify_services": "Mobiele notify-services",
+          "car_owner": "Auto-eigenaar"
+        },
+        "data_description": {
+          "notify_services": "Optionele `notify.mobile_app_*`-services.",
+          "car_owner": "Persoonsentiteit die wordt gebruikt voor aanwezigheidsafhankelijke meldingen."
+        }
+      },
+      "external_connectors": {
+        "title": "Externe koppelingen - Stap {step}/{total_steps}",
+        "description": "Configureer optionele integraties die worden gebruikt om het nachtelijke energieverwachtingsdoel te publiceren.",
+        "data": {
+          "battery_capacity": "EV-batterijcapaciteit (kWh)",
+          "energy_forecast_target": "Helper energieverwachtingsdoel"
+        },
+        "data_description": {
+          "battery_capacity": "Batterijcapaciteit die wordt gebruikt om de energie te berekenen die nodig is om het geconfigureerde EV-doel te bereiken.",
+          "energy_forecast_target": "Optionele helper-entiteit waarin het berekende doel wordt geschreven. Ondersteunde domeinen: `number`, `input_number`."
+        }
+      },
+      "reconfigure": {
+        "title": "Lader-entiteiten opnieuw configureren - Stap {step}/{total_steps}",
+        "description": "Werk de lader-entiteiten voor deze config entry bij.",
+        "data": {
+          "ev_charger_switch": "Lader-schakelaar",
+          "ev_charger_current": "Laadstroomregeling",
+          "ev_charger_status": "Laderstatussensor"
+        },
+        "data_description": {
+          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
+          "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Statussensor die `charger_charging`, `charger_free`, `charger_end` of `charger_wait` rapporteert."
+        }
+      },
+      "reconfigure_sensors": {
+        "title": "Energiesensoren opnieuw configureren - Stap {step}/{total_steps}",
+        "description": "Werk de energie- en SOC-sensoren bij die door de integratie worden gebruikt.",
+        "data": {
+          "soc_car": "EV-batterij-SOC",
+          "soc_home": "Thuisbatterij-SOC",
+          "fv_production": "Zonneproductie",
+          "home_consumption": "Woningverbruik",
+          "grid_import": "Netafname"
+        },
+        "data_description": {
+          "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
+          "soc_home": "Sensor met de laadtoestand van de thuisbatterij in procenten.",
+          "fv_production": "Sensor met de actuele PV-productie in watt.",
+          "home_consumption": "Sensor met het actuele huishoudelijke verbruik in watt, indien mogelijk exclusief EV-laden.",
+          "grid_import": "Sensor met uit het net afgenomen vermogen in watt. Positieve waarden betekenen afname uit het net."
+        }
+      },
+      "reconfigure_pv_forecast": {
+        "title": "Zonneverwachting opnieuw configureren - Stap {step}/{total_steps}",
+        "description": "Werk de optionele verwachtingssensor bij of verwijder deze voor Night Smart Charge.",
+        "data": {
+          "pv_forecast": "Sensor zonneverwachting"
+        },
+        "data_description": {
+          "pv_forecast": "Optionele verwachtingssensor in kWh."
+        }
+      },
+      "reconfigure_notifications": {
+        "title": "Meldingen opnieuw configureren - Stap {step}/{total_steps}",
+        "description": "Werk mobiele notify-services en de auto-eigenaar bij die worden gebruikt voor aanwezigheidsafhankelijke meldingen.",
+        "data": {
+          "notify_services": "Mobiele notify-services",
+          "car_owner": "Auto-eigenaar"
+        },
+        "data_description": {
+          "notify_services": "Optionele `notify.mobile_app_*`-services.",
+          "car_owner": "Persoonsentiteit die wordt gebruikt voor aanwezigheidsafhankelijke meldingen."
+        }
+      },
+      "reconfigure_external_connectors": {
+        "title": "Externe koppelingen opnieuw configureren - Stap {step}/{total_steps}",
+        "description": "Werk de optionele nachtelijke energieverwachtingskoppelingen bij.",
+        "data": {
+          "battery_capacity": "EV-batterijcapaciteit (kWh)",
+          "energy_forecast_target": "Helper energieverwachtingsdoel"
+        },
+        "data_description": {
+          "battery_capacity": "Batterijcapaciteit die wordt gebruikt om de energie te berekenen die nodig is om het geconfigureerde EV-doel te bereiken.",
+          "energy_forecast_target": "Optionele helper-entiteit waarin het berekende doel wordt geschreven. Ondersteunde domeinen: `number`, `input_number`."
+        }
+      }
+    },
+    "error": {
+      "required": "Dit veld is verplicht.",
+      "invalid_battery_capacity": "De batterijcapaciteit moet tussen 10 en 200 kWh liggen.",
+      "entity_not_found": "Entiteit niet gevonden.",
+      "invalid_domain": "De entiteit moet tot het domein `number` of `input_number` behoren."
+    },
+    "abort": {
+      "already_configured": "Een andere EV Smart Charger-configuratie gebruikt deze laderschakelaar al.",
+      "reconfigure_successful": "Configuratie succesvol bijgewerkt.",
+      "unknown_entry": "De geselecteerde config entry kon niet worden geladen."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Lader-entiteiten bijwerken - Stap {step}/{total_steps}",
+        "description": "Compatibiliteitslaag rond de canonieke herconfiguratiestroom. Werk de lader-entiteiten voor deze entry bij.",
+        "data": {
+          "ev_charger_switch": "Lader-schakelaar",
+          "ev_charger_current": "Laadstroomregeling",
+          "ev_charger_status": "Laderstatussensor"
+        },
+        "data_description": {
+          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
+          "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Statussensor die `charger_charging`, `charger_free`, `charger_end` of `charger_wait` rapporteert."
+        }
+      },
+      "sensors": {
+        "title": "Energiesensoren bijwerken - Stap {step}/{total_steps}",
+        "description": "Werk de energie- en SOC-sensoren bij die door de integratie worden gebruikt.",
+        "data": {
+          "soc_car": "EV-batterij-SOC",
+          "soc_home": "Thuisbatterij-SOC",
+          "fv_production": "Zonneproductie",
+          "home_consumption": "Woningverbruik",
+          "grid_import": "Netafname"
+        },
+        "data_description": {
+          "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
+          "soc_home": "Sensor met de laadtoestand van de thuisbatterij in procenten.",
+          "fv_production": "Sensor met de actuele PV-productie in watt.",
+          "home_consumption": "Sensor met het actuele huishoudelijke verbruik in watt, indien mogelijk exclusief EV-laden.",
+          "grid_import": "Sensor met uit het net afgenomen vermogen in watt. Positieve waarden betekenen afname uit het net."
+        }
+      },
+      "pv_forecast": {
+        "title": "Zonneverwachting bijwerken - Stap {step}/{total_steps}",
+        "description": "Werk de optionele verwachtingssensor bij of verwijder deze voor Night Smart Charge.",
+        "data": {
+          "pv_forecast": "Sensor zonneverwachting"
+        },
+        "data_description": {
+          "pv_forecast": "Optionele verwachtingssensor in kWh."
+        }
+      },
+      "notifications": {
+        "title": "Meldingen bijwerken - Stap {step}/{total_steps}",
+        "description": "Werk mobiele notify-services en de auto-eigenaar bij die worden gebruikt voor aanwezigheidsafhankelijke meldingen.",
+        "data": {
+          "notify_services": "Mobiele notify-services",
+          "car_owner": "Auto-eigenaar"
+        },
+        "data_description": {
+          "notify_services": "Optionele `notify.mobile_app_*`-services.",
+          "car_owner": "Persoonsentiteit die wordt gebruikt voor aanwezigheidsafhankelijke meldingen."
+        }
+      },
+      "external_connectors": {
+        "title": "Externe koppelingen bijwerken - Stap {step}/{total_steps}",
+        "description": "Werk de optionele nachtelijke energieverwachtingskoppelingen bij.",
+        "data": {
+          "battery_capacity": "EV-batterijcapaciteit (kWh)",
+          "energy_forecast_target": "Helper energieverwachtingsdoel"
+        },
+        "data_description": {
+          "battery_capacity": "Batterijcapaciteit die wordt gebruikt om de energie te berekenen die nodig is om het geconfigureerde EV-doel te bereiken.",
+          "energy_forecast_target": "Optionele helper-entiteit waarin het berekende doel wordt geschreven. Ondersteunde domeinen: `number`, `input_number`."
+        }
+      }
+    },
+    "error": {
+      "required": "Dit veld is verplicht.",
+      "invalid_battery_capacity": "De batterijcapaciteit moet tussen 10 en 200 kWh liggen.",
+      "entity_not_found": "Entiteit niet gevonden.",
+      "invalid_domain": "De entiteit moet tot het domein `number` of `input_number` behoren."
+    }
+  },
+  "entity": {
+    "switch": {
+      "evsc_forza_ricarica": { "name": "Laad forceren" },
+      "evsc_boost_charge_enabled": { "name": "Boost laden" },
+      "evsc_smart_charger_blocker_enabled": { "name": "Slimme laadblokkering" },
+      "evsc_use_home_battery": { "name": "Thuisbatterij gebruiken" },
+      "evsc_priority_balancer_enabled": { "name": "Prioriteitsbalans" },
+      "evsc_night_smart_charge_enabled": { "name": "Slim nachtelijk laden" },
+      "evsc_notify_smart_blocker_enabled": { "name": "Melding laadblokkering" },
+      "evsc_notify_priority_balancer_enabled": { "name": "Melding prioriteitsbalans" },
+      "evsc_notify_night_charge_enabled": { "name": "Melding nachtladen" },
+      "evsc_enable_file_logging": { "name": "Bestandslogging inschakelen" },
+      "evsc_car_ready_monday": { "name": "Auto klaar maandag" },
+      "evsc_car_ready_tuesday": { "name": "Auto klaar dinsdag" },
+      "evsc_car_ready_wednesday": { "name": "Auto klaar woensdag" },
+      "evsc_car_ready_thursday": { "name": "Auto klaar donderdag" },
+      "evsc_car_ready_friday": { "name": "Auto klaar vrijdag" },
+      "evsc_car_ready_saturday": { "name": "Auto klaar zaterdag" },
+      "evsc_car_ready_sunday": { "name": "Auto klaar zondag" }
+    },
+    "number": {
+      "evsc_check_interval": { "name": "Controle-interval" },
+      "evsc_grid_import_threshold": { "name": "Netafnamedrempel" },
+      "evsc_grid_import_delay": { "name": "Vertraging netafname" },
+      "evsc_surplus_drop_delay": { "name": "Vertraging surplusdaling" },
+      "evsc_home_battery_min_soc": { "name": "Min. SOC thuisbatterij" },
+      "evsc_battery_support_amperage": { "name": "Ondersteuningsstroom batterij" },
+      "evsc_ev_min_soc_monday": { "name": "Min. EV-SOC maandag" },
+      "evsc_ev_min_soc_tuesday": { "name": "Min. EV-SOC dinsdag" },
+      "evsc_ev_min_soc_wednesday": { "name": "Min. EV-SOC woensdag" },
+      "evsc_ev_min_soc_thursday": { "name": "Min. EV-SOC donderdag" },
+      "evsc_ev_min_soc_friday": { "name": "Min. EV-SOC vrijdag" },
+      "evsc_ev_min_soc_saturday": { "name": "Min. EV-SOC zaterdag" },
+      "evsc_ev_min_soc_sunday": { "name": "Min. EV-SOC zondag" },
+      "evsc_home_min_soc_monday": { "name": "Min. woning-SOC maandag" },
+      "evsc_home_min_soc_tuesday": { "name": "Min. woning-SOC dinsdag" },
+      "evsc_home_min_soc_wednesday": { "name": "Min. woning-SOC woensdag" },
+      "evsc_home_min_soc_thursday": { "name": "Min. woning-SOC donderdag" },
+      "evsc_home_min_soc_friday": { "name": "Min. woning-SOC vrijdag" },
+      "evsc_home_min_soc_saturday": { "name": "Min. woning-SOC zaterdag" },
+      "evsc_home_min_soc_sunday": { "name": "Min. woning-SOC zondag" },
+      "evsc_min_solar_forecast_threshold": { "name": "Minimale zonnedrempel verwachting" },
+      "evsc_night_charge_amperage": { "name": "Nachtlaadstroom" },
+      "evsc_boost_charge_amperage": { "name": "Boostlaadstroom" },
+      "evsc_boost_target_soc": { "name": "Boostdoel-SOC" }
+    },
+    "select": {
+      "evsc_charging_profile": {
+        "name": "Laadprofiel",
+        "state": {
+          "manual": "Handmatig",
+          "solar_surplus": "Zonne-overschot"
+        }
+      }
+    },
+    "sensor": {
+      "evsc_diagnostic": { "name": "Diagnosestatus" },
+      "evsc_priority_daily_state": {
+        "name": "Prioriteitsstatus vandaag",
+        "state": {
+          "EV": "EV",
+          "Home": "Woning",
+          "EV_Free": "EV Free"
+        }
+      },
+      "evsc_solar_surplus_diagnostic": { "name": "Diagnose zonne-overschot" },
+      "evsc_log_file_path": { "name": "Logbestandspad" },
+      "evsc_today_ev_target": { "name": "EV-doel vandaag" },
+      "evsc_today_home_target": { "name": "Woningdoel vandaag" },
+      "evsc_cached_ev_soc": { "name": "Gecachte EV-SOC" }
+    },
+    "time": {
+      "evsc_night_charge_time": { "name": "Starttijd nachtladen" },
+      "evsc_car_ready_time": { "name": "Tijd auto klaar" }
+    }
+  }
+}

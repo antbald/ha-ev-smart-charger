@@ -81,6 +81,7 @@ async def test_number_platform_setup_and_restore(hass, runtime_data):
     assert entity.unique_id == "ev_smart_charger_entry_123_evsc_check_interval"
     assert entity.entity_category is EntityCategory.CONFIG
     assert entity.has_entity_name is True
+    assert entity.translation_key == "evsc_check_interval"
     assert entity.device_info["identifiers"] == {("ev_smart_charger", "entry_123")}
 
     await _attach_entity(
@@ -127,6 +128,7 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
 
     assert restored_switch.unique_id == "ev_smart_charger_entry_123_evsc_forza_ricarica"
     assert restored_switch.entity_category is EntityCategory.CONFIG
+    assert restored_switch.translation_key == "evsc_forza_ricarica"
     assert restored_switch.is_on is True
     assert default_on_switch.is_on is True
 
@@ -152,6 +154,7 @@ async def test_select_platform_coerces_legacy_profiles_and_registers_runtime(
     assert entity.options == CHARGING_PROFILES
     assert entity.entity_id == "select.ev_smart_charger_entry_123_evsc_charging_profile"
     assert entity.entity_category is EntityCategory.CONFIG
+    assert entity.translation_key == "evsc_charging_profile"
 
     await _attach_entity(
         entity,
@@ -190,6 +193,7 @@ async def test_time_platform_restore_invalid_restore_and_set_value(hass, runtime
     )
 
     assert restored_time.entity_category is EntityCategory.CONFIG
+    assert restored_time.translation_key == "evsc_night_charge_time"
     assert restored_time.native_value == time(7, 45, 30)
     car_ready_parts = [int(part) for part in DEFAULT_CAR_READY_TIME.split(":")]
     assert default_time.native_value == time(*car_ready_parts)
@@ -271,6 +275,7 @@ async def test_sensor_platform_setup_publish_restore_and_log_manager(hass, runti
     await log_path.async_added_to_hass()
 
     assert diagnostic.entity_category is EntityCategory.DIAGNOSTIC
+    assert diagnostic.translation_key == "evsc_diagnostic"
     assert diagnostic.native_value == "Ready"
     assert priority.extra_state_attributes == {"reason": "Below target"}
     assert today_ev.native_value == 80.0

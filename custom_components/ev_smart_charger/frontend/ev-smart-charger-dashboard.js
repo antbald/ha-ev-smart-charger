@@ -25,6 +25,252 @@ const DOMAIN_SUFFIXES = {
   diagnostic: ["sensor", "evsc_diagnostic"],
   solarDiagnostic: ["sensor", "evsc_solar_surplus_diagnostic"],
 };
+const DEFAULT_LOCALE = "en";
+const FRONTEND_LOCALES = {
+  "en": {
+    "title.default": "EV Smart Charger",
+    "common.unavailable": "Unavailable",
+    "common.no_options": "No options",
+    "boot.waiting_for_hass": "Waiting for Home Assistant state...",
+    "hero.eyebrow": "Custom Integration Control Surface",
+    "hero.description":
+      "Single-column EV charging control with native Home Assistant service calls, stacked modules, and live operational telemetry.",
+    "metric.charging_power": "Charging Power",
+    "metric.live_power": "Live power",
+    "metric.ev_soc": "EV State Of Charge",
+    "metric.vehicle_battery": "Vehicle battery",
+    "metric.home_battery": "Home Battery",
+    "metric.storage_reserve": "Storage reserve",
+    "metric.grid_import": "Grid Import",
+    "metric.import_threshold": "Import threshold",
+    "metric.solar_power": "Solar Power",
+    "metric.pv_feed": "PV feed",
+    "metric.charge_current": "Charge Current",
+    "metric.wallbox_current": "Wallbox current",
+    "fallback.live_feed_optional": "Live feed optional",
+    "fallback.ev_soc_entity": "Add `ev_soc_entity`",
+    "fallback.home_battery_soc_entity": "Add `home_battery_soc_entity`",
+    "fallback.solar_power_entity": "Add `solar_power_entity`",
+    "fallback.grid_import_entity": "Add `grid_import_entity`",
+    "fallback.current_entity": "Add `current_entity`",
+    "spotlight.priority_engine": "Priority Engine",
+    "spotlight.description": "Dynamic target arbitration between EV demand and home energy reserve.",
+    "spotlight.today_ev_target": "Today EV Target",
+    "spotlight.today_home_target": "Today Home Target",
+    "module.override_layer": "Override Layer",
+    "module.main_controls": "Main Controls",
+    "control.force_charge": "Force Charge",
+    "control.override_all": "Override All",
+    "control.charging_profile": "Charging Profile",
+    "control.mode_strategy": "Mode Strategy",
+    "module.fast_override": "Fast Override",
+    "module.boost_charge": "Boost Charge",
+    "control.boost_session": "Boost Session",
+    "control.high_priority": "High Priority",
+    "control.boost_amperage": "Boost Amperage",
+    "control.output": "Output",
+    "control.boost_target_soc": "Boost Target SOC",
+    "control.auto_stop": "Auto Stop",
+    "module.forecast_driven": "Forecast Driven",
+    "module.night_smart_charge": "Night Smart Charge",
+    "control.enable_night_smart_charge": "Enable Night Smart Charge",
+    "control.night_window": "Night Window",
+    "control.start_time": "Start Time",
+    "control.schedule": "Schedule",
+    "control.min_solar_forecast": "Min Solar Forecast",
+    "control.tomorrow_threshold": "Tomorrow Threshold",
+    "control.night_charge_amperage": "Night Charge Amperage",
+    "control.overnight_current": "Overnight Current",
+    "module.adaptive_curve": "Adaptive Curve",
+    "module.solar_surplus": "Solar Surplus",
+    "control.check_interval": "Check Interval",
+    "control.polling": "Polling",
+    "control.grid_import_threshold": "Grid Import Threshold",
+    "control.clamp": "Clamp",
+    "control.grid_import_delay": "Grid Import Delay",
+    "control.debounce": "Debounce",
+    "control.surplus_drop_delay": "Surplus Drop Delay",
+    "control.cloud_filter": "Cloud Filter",
+    "control.use_home_battery": "Use Home Battery",
+    "control.fallback_reserve": "Fallback Reserve",
+    "control.home_battery_min_soc": "Home Battery Min SOC",
+    "control.reserve_floor": "Reserve Floor",
+    "control.battery_support_amperage": "Battery Support Amperage",
+    "control.assist_output": "Assist Output",
+    "module.safety_nets": "Safety Nets",
+    "module.protection_layer": "Protection Layer",
+    "control.priority_balancer": "Priority Balancer",
+    "control.target_arbitration": "Target Arbitration",
+    "control.smart_charger_blocker": "Smart Charger Blocker",
+    "control.nighttime_lockout": "Nighttime Lockout",
+    "diagnostic.automation": "Automation Diagnostic",
+    "diagnostic.solar_surplus": "Solar Surplus Diagnostic",
+    "profile.manual": "Manual",
+    "profile.solar_surplus": "Solar Surplus"
+  },
+  "it": {
+    "title.default": "EV Smart Charger",
+    "common.unavailable": "Non disponibile",
+    "common.no_options": "Nessuna opzione",
+    "boot.waiting_for_hass": "In attesa dello stato di Home Assistant...",
+    "hero.eyebrow": "Pannello di controllo integrazione custom",
+    "hero.description":
+      "Controllo ricarica EV a colonna singola con chiamate servizio native di Home Assistant, moduli sovrapposti e telemetria operativa live.",
+    "metric.charging_power": "Potenza di ricarica",
+    "metric.live_power": "Potenza live",
+    "metric.ev_soc": "Stato di carica EV",
+    "metric.vehicle_battery": "Batteria veicolo",
+    "metric.home_battery": "Batteria domestica",
+    "metric.storage_reserve": "Riserva accumulo",
+    "metric.grid_import": "Prelievo rete",
+    "metric.import_threshold": "Soglia prelievo",
+    "metric.solar_power": "Potenza solare",
+    "metric.pv_feed": "Produzione FV",
+    "metric.charge_current": "Corrente di ricarica",
+    "metric.wallbox_current": "Corrente wallbox",
+    "fallback.live_feed_optional": "Feed live opzionale",
+    "fallback.ev_soc_entity": "Aggiungi `ev_soc_entity`",
+    "fallback.home_battery_soc_entity": "Aggiungi `home_battery_soc_entity`",
+    "fallback.solar_power_entity": "Aggiungi `solar_power_entity`",
+    "fallback.grid_import_entity": "Aggiungi `grid_import_entity`",
+    "fallback.current_entity": "Aggiungi `current_entity`",
+    "spotlight.priority_engine": "Motore priorita",
+    "spotlight.description": "Arbitraggio dinamico dei target tra domanda EV e riserva energetica domestica.",
+    "spotlight.today_ev_target": "Target EV di oggi",
+    "spotlight.today_home_target": "Target casa di oggi",
+    "module.override_layer": "Livello override",
+    "module.main_controls": "Controlli principali",
+    "control.force_charge": "Forza ricarica",
+    "control.override_all": "Override totale",
+    "control.charging_profile": "Profilo di ricarica",
+    "control.mode_strategy": "Strategia modalita",
+    "module.fast_override": "Override rapido",
+    "module.boost_charge": "Boost Charge",
+    "control.boost_session": "Sessione boost",
+    "control.high_priority": "Alta priorita",
+    "control.boost_amperage": "Amperaggio boost",
+    "control.output": "Output",
+    "control.boost_target_soc": "Target SOC boost",
+    "control.auto_stop": "Arresto automatico",
+    "module.forecast_driven": "Guidato dalla previsione",
+    "module.night_smart_charge": "Night Smart Charge",
+    "control.enable_night_smart_charge": "Abilita Night Smart Charge",
+    "control.night_window": "Finestra notturna",
+    "control.start_time": "Ora di avvio",
+    "control.schedule": "Programmazione",
+    "control.min_solar_forecast": "Previsione solare minima",
+    "control.tomorrow_threshold": "Soglia domani",
+    "control.night_charge_amperage": "Amperaggio notturno",
+    "control.overnight_current": "Corrente notturna",
+    "module.adaptive_curve": "Curva adattiva",
+    "module.solar_surplus": "Surplus solare",
+    "control.check_interval": "Intervallo di controllo",
+    "control.polling": "Polling",
+    "control.grid_import_threshold": "Soglia prelievo rete",
+    "control.clamp": "Limite",
+    "control.grid_import_delay": "Ritardo prelievo rete",
+    "control.debounce": "Debounce",
+    "control.surplus_drop_delay": "Ritardo calo surplus",
+    "control.cloud_filter": "Filtro nuvole",
+    "control.use_home_battery": "Usa batteria domestica",
+    "control.fallback_reserve": "Riserva di fallback",
+    "control.home_battery_min_soc": "SOC minimo batteria domestica",
+    "control.reserve_floor": "Soglia riserva",
+    "control.battery_support_amperage": "Amperaggio supporto batteria",
+    "control.assist_output": "Output supporto",
+    "module.safety_nets": "Reti di sicurezza",
+    "module.protection_layer": "Livello protezione",
+    "control.priority_balancer": "Priority Balancer",
+    "control.target_arbitration": "Arbitraggio target",
+    "control.smart_charger_blocker": "Smart Charger Blocker",
+    "control.nighttime_lockout": "Blocco notturno",
+    "diagnostic.automation": "Diagnostica automazione",
+    "diagnostic.solar_surplus": "Diagnostica surplus solare",
+    "profile.manual": "Manuale",
+    "profile.solar_surplus": "Surplus solare"
+  },
+  "nl": {
+    "title.default": "EV Smart Charger",
+    "common.unavailable": "Niet beschikbaar",
+    "common.no_options": "Geen opties",
+    "boot.waiting_for_hass": "Wachten op Home Assistant-status...",
+    "hero.eyebrow": "Bedieningspaneel voor custom integratie",
+    "hero.description":
+      "Enkelkoloms EV-laadbediening met native Home Assistant-serviceaanroepen, gestapelde modules en live operationele telemetrie.",
+    "metric.charging_power": "Laadvermogen",
+    "metric.live_power": "Live vermogen",
+    "metric.ev_soc": "EV-laadstatus",
+    "metric.vehicle_battery": "Voertuigbatterij",
+    "metric.home_battery": "Thuisbatterij",
+    "metric.storage_reserve": "Opslagreserve",
+    "metric.grid_import": "Netafname",
+    "metric.import_threshold": "Afnamedrempel",
+    "metric.solar_power": "Zonnevermogen",
+    "metric.pv_feed": "PV-opwek",
+    "metric.charge_current": "Laadstroom",
+    "metric.wallbox_current": "Wallbox-stroom",
+    "fallback.live_feed_optional": "Live feed optioneel",
+    "fallback.ev_soc_entity": "Voeg `ev_soc_entity` toe",
+    "fallback.home_battery_soc_entity": "Voeg `home_battery_soc_entity` toe",
+    "fallback.solar_power_entity": "Voeg `solar_power_entity` toe",
+    "fallback.grid_import_entity": "Voeg `grid_import_entity` toe",
+    "fallback.current_entity": "Voeg `current_entity` toe",
+    "spotlight.priority_engine": "Prioriteitsmotor",
+    "spotlight.description": "Dynamische doelarbitrage tussen EV-vraag en energiereserve van de woning.",
+    "spotlight.today_ev_target": "EV-doel vandaag",
+    "spotlight.today_home_target": "Woningdoel vandaag",
+    "module.override_layer": "Override-laag",
+    "module.main_controls": "Hoofdregeling",
+    "control.force_charge": "Laad forceren",
+    "control.override_all": "Alles overrulen",
+    "control.charging_profile": "Laadprofiel",
+    "control.mode_strategy": "Modusstrategie",
+    "module.fast_override": "Snelle override",
+    "module.boost_charge": "Boost Charge",
+    "control.boost_session": "Boostsessie",
+    "control.high_priority": "Hoge prioriteit",
+    "control.boost_amperage": "Boostlaadstroom",
+    "control.output": "Output",
+    "control.boost_target_soc": "Boostdoel-SOC",
+    "control.auto_stop": "Automatisch stoppen",
+    "module.forecast_driven": "Op verwachting gestuurd",
+    "module.night_smart_charge": "Slim nachtelijk laden",
+    "control.enable_night_smart_charge": "Slim nachtelijk laden inschakelen",
+    "control.night_window": "Nachtvenster",
+    "control.start_time": "Starttijd",
+    "control.schedule": "Planning",
+    "control.min_solar_forecast": "Minimale zonneverwachting",
+    "control.tomorrow_threshold": "Drempel voor morgen",
+    "control.night_charge_amperage": "Nachtlaadstroom",
+    "control.overnight_current": "Nachtstroom",
+    "module.adaptive_curve": "Adaptieve curve",
+    "module.solar_surplus": "Zonne-overschot",
+    "control.check_interval": "Controle-interval",
+    "control.polling": "Polling",
+    "control.grid_import_threshold": "Netafnamedrempel",
+    "control.clamp": "Begrenzen",
+    "control.grid_import_delay": "Vertraging netafname",
+    "control.debounce": "Debounce",
+    "control.surplus_drop_delay": "Vertraging surplusdaling",
+    "control.cloud_filter": "Wolkfilter",
+    "control.use_home_battery": "Thuisbatterij gebruiken",
+    "control.fallback_reserve": "Fallbackreserve",
+    "control.home_battery_min_soc": "Min. SOC thuisbatterij",
+    "control.reserve_floor": "Reservevloer",
+    "control.battery_support_amperage": "Ondersteuningsstroom batterij",
+    "control.assist_output": "Ondersteuningsoutput",
+    "module.safety_nets": "Veiligheidslagen",
+    "module.protection_layer": "Beschermingslaag",
+    "control.priority_balancer": "Prioriteitsbalans",
+    "control.target_arbitration": "Doelarbitrage",
+    "control.smart_charger_blocker": "Slimme laadblokkering",
+    "control.nighttime_lockout": "Nachtblokkering",
+    "diagnostic.automation": "Automatiseringsdiagnose",
+    "diagnostic.solar_surplus": "Diagnose zonne-overschot",
+    "profile.manual": "Handmatig",
+    "profile.solar_surplus": "Zonne-overschot"
+  }
+};
 
 class EvSmartChargerDashboard extends HTMLElement {
   static getStubConfig() {
@@ -40,7 +286,7 @@ class EvSmartChargerDashboard extends HTMLElement {
     }
 
     this._config = {
-      title: config.title || DEFAULT_TITLE,
+      title: config.title,
       entity_prefix: config.entity_prefix,
       charging_power_entity: config.charging_power_entity,
       ev_soc_entity: config.ev_soc_entity,
@@ -81,14 +327,26 @@ class EvSmartChargerDashboard extends HTMLElement {
     return this._stateObj(this._entityId(key));
   }
 
-  _displayValue(entityId, fallback = "Unavailable") {
+  _language() {
+    const rawLanguage = this._hass?.language || DEFAULT_LOCALE;
+    const normalized = rawLanguage.replaceAll("_", "-").toLowerCase().split("-")[0];
+    return FRONTEND_LOCALES[normalized] ? normalized : DEFAULT_LOCALE;
+  }
+
+  _t(key) {
+    const locale = FRONTEND_LOCALES[this._language()] || FRONTEND_LOCALES[DEFAULT_LOCALE];
+    return locale[key] || FRONTEND_LOCALES[DEFAULT_LOCALE][key] || key;
+  }
+
+  _displayValue(entityId, fallback) {
+    const resolvedFallback = fallback || this._t("common.unavailable");
     const stateObj = this._stateObj(entityId);
     if (!stateObj) {
-      return fallback;
+      return resolvedFallback;
     }
     const unit = stateObj.attributes?.unit_of_measurement;
     if (!stateObj.state || stateObj.state === "unknown" || stateObj.state === "unavailable") {
-      return fallback;
+      return resolvedFallback;
     }
     return unit ? `${stateObj.state} ${unit}` : stateObj.state;
   }
@@ -253,7 +511,7 @@ class EvSmartChargerDashboard extends HTMLElement {
     const chips = options
       .map((option) => {
         const selected = option === current ? "selected" : "";
-        return `<button class="profile-chip ${selected}" data-select="${entityId}" data-option="${option}">${option.replaceAll("_", " ")}</button>`;
+        return `<button class="profile-chip ${selected}" data-select="${entityId}" data-option="${option}">${this._t(`profile.${option}`)}</button>`;
       })
       .join("");
 
@@ -263,7 +521,7 @@ class EvSmartChargerDashboard extends HTMLElement {
           <span class="eyebrow">${hint}</span>
           <span class="control-label">${label}</span>
         </div>
-        <div class="profile-row">${chips || '<span class="muted">No options</span>'}</div>
+        <div class="profile-row">${chips || `<span class="muted">${this._t("common.no_options")}</span>`}</div>
       </div>
     `;
   }
@@ -281,13 +539,13 @@ class EvSmartChargerDashboard extends HTMLElement {
   _renderDiagnostics(primary, secondary) {
     return `
       <section class="diagnostic-panel">
-        <div class="diag-card">
-          <span class="eyebrow">Automation Diagnostic</span>
-          <p>${primary?.state || "Unavailable"}</p>
+          <div class="diag-card">
+          <span class="eyebrow">${this._t("diagnostic.automation")}</span>
+          <p>${primary?.state || this._t("common.unavailable")}</p>
         </div>
         <div class="diag-card">
-          <span class="eyebrow">Solar Surplus Diagnostic</span>
-          <p>${secondary?.state || "Unavailable"}</p>
+          <span class="eyebrow">${this._t("diagnostic.solar_surplus")}</span>
+          <p>${secondary?.state || this._t("common.unavailable")}</p>
         </div>
       </section>
     `;
@@ -301,7 +559,7 @@ class EvSmartChargerDashboard extends HTMLElement {
     if (!this._hass) {
       this.shadowRoot.innerHTML = `
         <ha-card>
-          <div class="boot-state">Waiting for Home Assistant state...</div>
+          <div class="boot-state">${this._t("boot.waiting_for_hass")}</div>
         </ha-card>
       `;
       return;
@@ -332,15 +590,15 @@ class EvSmartChargerDashboard extends HTMLElement {
     const diagnostic = this._integrationState("diagnostic");
     const solarDiagnostic = this._integrationState("solarDiagnostic");
 
-    const chargingPower = this._displayValue(this._config.charging_power_entity, "Live feed optional");
-    const evSoc = this._displayValue(this._config.ev_soc_entity, "Add `ev_soc_entity`");
+    const chargingPower = this._displayValue(this._config.charging_power_entity, this._t("fallback.live_feed_optional"));
+    const evSoc = this._displayValue(this._config.ev_soc_entity, this._t("fallback.ev_soc_entity"));
     const homeBatterySoc = this._displayValue(
       this._config.home_battery_soc_entity,
-      "Add `home_battery_soc_entity`",
+      this._t("fallback.home_battery_soc_entity"),
     );
-    const solarPower = this._displayValue(this._config.solar_power_entity, "Add `solar_power_entity`");
-    const gridImport = this._displayValue(this._config.grid_import_entity, "Add `grid_import_entity`");
-    const chargerCurrent = this._displayValue(this._config.current_entity, "Add `current_entity`");
+    const solarPower = this._displayValue(this._config.solar_power_entity, this._t("fallback.solar_power_entity"));
+    const gridImport = this._displayValue(this._config.grid_import_entity, this._t("fallback.grid_import_entity"));
+    const chargerCurrent = this._displayValue(this._config.current_entity, this._t("fallback.current_entity"));
 
     this.shadowRoot.innerHTML = `
       <ha-card>
@@ -351,33 +609,33 @@ class EvSmartChargerDashboard extends HTMLElement {
 
           <header class="hero-card">
             <div class="hero-copy">
-              <span class="eyebrow">Custom Integration Control Surface</span>
-              <h1>${this._config.title}</h1>
-              <p>Single-column EV charging control with native Home Assistant service calls, stacked modules, and live operational telemetry.</p>
+              <span class="eyebrow">${this._t("hero.eyebrow")}</span>
+              <h1>${this._config.title || this._t("title.default")}</h1>
+              <p>${this._t("hero.description")}</p>
             </div>
             <div class="hero-grid">
-              ${this._renderMetric("Charging Power", chargingPower, "cyan", this._labelFor(this._config.charging_power_entity, "Live power"))}
-              ${this._renderMetric("EV State Of Charge", evSoc, "violet", this._labelFor(this._config.ev_soc_entity, "Vehicle battery"))}
-              ${this._renderMetric("Home Battery", homeBatterySoc, "lime", this._labelFor(this._config.home_battery_soc_entity, "Storage reserve"))}
-              ${this._renderMetric("Grid Import", gridImport, "rose", this._labelFor(this._config.grid_import_entity, "Import threshold"))}
-              ${this._renderMetric("Solar Power", solarPower, "amber", this._labelFor(this._config.solar_power_entity, "PV feed"))}
-              ${this._renderMetric("Charge Current", chargerCurrent, "teal", this._labelFor(this._config.current_entity, "Wallbox current"))}
+              ${this._renderMetric(this._t("metric.charging_power"), chargingPower, "cyan", this._labelFor(this._config.charging_power_entity, this._t("metric.live_power")))}
+              ${this._renderMetric(this._t("metric.ev_soc"), evSoc, "violet", this._labelFor(this._config.ev_soc_entity, this._t("metric.vehicle_battery")))}
+              ${this._renderMetric(this._t("metric.home_battery"), homeBatterySoc, "lime", this._labelFor(this._config.home_battery_soc_entity, this._t("metric.storage_reserve")))}
+              ${this._renderMetric(this._t("metric.grid_import"), gridImport, "rose", this._labelFor(this._config.grid_import_entity, this._t("metric.import_threshold")))}
+              ${this._renderMetric(this._t("metric.solar_power"), solarPower, "amber", this._labelFor(this._config.solar_power_entity, this._t("metric.pv_feed")))}
+              ${this._renderMetric(this._t("metric.charge_current"), chargerCurrent, "teal", this._labelFor(this._config.current_entity, this._t("metric.wallbox_current")))}
             </div>
           </header>
 
           <section class="spotlight-panel">
             <div class="spotlight-main">
-              <span class="eyebrow">Priority Engine</span>
-              <strong>${priorityState?.state || "Unavailable"}</strong>
-              <span class="metric-sub">Dynamic target arbitration between EV demand and home energy reserve.</span>
+              <span class="eyebrow">${this._t("spotlight.priority_engine")}</span>
+              <strong>${priorityState?.state || this._t("common.unavailable")}</strong>
+              <span class="metric-sub">${this._t("spotlight.description")}</span>
             </div>
             <div class="spotlight-side">
               <div class="target-chip">
-                <span class="eyebrow">Today EV Target</span>
+                <span class="eyebrow">${this._t("spotlight.today_ev_target")}</span>
                 <strong>${todayEvTarget?.state || "--"}</strong>
               </div>
               <div class="target-chip">
-                <span class="eyebrow">Today Home Target</span>
+                <span class="eyebrow">${this._t("spotlight.today_home_target")}</span>
                 <strong>${todayHomeTarget?.state || "--"}</strong>
               </div>
             </div>
@@ -386,55 +644,55 @@ class EvSmartChargerDashboard extends HTMLElement {
           <section class="module-grid">
             <section class="module-panel">
               <div class="module-header">
-                <span class="kicker">Override Layer</span>
-                <h2>Main Controls</h2>
+                <span class="kicker">${this._t("module.override_layer")}</span>
+                <h2>${this._t("module.main_controls")}</h2>
               </div>
-              ${this._renderToggle(forceChargeId, "Force Charge", "Override All", "rose")}
-              ${this._renderSelectChips(chargingProfileId, "Charging Profile", "Mode Strategy")}
+              ${this._renderToggle(forceChargeId, this._t("control.force_charge"), this._t("control.override_all"), "rose")}
+              ${this._renderSelectChips(chargingProfileId, this._t("control.charging_profile"), this._t("control.mode_strategy"))}
             </section>
 
             <section class="module-panel">
               <div class="module-header">
-                <span class="kicker">Fast Override</span>
-                <h2>Boost Charge</h2>
+                <span class="kicker">${this._t("module.fast_override")}</span>
+                <h2>${this._t("module.boost_charge")}</h2>
               </div>
-              ${this._renderToggle(boostEnabledId, "Boost Session", "High Priority", "amber")}
-              ${this._renderStepper(boostAmperageId, "Boost Amperage", "Output", "amber")}
-              ${this._renderStepper(boostTargetSocId, "Boost Target SOC", "Auto Stop", "lime")}
+              ${this._renderToggle(boostEnabledId, this._t("control.boost_session"), this._t("control.high_priority"), "amber")}
+              ${this._renderStepper(boostAmperageId, this._t("control.boost_amperage"), this._t("control.output"), "amber")}
+              ${this._renderStepper(boostTargetSocId, this._t("control.boost_target_soc"), this._t("control.auto_stop"), "lime")}
             </section>
 
             <section class="module-panel">
               <div class="module-header">
-                <span class="kicker">Forecast Driven</span>
-                <h2>Night Smart Charge</h2>
+                <span class="kicker">${this._t("module.forecast_driven")}</span>
+                <h2>${this._t("module.night_smart_charge")}</h2>
               </div>
-              ${this._renderToggle(nightEnabledId, "Enable Night Smart Charge", "Night Window", "violet")}
-              ${this._renderTimeControl(nightTimeId, "Start Time", "Schedule")}
-              ${this._renderStepper(minSolarForecastId, "Min Solar Forecast", "Tomorrow Threshold", "cyan")}
-              ${this._renderStepper(nightAmperageId, "Night Charge Amperage", "Overnight Current", "teal")}
+              ${this._renderToggle(nightEnabledId, this._t("control.enable_night_smart_charge"), this._t("control.night_window"), "violet")}
+              ${this._renderTimeControl(nightTimeId, this._t("control.start_time"), this._t("control.schedule"))}
+              ${this._renderStepper(minSolarForecastId, this._t("control.min_solar_forecast"), this._t("control.tomorrow_threshold"), "cyan")}
+              ${this._renderStepper(nightAmperageId, this._t("control.night_charge_amperage"), this._t("control.overnight_current"), "teal")}
             </section>
 
             <section class="module-panel">
               <div class="module-header">
-                <span class="kicker">Adaptive Curve</span>
-                <h2>Solar Surplus</h2>
+                <span class="kicker">${this._t("module.adaptive_curve")}</span>
+                <h2>${this._t("module.solar_surplus")}</h2>
               </div>
-              ${this._renderStepper(checkIntervalId, "Check Interval", "Polling", "cyan")}
-              ${this._renderStepper(gridImportThresholdId, "Grid Import Threshold", "Clamp", "rose")}
-              ${this._renderStepper(gridImportDelayId, "Grid Import Delay", "Debounce", "violet")}
-              ${this._renderStepper(surplusDropDelayId, "Surplus Drop Delay", "Cloud Filter", "amber")}
-              ${this._renderToggle(useHomeBatteryId, "Use Home Battery", "Fallback Reserve", "lime")}
-              ${this._renderStepper(homeBatteryMinSocId, "Home Battery Min SOC", "Reserve Floor", "lime")}
-              ${this._renderStepper(batterySupportAmperageId, "Battery Support Amperage", "Assist Output", "teal")}
+              ${this._renderStepper(checkIntervalId, this._t("control.check_interval"), this._t("control.polling"), "cyan")}
+              ${this._renderStepper(gridImportThresholdId, this._t("control.grid_import_threshold"), this._t("control.clamp"), "rose")}
+              ${this._renderStepper(gridImportDelayId, this._t("control.grid_import_delay"), this._t("control.debounce"), "violet")}
+              ${this._renderStepper(surplusDropDelayId, this._t("control.surplus_drop_delay"), this._t("control.cloud_filter"), "amber")}
+              ${this._renderToggle(useHomeBatteryId, this._t("control.use_home_battery"), this._t("control.fallback_reserve"), "lime")}
+              ${this._renderStepper(homeBatteryMinSocId, this._t("control.home_battery_min_soc"), this._t("control.reserve_floor"), "lime")}
+              ${this._renderStepper(batterySupportAmperageId, this._t("control.battery_support_amperage"), this._t("control.assist_output"), "teal")}
             </section>
 
             <section class="module-panel">
               <div class="module-header">
-                <span class="kicker">Safety Nets</span>
-                <h2>Protection Layer</h2>
+                <span class="kicker">${this._t("module.safety_nets")}</span>
+                <h2>${this._t("module.protection_layer")}</h2>
               </div>
-              ${this._renderToggle(priorityBalancerId, "Priority Balancer", "Target Arbitration", "cyan")}
-              ${this._renderToggle(smartBlockerId, "Smart Charger Blocker", "Nighttime Lockout", "rose")}
+              ${this._renderToggle(priorityBalancerId, this._t("control.priority_balancer"), this._t("control.target_arbitration"), "cyan")}
+              ${this._renderToggle(smartBlockerId, this._t("control.smart_charger_blocker"), this._t("control.nighttime_lockout"), "rose")}
             </section>
           </section>
 

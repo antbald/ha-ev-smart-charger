@@ -2,6 +2,8 @@
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from ..localization import translate_runtime
+
 
 class NotificationService:
     """
@@ -65,7 +67,8 @@ class NotificationService:
         full_message = self._build_message(message, additional_data)
 
         if error:
-            full_message += f"\n\n**Error:** {error}"
+            error_label = translate_runtime(self.hass, "common.error_label")
+            full_message += f"\n\n**{error_label}:** {error}"
 
         notif_id = notification_id or self._generate_notification_id("error")
 

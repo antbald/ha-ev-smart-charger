@@ -17,6 +17,7 @@ from .const import (
     SMART_BLOCKER_ENFORCEMENT_TIMEOUT,
 )
 from .automation_coordinator import PRIORITY_SMART_BLOCKER
+from .localization import translate_runtime
 from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
 from .utils.state_helper import get_state
@@ -544,13 +545,14 @@ class SmartChargerBlocker:
 
             # Send persistent notification
             await self._notification_service.send_warning(
-                "Charging Blocked",
-                "Charging has been automatically blocked.\n\n"
-                "To override this behavior, enable 'Forza Ricarica' or disable 'Smart Charger Blocker'.\n\n"
-                "**Continuous monitoring:** Any external attempt to re-enable charging will be immediately blocked.",
+                translate_runtime(self.hass, "smart_blocker.title.blocked"),
+                translate_runtime(self.hass, "smart_blocker.message.blocked"),
                 additional_data={
-                    "Reason": reason,
-                    "Timestamp": dt_util.now().strftime('%H:%M:%S')
+                    translate_runtime(self.hass, "smart_blocker.additional.reason"): reason,
+                    translate_runtime(
+                        self.hass,
+                        "smart_blocker.additional.timestamp",
+                    ): dt_util.now().strftime("%H:%M:%S"),
                 }
             )
 
@@ -564,15 +566,11 @@ class SmartChargerBlocker:
 
             # Send error notification
             await self._notification_service.send_error(
-                "Blocking Failed",
-                "Failed to block charging.\n\n"
-                "Please check:\n"
-                "- Charger switch entity is functioning\n"
-                "- No conflicting automations\n"
-                "- Charger hardware status",
+                translate_runtime(self.hass, "smart_blocker.title.blocking_failed"),
+                translate_runtime(self.hass, "smart_blocker.message.blocking_failed"),
                 error=str(e),
                 additional_data={
-                    "Reason": reason
+                    translate_runtime(self.hass, "smart_blocker.additional.reason"): reason
                 }
             )
             self.logger.separator()

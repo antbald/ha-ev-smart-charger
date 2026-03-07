@@ -231,5 +231,81 @@
       "entity_not_found": "Entity not found.",
       "invalid_domain": "Entity must belong to the `number` or `input_number` domain."
     }
+  },
+  "entity": {
+    "switch": {
+      "evsc_forza_ricarica": { "name": "Force charge" },
+      "evsc_boost_charge_enabled": { "name": "Boost charge" },
+      "evsc_smart_charger_blocker_enabled": { "name": "Smart charger blocker" },
+      "evsc_use_home_battery": { "name": "Use home battery" },
+      "evsc_priority_balancer_enabled": { "name": "Priority balancer" },
+      "evsc_night_smart_charge_enabled": { "name": "Night smart charge" },
+      "evsc_notify_smart_blocker_enabled": { "name": "Notify smart blocker" },
+      "evsc_notify_priority_balancer_enabled": { "name": "Notify priority balancer" },
+      "evsc_notify_night_charge_enabled": { "name": "Notify night charge" },
+      "evsc_enable_file_logging": { "name": "Enable file logging" },
+      "evsc_car_ready_monday": { "name": "Car ready Monday" },
+      "evsc_car_ready_tuesday": { "name": "Car ready Tuesday" },
+      "evsc_car_ready_wednesday": { "name": "Car ready Wednesday" },
+      "evsc_car_ready_thursday": { "name": "Car ready Thursday" },
+      "evsc_car_ready_friday": { "name": "Car ready Friday" },
+      "evsc_car_ready_saturday": { "name": "Car ready Saturday" },
+      "evsc_car_ready_sunday": { "name": "Car ready Sunday" }
+    },
+    "number": {
+      "evsc_check_interval": { "name": "Check interval" },
+      "evsc_grid_import_threshold": { "name": "Grid import threshold" },
+      "evsc_grid_import_delay": { "name": "Grid import delay" },
+      "evsc_surplus_drop_delay": { "name": "Surplus drop delay" },
+      "evsc_home_battery_min_soc": { "name": "Home battery min SOC" },
+      "evsc_battery_support_amperage": { "name": "Battery support amperage" },
+      "evsc_ev_min_soc_monday": { "name": "EV min SOC Monday" },
+      "evsc_ev_min_soc_tuesday": { "name": "EV min SOC Tuesday" },
+      "evsc_ev_min_soc_wednesday": { "name": "EV min SOC Wednesday" },
+      "evsc_ev_min_soc_thursday": { "name": "EV min SOC Thursday" },
+      "evsc_ev_min_soc_friday": { "name": "EV min SOC Friday" },
+      "evsc_ev_min_soc_saturday": { "name": "EV min SOC Saturday" },
+      "evsc_ev_min_soc_sunday": { "name": "EV min SOC Sunday" },
+      "evsc_home_min_soc_monday": { "name": "Home min SOC Monday" },
+      "evsc_home_min_soc_tuesday": { "name": "Home min SOC Tuesday" },
+      "evsc_home_min_soc_wednesday": { "name": "Home min SOC Wednesday" },
+      "evsc_home_min_soc_thursday": { "name": "Home min SOC Thursday" },
+      "evsc_home_min_soc_friday": { "name": "Home min SOC Friday" },
+      "evsc_home_min_soc_saturday": { "name": "Home min SOC Saturday" },
+      "evsc_home_min_soc_sunday": { "name": "Home min SOC Sunday" },
+      "evsc_min_solar_forecast_threshold": { "name": "Min solar forecast threshold" },
+      "evsc_night_charge_amperage": { "name": "Night charge amperage" },
+      "evsc_boost_charge_amperage": { "name": "Boost charge amperage" },
+      "evsc_boost_target_soc": { "name": "Boost target SOC" }
+    },
+    "select": {
+      "evsc_charging_profile": {
+        "name": "Charging profile",
+        "state": {
+          "manual": "Manual",
+          "solar_surplus": "Solar surplus"
+        }
+      }
+    },
+    "sensor": {
+      "evsc_diagnostic": { "name": "Diagnostic status" },
+      "evsc_priority_daily_state": {
+        "name": "Priority daily state",
+        "state": {
+          "EV": "EV",
+          "Home": "Home",
+          "EV_Free": "EV Free"
+        }
+      },
+      "evsc_solar_surplus_diagnostic": { "name": "Solar surplus diagnostic" },
+      "evsc_log_file_path": { "name": "Log file path" },
+      "evsc_today_ev_target": { "name": "Today EV target" },
+      "evsc_today_home_target": { "name": "Today home target" },
+      "evsc_cached_ev_soc": { "name": "Cached EV SOC" }
+    },
+    "time": {
+      "evsc_night_charge_time": { "name": "Night charge time" },
+      "evsc_car_ready_time": { "name": "Car ready time" }
+    }
   }
 }

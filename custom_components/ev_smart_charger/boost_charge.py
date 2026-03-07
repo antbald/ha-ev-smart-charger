@@ -15,6 +15,7 @@ from .const import (
     HELPER_BOOST_TARGET_SOC_SUFFIX,
     PRIORITY_BOOST_CHARGE,
 )
+from .localization import translate_runtime
 from .runtime import EVSCRuntimeData
 from .utils import state_helper
 from .utils.logging_helper import EVSCLogger
@@ -166,7 +167,7 @@ class BoostCharge:
             and self._boost_active
         ):
             await self._complete_boost(
-                "Boost disattivato manualmente",
+                translate_runtime(self.hass, "boost.reason.manual_stop"),
                 stop_charger=True,
                 notify=True,
                 success=False,
@@ -183,25 +184,26 @@ class BoostCharge:
 
         if target_soc is None or target_amps is None:
             await self._handle_start_failure(
-                "Impossibile avviare Boost Charge: configurazione incompleta."
+                translate_runtime(self.hass, "boost.reason.missing_configuration")
             )
             return
 
         current_soc = await self._read_ev_soc()
         if current_soc is None:
             await self._handle_start_failure(
-                "Impossibile avviare Boost Charge: SOC EV non disponibile."
+                translate_runtime(self.hass, "boost.reason.missing_soc")
             )
             return
 
         if target_soc <= current_soc:
             await self._set_boost_switch(False)
             await self._notification_service.send_info(
-                "Boost Charge non avviato",
-                (
-                    "Il target SOC configurato e' gia stato raggiunto.\n\n"
-                    f"SOC attuale: {current_soc:.1f}%\n"
-                    f"Target Boost: {target_soc}%"
+                translate_runtime(self.hass, "boost.title.not_started"),
+                translate_runtime(
+                    self.hass,
+                    "boost.reason.not_started_target_reached",
+                    current_soc=current_soc,
+                    target_soc=target_soc,
                 ),
             )
             return
@@ -220,7 +222,11 @@ class BoostCharge:
             )
             if not allowed:
                 await self._handle_start_failure(
-                    f"Impossibile avviare Boost Charge: {reason}"
+                    translate_runtime(
+                        self.hass,
+                        "boost.reason.coordinator_denied",
+                        reason=reason,
+                    )
                 )
                 return
 
@@ -233,14 +239,14 @@ class BoostCharge:
         result = await self.charger_controller.start_charger(target_amps, "Boost charge")
         if not self._operation_succeeded(result):
             await self._complete_boost(
-                "Impossibile avviare la ricarica Boost.",
+                translate_runtime(self.hass, "boost.reason.start_failed"),
                 stop_charger=False,
                 notify=False,
                 success=False,
                 request_recheck=False,
             )
             await self._handle_start_failure(
-                "Impossibile avviare Boost Charge: il charger non ha accettato il comando."
+                translate_runtime(self.hass, "boost.reason.command_rejected")
             )
             return
 
@@ -271,7 +277,7 @@ class BoostCharge:
 
         if target_soc is None or target_amps is None:
             await self._complete_boost(
-                "Configurazione Boost non disponibile durante la sessione.",
+                translate_runtime(self.hass, "boost.reason.session_config_missing"),
                 stop_charger=True,
                 notify=True,
                 success=False,
@@ -293,7 +299,7 @@ class BoostCharge:
             )
             if self._soc_read_failures >= BOOST_MAX_SOC_READ_FAILURES:
                 await self._complete_boost(
-                    "SOC EV non disponibile per 60 secondi.",
+                    translate_runtime(self.hass, "boost.reason.session_soc_missing"),
                     stop_charger=True,
                     notify=True,
                     success=False,
@@ -304,7 +310,12 @@ class BoostCharge:
 
         if current_soc >= target_soc:
             await self._complete_boost(
-                f"Target SOC raggiunto ({current_soc:.1f}% >= {target_soc}%)",
+                translate_runtime(
+                    self.hass,
+                    "boost.reason.target_reached",
+                    current_soc=current_soc,
+                    target_soc=target_soc,
+                ),
                 stop_charger=True,
                 notify=True,
                 success=True,
@@ -347,20 +358,20 @@ class BoostCharge:
 
             if success:
                 await self._notification_service.send_success(
-                    "Boost Charge completato",
-                    (
-                        "La sessione Boost si e' conclusa correttamente.\n\n"
-                        f"Motivo: {reason}\n"
-                        "Ritorno alla modalita automatica in corso."
+                    translate_runtime(self.hass, "boost.title.completed"),
+                    translate_runtime(
+                        self.hass,
+                        "boost.message.completed",
+                        reason=reason,
                     ),
                 )
             else:
                 await self._notification_service.send_warning(
-                    "Boost Charge terminato",
-                    (
-                        "La sessione Boost e' stata interrotta.\n\n"
-                        f"Motivo: {reason}\n"
-                        "Ritorno alla modalita automatica in corso."
+                    translate_runtime(self.hass, "boost.title.stopped"),
+                    translate_runtime(
+                        self.hass,
+                        "boost.message.stopped",
+                        reason=reason,
                     ),
                 )
 
@@ -373,7 +384,7 @@ class BoostCharge:
         """Reset boost switch and notify when start validation fails."""
         await self._set_boost_switch(False)
         await self._notification_service.send_warning(
-            "Boost Charge non avviato",
+            translate_runtime(self.hass, "boost.title.not_started"),
             message,
         )
 

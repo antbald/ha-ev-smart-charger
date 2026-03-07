@@ -5,6 +5,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.const import STATE_ON
 from homeassistant.util import dt as dt_util
 
+from ..localization import translate_runtime
 from ..runtime import EVSCRuntimeData
 
 _LOGGER = logging.getLogger(__name__)
@@ -60,10 +61,11 @@ class MobileNotificationService:
             _LOGGER.debug("Car owner not home, skipping Smart Blocker notification")
             return
 
-        message = (
-            f"Ricarica interrotta EV in quanto fuori dalla finestra di ricarica\n\n"
-            f"Motivo: {reason}\n"
-            f"Ora: {dt_util.now().strftime('%H:%M')}"
+        message = translate_runtime(
+            self.hass,
+            "mobile.smart_blocker.message",
+            reason=reason,
+            time=dt_util.now().strftime("%H:%M"),
         )
 
         _LOGGER.info(f"Sending Smart Blocker notification at {dt_util.now().strftime('%H:%M:%S')}")
@@ -102,19 +104,19 @@ class MobileNotificationService:
             _LOGGER.debug("Car owner not home, skipping Priority Balancer notification")
             return
 
-        # Map priority to Italian description
-        priority_map = {
-            "EV": "EV",
-            "Home": "Home",
-            "EV_Free": "EV Free"
-        }
-        priority_label = priority_map.get(new_priority, new_priority)
+        priority_label = translate_runtime(self.hass, f"priority.{new_priority}")
+        if priority_label == f"priority.{new_priority}":
+            priority_label = new_priority
 
-        message = (
-            f"Priorità cambiata: {priority_label}\n\n"
-            f"🚗 EV: {ev_soc:.1f}% (target: {ev_target}%)\n"
-            f"🏠 Home: {home_soc:.1f}% (target: {home_target}%)\n\n"
-            f"Motivo: {reason}"
+        message = translate_runtime(
+            self.hass,
+            "mobile.priority_change.message",
+            priority_label=priority_label,
+            ev_soc=ev_soc,
+            ev_target=ev_target,
+            home_soc=home_soc,
+            home_target=home_target,
+            reason=reason,
         )
 
         await self._send_notification(
@@ -148,21 +150,24 @@ class MobileNotificationService:
             _LOGGER.debug("Car owner not home, skipping Night Charge notification")
             return
 
-        # Map mode to Italian description
-        mode_map = {
-            "battery": "Batteria Domestica",
-            "grid": "Rete Elettrica"
-        }
-        mode_label = mode_map.get(mode, mode)
+        mode_label = translate_runtime(self.hass, f"mode.{mode}")
+        if mode_label == f"mode.{mode}":
+            mode_label = mode
 
-        message = f"Ricarica EV iniziata tramite {mode_label}\n\n"
-
-        if forecast is not None:
-            message += f"Previsione solare domani: {forecast:.1f} kWh\n"
-
-        message += f"{reason}\n"
-        message += f"Amperaggio: {amperage}A\n"
-        message += f"Ora: {dt_util.now().strftime('%H:%M')}"
+        template_key = (
+            "mobile.night_charge.message_with_forecast"
+            if forecast is not None
+            else "mobile.night_charge.message_without_forecast"
+        )
+        message = translate_runtime(
+            self.hass,
+            template_key,
+            mode_label=mode_label,
+            forecast=forecast,
+            reason=reason,
+            amperage=amperage,
+            time=dt_util.now().strftime("%H:%M"),
+        )
 
         _LOGGER.info(f"Sending Night Charge notification ({mode} mode) at {dt_util.now().strftime('%H:%M:%S')}")
         await self._send_notification(
@@ -186,12 +191,13 @@ class MobileNotificationService:
             _LOGGER.debug("Car owner not home, skipping Boost start notification")
             return
 
-        message = (
-            "Boost ricarica EV avviato\n\n"
-            f"🚗 EV: {start_soc:.1f}%\n"
-            f"🎯 Target Boost: {target_soc}%\n"
-            f"⚡ Amperaggio: {amperage}A\n"
-            f"Ora: {dt_util.now().strftime('%H:%M')}"
+        message = translate_runtime(
+            self.hass,
+            "mobile.boost_started.message",
+            start_soc=start_soc,
+            target_soc=target_soc,
+            amperage=amperage,
+            time=dt_util.now().strftime("%H:%M"),
         )
 
         await self._send_notification(
@@ -215,15 +221,16 @@ class MobileNotificationService:
             _LOGGER.debug("Car owner not home, skipping Boost completion notification")
             return
 
-        soc_label = "N/D" if end_soc is None else f"{end_soc:.1f}%"
-        target_label = "N/D" if target_soc is None else f"{target_soc}%"
+        not_available_label = translate_runtime(self.hass, "common.not_available_short")
+        soc_label = not_available_label if end_soc is None else f"{end_soc:.1f}%"
+        target_label = not_available_label if target_soc is None else f"{target_soc}%"
 
-        message = (
-            "Boost ricarica EV terminato\n\n"
-            f"🚗 EV finale: {soc_label}\n"
-            f"🎯 Target Boost: {target_label}\n"
-            f"Motivo: {reason}\n"
-            "Ritorno alla modalita automatica in corso."
+        message = translate_runtime(
+            self.hass,
+            "mobile.boost_completed.message",
+            end_soc_label=soc_label,
+            target_soc_label=target_label,
+            reason=reason,
         )
 
         await self._send_notification(

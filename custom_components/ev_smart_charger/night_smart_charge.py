@@ -1034,7 +1034,9 @@ class NightSmartCharge:
                 self.logger.info(f"📱 Preparing to send BATTERY mode notification at {current_time.strftime('%H:%M:%S')}")
                 self.logger.info(f"   Window check: scheduled_time={scheduled_time}, current={current_time.strftime('%H:%M')}")
 
-                reason = f"Previsione solare sufficiente ({pv_forecast:.1f} kWh >= {threshold} kWh)"
+                reason = (
+                    f"Sufficient solar forecast ({pv_forecast:.1f} kWh >= {threshold} kWh)"
+                )
                 await self._mobile_notifier.send_night_charge_notification(
                     mode=NIGHT_CHARGE_MODE_BATTERY,
                     reason=reason,
@@ -1282,7 +1284,9 @@ class NightSmartCharge:
                 self.logger.info(f"📱 Preparing to send GRID mode notification at {current_time.strftime('%H:%M:%S')}")
                 self.logger.info(f"   Window check: scheduled_time={scheduled_time}, current={current_time.strftime('%H:%M')}")
 
-                reason = f"Previsione solare insufficiente ({pv_forecast:.1f} kWh < {threshold} kWh)"
+                reason = (
+                    f"Insufficient solar forecast ({pv_forecast:.1f} kWh < {threshold} kWh)"
+                )
                 await self._mobile_notifier.send_night_charge_notification(
                     mode=NIGHT_CHARGE_MODE_GRID,
                     reason=reason,
@@ -1870,17 +1874,17 @@ class NightSmartCharge:
 
             if current_soc is None:
                 self.logger.warning(
-                    "⚠️ Impossibile calcolare energy forecast: SOC corrente EV non disponibile"
+                    "⚠️ Unable to calculate energy forecast: current EV SOC unavailable"
                 )
                 return
 
             if target_soc is None:
                 self.logger.warning(
-                    "⚠️ Impossibile calcolare energy forecast: Target SOC EV non disponibile"
+                    "⚠️ Unable to calculate energy forecast: target EV SOC unavailable"
                 )
                 return
 
-            # Calcola energia necessaria
+            # Calculate required energy
             soc_delta = target_soc - current_soc
 
             # Gestisci edge cases
@@ -1893,15 +1897,15 @@ class NightSmartCharge:
             else:
                 energy_required = (soc_delta * battery_capacity) / 100.0
 
-                # Sanity check: energia non deve superare capacità
+                # Sanity check: required energy must not exceed battery capacity
                 if energy_required > battery_capacity:
                     self.logger.warning(
-                        f"⚠️ Energia calcolata ({energy_required:.2f} kWh) supera "
-                        f"capacità batteria ({battery_capacity} kWh), limito alla capacità"
+                        f"⚠️ Calculated energy ({energy_required:.2f} kWh) exceeds "
+                        f"battery capacity ({battery_capacity} kWh), clamping to capacity"
                     )
                     energy_required = battery_capacity
 
-            # Valida che il sensore target esista
+            # Validate that the target sensor exists
             target_state = self.hass.states.get(energy_target_entity)
             if target_state is None:
                 self.logger.warning(

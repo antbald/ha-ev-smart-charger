@@ -274,6 +274,10 @@ After setup, the integration **automatically creates 51 entities**:
 
 ## 📚 Documentation
 
+User guides:
+
+- [Dutch setup and usage guide](docs/README.nl.md)
+
 For maintainers and deeper technical analysis:
 
 - [Documentation index](docs/README.md)

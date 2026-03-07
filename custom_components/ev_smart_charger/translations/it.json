@@ -231,5 +231,81 @@
       "entity_not_found": "Entita non trovata.",
       "invalid_domain": "L'entita deve appartenere al dominio `number` o `input_number`."
     }
+  },
+  "entity": {
+    "switch": {
+      "evsc_forza_ricarica": { "name": "Forza ricarica" },
+      "evsc_boost_charge_enabled": { "name": "Boost charge" },
+      "evsc_smart_charger_blocker_enabled": { "name": "Smart charger blocker" },
+      "evsc_use_home_battery": { "name": "Usa batteria domestica" },
+      "evsc_priority_balancer_enabled": { "name": "Bilanciamento priorita" },
+      "evsc_night_smart_charge_enabled": { "name": "Night smart charge" },
+      "evsc_notify_smart_blocker_enabled": { "name": "Notifica smart blocker" },
+      "evsc_notify_priority_balancer_enabled": { "name": "Notifica priority balancer" },
+      "evsc_notify_night_charge_enabled": { "name": "Notifica night charge" },
+      "evsc_enable_file_logging": { "name": "Abilita log su file" },
+      "evsc_car_ready_monday": { "name": "Auto pronta lunedi" },
+      "evsc_car_ready_tuesday": { "name": "Auto pronta martedi" },
+      "evsc_car_ready_wednesday": { "name": "Auto pronta mercoledi" },
+      "evsc_car_ready_thursday": { "name": "Auto pronta giovedi" },
+      "evsc_car_ready_friday": { "name": "Auto pronta venerdi" },
+      "evsc_car_ready_saturday": { "name": "Auto pronta sabato" },
+      "evsc_car_ready_sunday": { "name": "Auto pronta domenica" }
+    },
+    "number": {
+      "evsc_check_interval": { "name": "Intervallo di controllo" },
+      "evsc_grid_import_threshold": { "name": "Soglia prelievo rete" },
+      "evsc_grid_import_delay": { "name": "Ritardo prelievo rete" },
+      "evsc_surplus_drop_delay": { "name": "Ritardo calo surplus" },
+      "evsc_home_battery_min_soc": { "name": "SOC minimo batteria domestica" },
+      "evsc_battery_support_amperage": { "name": "Amperaggio supporto batteria" },
+      "evsc_ev_min_soc_monday": { "name": "SOC minimo EV lunedi" },
+      "evsc_ev_min_soc_tuesday": { "name": "SOC minimo EV martedi" },
+      "evsc_ev_min_soc_wednesday": { "name": "SOC minimo EV mercoledi" },
+      "evsc_ev_min_soc_thursday": { "name": "SOC minimo EV giovedi" },
+      "evsc_ev_min_soc_friday": { "name": "SOC minimo EV venerdi" },
+      "evsc_ev_min_soc_saturday": { "name": "SOC minimo EV sabato" },
+      "evsc_ev_min_soc_sunday": { "name": "SOC minimo EV domenica" },
+      "evsc_home_min_soc_monday": { "name": "SOC minimo casa lunedi" },
+      "evsc_home_min_soc_tuesday": { "name": "SOC minimo casa martedi" },
+      "evsc_home_min_soc_wednesday": { "name": "SOC minimo casa mercoledi" },
+      "evsc_home_min_soc_thursday": { "name": "SOC minimo casa giovedi" },
+      "evsc_home_min_soc_friday": { "name": "SOC minimo casa venerdi" },
+      "evsc_home_min_soc_saturday": { "name": "SOC minimo casa sabato" },
+      "evsc_home_min_soc_sunday": { "name": "SOC minimo casa domenica" },
+      "evsc_min_solar_forecast_threshold": { "name": "Soglia minima previsione solare" },
+      "evsc_night_charge_amperage": { "name": "Amperaggio ricarica notturna" },
+      "evsc_boost_charge_amperage": { "name": "Amperaggio boost" },
+      "evsc_boost_target_soc": { "name": "Target SOC boost" }
+    },
+    "select": {
+      "evsc_charging_profile": {
+        "name": "Profilo di ricarica",
+        "state": {
+          "manual": "Manuale",
+          "solar_surplus": "Surplus solare"
+        }
+      }
+    },
+    "sensor": {
+      "evsc_diagnostic": { "name": "Stato diagnostico" },
+      "evsc_priority_daily_state": {
+        "name": "Stato priorita giornaliera",
+        "state": {
+          "EV": "EV",
+          "Home": "Casa",
+          "EV_Free": "EV Free"
+        }
+      },
+      "evsc_solar_surplus_diagnostic": { "name": "Diagnostica surplus solare" },
+      "evsc_log_file_path": { "name": "Percorso file log" },
+      "evsc_today_ev_target": { "name": "Target EV di oggi" },
+      "evsc_today_home_target": { "name": "Target casa di oggi" },
+      "evsc_cached_ev_soc": { "name": "SOC EV in cache" }
+    },
+    "time": {
+      "evsc_night_charge_time": { "name": "Ora ricarica notturna" },
+      "evsc_car_ready_time": { "name": "Ora auto pronta" }
+    }
   }
 }

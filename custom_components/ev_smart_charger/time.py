@@ -109,9 +109,13 @@ class EVSCTime(EVSCEntityMixin, RestoreEntity, TimeEntity):
                     minute = int(time_parts[1])
                     second = int(time_parts[2]) if len(time_parts) > 2 else 0
                     self._attr_native_value = time(hour, minute, second)
-                    _LOGGER.debug(f"Restored time entity {self._attr_name} to {self._attr_native_value}")
+                    _LOGGER.debug(
+                        "Restored time entity %s to %s",
+                        self.entity_id,
+                        self._attr_native_value,
+                    )
             except (ValueError, IndexError) as e:
-                _LOGGER.warning(f"Failed to restore time entity {self._attr_name}: {e}")
+                _LOGGER.warning("Failed to restore time entity %s: %s", self.entity_id, e)
                 # Use default
                 time_parts = self._default_value.split(":")
                 self._attr_native_value = time(int(time_parts[0]), int(time_parts[1]), int(time_parts[2]))
@@ -119,4 +123,8 @@ class EVSCTime(EVSCEntityMixin, RestoreEntity, TimeEntity):
             # Use default value
             time_parts = self._default_value.split(":")
             self._attr_native_value = time(int(time_parts[0]), int(time_parts[1]), int(time_parts[2]))
-            _LOGGER.debug(f"Initialized time entity {self._attr_name} with default {self._attr_native_value}")
+            _LOGGER.debug(
+                "Initialized time entity %s with default %s",
+                self.entity_id,
+                self._attr_native_value,
+            )

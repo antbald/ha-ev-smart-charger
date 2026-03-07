@@ -18,17 +18,19 @@ class EVSCEntityMixin:
         entry_id: str,
         key: str,
         entity_domain: str,
-        name: str,
+        name: str | None,
         icon: str | None = None,
         *,
         entity_category: EntityCategory | None = None,
+        translation_key: str | None = None,
     ) -> None:
         """Initialize EVSC shared entity metadata."""
         self._runtime_data = runtime_data
         self._entry_id = entry_id
         self._entity_key = key
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{key}"
-        self._attr_name = name
+        self._attr_name = name if translation_key is None else None
+        self._attr_translation_key = translation_key or key
         if icon is not None:
             self._attr_icon = icon
         if entity_category is not None:
