@@ -198,6 +198,60 @@ async def test_options_flow_updates_entry_data(hass) -> None:
     assert updated_data[CONF_ENERGY_FORECAST_TARGET] == "number.energy_target"
 
 
+async def test_options_flow_manager_can_open_init_step(hass) -> None:
+    """The real Home Assistant options flow manager can open the first step."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_EV_CHARGER_SWITCH: "switch.old",
+            CONF_EV_CHARGER_CURRENT: "number.old_current",
+            CONF_EV_CHARGER_STATUS: "sensor.old_status",
+            CONF_SOC_CAR: "sensor.old_car_soc",
+            CONF_SOC_HOME: "sensor.old_home_soc",
+            CONF_FV_PRODUCTION: "sensor.old_solar",
+            CONF_HOME_CONSUMPTION: "sensor.old_home_use",
+            CONF_GRID_IMPORT: "sensor.old_grid",
+            CONF_PV_FORECAST: "sensor.old_forecast",
+            CONF_NOTIFY_SERVICES: [],
+            CONF_CAR_OWNER: "person.old_owner",
+            CONF_BATTERY_CAPACITY: DEFAULT_BATTERY_CAPACITY,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+
+async def test_options_flow_manager_can_open_init_step_with_legacy_sensor_current(hass) -> None:
+    """Legacy entries using sensor.* for charger current must still open options."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_EV_CHARGER_SWITCH: "switch.old",
+            CONF_EV_CHARGER_CURRENT: "sensor.old_current",
+            CONF_EV_CHARGER_STATUS: "sensor.old_status",
+            CONF_SOC_CAR: "sensor.old_car_soc",
+            CONF_SOC_HOME: "sensor.old_home_soc",
+            CONF_FV_PRODUCTION: "sensor.old_solar",
+            CONF_HOME_CONSUMPTION: "sensor.old_home_use",
+            CONF_GRID_IMPORT: "sensor.old_grid",
+            CONF_PV_FORECAST: "sensor.old_forecast",
+            CONF_NOTIFY_SERVICES: [],
+            CONF_CAR_OWNER: "person.old_owner",
+            CONF_BATTERY_CAPACITY: DEFAULT_BATTERY_CAPACITY,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+
 async def test_async_get_options_flow_returns_expected_type() -> None:
     """Config flow exposes the EVSC options flow class."""
     entry = MockConfigEntry(domain=DOMAIN, data={})
@@ -205,6 +259,11 @@ async def test_async_get_options_flow_returns_expected_type() -> None:
     flow = EVSCConfigFlow.async_get_options_flow(entry)
 
     assert isinstance(flow, EVSCOptionsFlow)
+
+
+def test_options_flow_uses_home_assistant_config_entry_helper() -> None:
+    """Options flow must use HA's config-entry-aware base class."""
+    assert issubclass(EVSCOptionsFlow, config_entries.OptionsFlowWithConfigEntry)
 
 
 async def test_reconfigure_flow_updates_entry_data(hass) -> None:
@@ -317,3 +376,34 @@ async def test_reconfigure_flow_rejects_duplicate_switch(hass) -> None:
 
     assert result["type"] == data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_reconfigure_flow_manager_can_open_first_step(hass) -> None:
+    """The real flow manager can open the native reconfigure step."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="switch.old",
+        data={
+            CONF_EV_CHARGER_SWITCH: "switch.old",
+            CONF_EV_CHARGER_CURRENT: "number.old_current",
+            CONF_EV_CHARGER_STATUS: "sensor.old_status",
+            CONF_SOC_CAR: "sensor.old_car_soc",
+            CONF_SOC_HOME: "sensor.old_home_soc",
+            CONF_FV_PRODUCTION: "sensor.old_solar",
+            CONF_HOME_CONSUMPTION: "sensor.old_home_use",
+            CONF_GRID_IMPORT: "sensor.old_grid",
+            CONF_PV_FORECAST: "sensor.old_forecast",
+            CONF_NOTIFY_SERVICES: [],
+            CONF_CAR_OWNER: "person.old_owner",
+            CONF_BATTERY_CAPACITY: DEFAULT_BATTERY_CAPACITY,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "reconfigure", "entry_id": entry.entry_id},
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"

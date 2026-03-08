@@ -409,12 +409,12 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return EVSCOptionsFlow(config_entry)
 
 
-class EVSCOptionsFlow(config_entries.OptionsFlow):
+class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
     """Compatibility wrapper around the canonical reconfigure fields."""
 
     def __init__(self, config_entry):
         """Initialize options flow."""
-        self.config_entry = config_entry
+        super().__init__(config_entry)
         self.charger_info: dict[str, Any] = {}
         self.sensor_info: dict[str, Any] = {}
         self.pv_forecast_info: dict[str, Any] = {}
