@@ -830,9 +830,11 @@ class NightSmartCharge:
                     self.logger.success("✅ All monitoring sensors available")
                     # Continue with normal logic below
     
-            # NORMAL MODE: car_ready=False - use relaxed validation with fallbacks
+            # NORMAL MODE: car_ready=False - use relaxed validation and battery-only policy
             else:
-                self.logger.info("car_ready=False - using normal validation with fallbacks")
+                self.logger.info(
+                    "car_ready=False - using normal validation and battery-only overnight policy"
+                )
     
                 # Check monitoring sensors with fallback logic
                 critical_sensors = {
@@ -927,7 +929,17 @@ class NightSmartCharge:
             # Step 5: Decide charging mode
             self.logger.info(f"{self.logger.DECISION} Step 5: Decide charging mode")
     
-            if pv_forecast >= threshold:
+            if not car_ready_today:
+                self.logger.decision(
+                    "Charging mode",
+                    "BATTERY MODE",
+                    (
+                        "Car ready OFF - battery-only overnight charging "
+                        "(grid disabled; stop at home battery minimum SOC)"
+                    ),
+                )
+                await self._start_battery_charge(pv_forecast)
+            elif pv_forecast >= threshold:
                 self.logger.decision(
                     "Charging mode",
                     "BATTERY MODE",
@@ -996,7 +1008,8 @@ class NightSmartCharge:
                 # Car not needed → SKIP
                 self.logger.info(
                     f"{self.logger.CAR} Car ready flag is OFF for today → "
-                    f"Skipping night charge, will rely on tomorrow's solar surplus"
+                    "Home battery already at minimum, skipping overnight charge "
+                    "and waiting for solar surplus"
                 )
                 self.logger.info("Night charge session cancelled (waiting for solar)")
                 self.logger.separator()
@@ -1034,9 +1047,16 @@ class NightSmartCharge:
                 self.logger.info(f"📱 Preparing to send BATTERY mode notification at {current_time.strftime('%H:%M:%S')}")
                 self.logger.info(f"   Window check: scheduled_time={scheduled_time}, current={current_time.strftime('%H:%M')}")
 
-                reason = (
-                    f"Sufficient solar forecast ({pv_forecast:.1f} kWh >= {threshold} kWh)"
-                )
+                car_ready_today = self._get_car_ready_for_today()
+                if car_ready_today:
+                    reason = (
+                        f"Sufficient solar forecast ({pv_forecast:.1f} kWh >= {threshold} kWh)"
+                    )
+                else:
+                    reason = (
+                        "Car ready OFF - battery-only overnight charging "
+                        "(grid disabled; stop at home battery minimum SOC)"
+                    )
                 await self._mobile_notifier.send_night_charge_notification(
                     mode=NIGHT_CHARGE_MODE_BATTERY,
                     reason=reason,
@@ -1761,7 +1781,7 @@ class NightSmartCharge:
 
         Returns:
             True if car needs to be ready in the morning (use grid as fallback)
-            False if car not needed (skip charging, wait for solar)
+            False if car not needed urgently (battery-only overnight, no grid fallback)
         """
         # Use HA timezone-aware clock to avoid day mismatches around midnight.
         # This is critical when night charge starts shortly after 00:00.

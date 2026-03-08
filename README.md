@@ -429,7 +429,7 @@ Every check interval, Priority Balancer calculates:
 
 #### Car Ready Flags (v1.3.13+)
 
-**Purpose:** Control fallback behavior when home battery is below threshold.
+**Purpose:** Control whether Night Smart Charge may use the public grid overnight or must remain battery-only.
 
 **7 Switch Entities:**
 - `switch.evsc_car_ready_monday` through `sunday`
@@ -437,10 +437,12 @@ Every check interval, Priority Balancer calculates:
 
 **Behavior:**
 
-| Car Ready | Home Battery | Action |
-|-----------|--------------|--------|
-| **ON** (weekday) | Below threshold | **GRID MODE** fallback - ensures car ready |
-| **OFF** (weekend) | Below threshold | **SKIP** charging - wait for solar surplus |
+| Car Ready | Overnight policy | If home battery reaches min SOC |
+|-----------|------------------|----------------------------------|
+| **ON** (weekday) | **BATTERY or GRID** allowed | Continue to GRID if needed so the EV can reach target before Car Ready Time |
+| **OFF** (weekend) | **BATTERY only** overnight, GRID disabled | Stop charging and wait for daytime Solar Surplus |
+
+If `car_ready=OFF` and the home battery is already at or below `EVSC Home Battery Min SOC` when Night Smart Charge starts, the overnight session is skipped immediately.
 
 When Night Smart Charge is already active in BATTERY mode and home battery drops to min SOC:
 - **Car Ready ON**: transition from BATTERY to GRID in the same night session (no daily lock).
@@ -450,7 +452,7 @@ When Night Smart Charge is already active in BATTERY mode and home battery drops
 
 **Use Cases:**
 - 📅 **Weekdays**: Car needed for work → Flag ON → Grid fallback ensures ready
-- 🏖️ **Weekends**: No rush → Flag OFF → Skip charging, wait for sun
+- 🏖️ **Weekends**: No rush → Flag OFF → Use home battery only, never the grid; stop at min SOC and wait for sun
 
 #### Example Scenarios
 
@@ -465,7 +467,7 @@ When Night Smart Charge is already active in BATTERY mode and home battery drops
      → Solar Surplus takes over if needed
 ```
 
-**Scenario 2: Cloudy Day Forecast**
+**Scenario 2: Cloudy Day Forecast (Car Ready ON)**
 ```
 01:00 - Forecast: 12 kWh (< 20 kWh threshold)
      → Mode: GRID
@@ -487,13 +489,15 @@ When Night Smart Charge is already active in BATTERY mode and home battery drops
      → Start charging at 16A
 ```
 
-**Scenario 4: Weekend, Low Battery**
+**Scenario 4: Weekend, Low Forecast**
 ```
-01:00 - Saturday, Forecast: 28 kWh
+01:00 - Saturday, Forecast: 12 kWh
      → Mode: BATTERY
-     → Home battery: 15% (< 20% threshold)
      → Car Ready: OFF (weekend)
-     → SKIP charging (wait for solar)
+     → Use home battery only (grid disabled)
+03:40 - Home battery reaches 20% minimum
+     → Stop charging
+Daytime - Solar Surplus resumes with free solar
 ```
 
 #### Integration with Other Features
