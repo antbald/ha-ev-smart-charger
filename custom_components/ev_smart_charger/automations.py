@@ -88,6 +88,14 @@ class SmartChargerBlocker:
         self._currently_blocking = False
         self._enforcement_start_time = None
 
+    def _clear_blocking_state(self, reason: str) -> None:
+        """Reset enforcement state and release coordinator ownership."""
+        self._currently_blocking = False
+        self._enforcement_start_time = None
+
+        if self._coordinator:
+            self._coordinator.release_control("Smart Charger Blocker", reason)
+
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
         """Resolve an integration-owned helper entity from runtime data."""
         if self._runtime_data is None:
@@ -253,13 +261,7 @@ class SmartChargerBlocker:
         if should_exit:
             self.logger.info("Exiting enforcement mode")
             self.logger.info(f"Reason: {exit_reason}")
-            self._currently_blocking = False
-            self._enforcement_start_time = None
-
-            # Release control from coordinator
-            if self._coordinator:
-                self._coordinator.release_control("Smart Charger Blocker", exit_reason)
-
+            self._clear_blocking_state(exit_reason)
             return
 
         # Check if charger just turned ON
@@ -278,15 +280,9 @@ class SmartChargerBlocker:
                 )
             else:
                 self.logger.success(f"Blocking no longer needed: {block_reason}")
-                self._currently_blocking = False
-                self._enforcement_start_time = None
-
-                # Release control from coordinator
-                if self._coordinator:
-                    self._coordinator.release_control(
-                        "Smart Charger Blocker",
-                        f"Blocking no longer needed: {block_reason}",
-                    )
+                self._clear_blocking_state(
+                    f"Blocking no longer needed: {block_reason}"
+                )
 
     async def _check_and_block_if_needed(self, trigger_reason: str) -> None:
         """Common logic to check conditions and block if needed."""
@@ -299,7 +295,7 @@ class SmartChargerBlocker:
             forza_ricarica_state = self.hass.states.get(self._forza_ricarica_entity)
             if forza_ricarica_state and forza_ricarica_state.state == STATE_ON:
                 self.logger.skip("Forza Ricarica is ON - blocker disabled")
-                self._currently_blocking = False
+                self._clear_blocking_state("Forza Ricarica is ON - blocker disabled")
                 self.logger.separator()
                 return
 
@@ -308,11 +304,12 @@ class SmartChargerBlocker:
             blocker_enabled_state = self.hass.states.get(self._blocker_enabled_entity)
             if not blocker_enabled_state or blocker_enabled_state.state != STATE_ON:
                 self.logger.skip("Smart Charger Blocker is disabled")
-                self._currently_blocking = False
+                self._clear_blocking_state("Smart Charger Blocker is disabled")
                 self.logger.separator()
                 return
         else:
             self.logger.warning("Smart Charger Blocker helper not found")
+            self._clear_blocking_state("Smart Charger Blocker helper not found")
             self.logger.separator()
             return
 
@@ -324,7 +321,7 @@ class SmartChargerBlocker:
             await self._block_charging(f"{trigger_reason} - {reason}")
         else:
             self.logger.decision("Allowing", "ALLOW CHARGING", reason)
-            self._currently_blocking = False
+            self._clear_blocking_state(f"Allow charging: {reason}")
 
         self.logger.separator()
 

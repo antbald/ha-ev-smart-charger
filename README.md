@@ -1591,7 +1591,30 @@ A: Set **Charging Profile** to `manual` and use charger's native controls.
 
 ## 📚 Version History
 
-### Latest: v1.4.0 (2025-11-14) - Cloud Sensor Reliability Layer
+### Latest: v1.5.7 (2026-03-09) - Smart Blocker Coordinator Release Fix
+
+**🎯 Critical Fix: Night Smart Charge blocked by stale Smart Charger Blocker ownership**
+
+**Problem Solved:**
+`Night Smart Charge` could decide correctly to start overnight charging and still be denied by the coordinator because `Smart Charger Blocker` kept ownership after it had already decided to allow charging.
+
+**Solution:**
+`Smart Charger Blocker` now releases coordinator ownership immediately on every non-blocking exit path, including:
+- outside the blocking window
+- blocker disabled
+- `Forza Ricarica` override enabled
+- missing blocker helper
+
+**Benefits:**
+✅ Night Smart Charge can start as soon as blocking conditions no longer apply
+✅ Prevents stale coordinator ownership across overnight sessions
+✅ Solar Surplus and other automations are no longer locked out by an idle blocker
+
+**Upgrade:** 🔴 CRITICAL - Fixes overnight charging sessions being skipped even with `car_ready=True`
+
+---
+
+### Previous Highlight: v1.4.0 (2025-11-14) - Cloud Sensor Reliability Layer
 
 **🎯 Major Feature: Automatic Cache for Unreliable Cloud Sensors**
 
@@ -1657,7 +1680,7 @@ Cloud Sensor (unreliable) → Monitor (5s) → Cache (reliable) → Components
 
 ### Full Changelog
 
-**See [CHANGELOG.md](CHANGELOG.md) for complete version history**
+**See [GitHub Releases](https://github.com/antbald/ha-ev-smart-charger/releases) for complete version history**
 
 ---
 
