@@ -40,6 +40,7 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
     runtime_data = EVSCRuntimeData(config=config, expected_entity_count=0)
     helper_map = {
         "evsc_night_smart_charge_enabled": "switch.test_evsc_night_smart_charge_enabled",
+        "evsc_preserve_home_battery": "switch.test_evsc_preserve_home_battery",
         "evsc_night_charge_time": "input_datetime.test_evsc_night_charge_time",
         "evsc_car_ready_time": "input_datetime.test_evsc_car_ready_time",
         "evsc_night_charge_amperage": "number.test_evsc_night_charge_amperage",
@@ -69,6 +70,7 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
     
     # Setup helper entities
     hass.states.async_set("switch.test_evsc_night_smart_charge_enabled", "on")
+    hass.states.async_set("switch.test_evsc_preserve_home_battery", "off")
     hass.states.async_set("switch.charger_switch", "off")
     hass.states.async_set("sensor.charger_current", "0")
     hass.states.async_set("input_datetime.test_evsc_night_charge_time", "01:00:00")
@@ -273,6 +275,109 @@ async def test_evaluate_and_charge_skips_when_car_ready_off_and_home_battery_at_
     night_charge._start_grid_charge.assert_not_awaited()
     night_charge.charger_controller.start_charger.assert_not_called()
     night_charge._mobile_notifier.send_night_charge_notification.assert_not_awaited()
+
+
+async def test_evaluate_and_charge_skips_when_preserve_home_battery_enabled(
+    hass, night_charge
+):
+    """car_ready OFF + preserve flag ON must skip the overnight session."""
+    hass.states.async_set("switch.test_evsc_night_smart_charge_enabled", "on")
+    hass.states.async_set("switch.test_evsc_preserve_home_battery", "on")
+    hass.states.async_set("input_boolean.test_evsc_car_ready_sunday", "off")
+    hass.states.async_set("sensor.charger_status", "Charging")
+    hass.states.async_set("sensor.home_soc", "60")
+    hass.states.async_set("sensor.pv_forecast", "5")
+    hass.states.async_set("number.test_evsc_min_solar_forecast_threshold", "10")
+    hass.states.async_set("number.test_evsc_night_charge_amperage", "10")
+    hass.states.async_set("number.test_evsc_home_battery_min_soc", "20")
+
+    night_charge.priority_balancer._soc_car = "sensor.ev_soc"
+    night_charge.priority_balancer._ev_min_soc_entities = {"sunday": "number.ev_target"}
+    hass.states.async_set("sensor.ev_soc", "40")
+    hass.states.async_set("number.ev_target", "80")
+
+    future = asyncio.Future()
+    future.set_result(40)
+    night_charge.priority_balancer.get_ev_current_soc.return_value = future
+    night_charge.priority_balancer.get_home_current_soc = AsyncMock(return_value=60)
+    night_charge.priority_balancer.get_ev_target_for_today.return_value = 80
+    night_charge.priority_balancer.is_ev_target_reached.return_value = False
+    night_charge._start_grid_charge = AsyncMock()
+    night_charge._start_battery_charge = AsyncMock()
+    night_charge._emit_diagnostic = AsyncMock()
+    night_charge._mobile_notifier.send_night_charge_skipped_notification = AsyncMock()
+
+    async def mock_is_in_active_window(now):
+        return True
+
+    night_charge._is_in_active_window = mock_is_in_active_window
+
+    with patch(
+        "custom_components.ev_smart_charger.night_smart_charge.dt_util.now",
+        return_value=datetime(2023, 1, 1, 2, 0, 0),
+    ):
+        await night_charge._evaluate_and_charge()
+
+    assert night_charge.is_active() is False
+    assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_IDLE
+    night_charge._start_grid_charge.assert_not_awaited()
+    night_charge._start_battery_charge.assert_not_awaited()
+    night_charge.charger_controller.start_charger.assert_not_called()
+    night_charge._emit_diagnostic.assert_awaited_once()
+    assert (
+        night_charge._emit_diagnostic.await_args.kwargs["reason_code"]
+        == "preserve_home_battery"
+    )
+    assert night_charge._emit_diagnostic.await_args.kwargs["result"] == "skipped"
+    night_charge._mobile_notifier.send_night_charge_skipped_notification.assert_awaited_once()
+
+
+async def test_evaluate_and_charge_preserve_flag_does_not_interrupt_active_session(
+    hass, night_charge
+):
+    """Turning the preserve flag on mid-session must not stop the current charge."""
+    hass.states.async_set("switch.test_evsc_night_smart_charge_enabled", "on")
+    hass.states.async_set("switch.test_evsc_preserve_home_battery", "on")
+    hass.states.async_set("input_boolean.test_evsc_car_ready_sunday", "off")
+    hass.states.async_set("sensor.charger_status", "Charging")
+    hass.states.async_set("sensor.home_soc", "60")
+    hass.states.async_set("sensor.pv_forecast", "5")
+    hass.states.async_set("number.test_evsc_min_solar_forecast_threshold", "10")
+    hass.states.async_set("number.test_evsc_night_charge_amperage", "10")
+    hass.states.async_set("number.test_evsc_home_battery_min_soc", "20")
+
+    night_charge.priority_balancer._soc_car = "sensor.ev_soc"
+    night_charge.priority_balancer._ev_min_soc_entities = {"sunday": "number.ev_target"}
+    hass.states.async_set("sensor.ev_soc", "40")
+    hass.states.async_set("number.ev_target", "80")
+
+    future = asyncio.Future()
+    future.set_result(40)
+    night_charge.priority_balancer.get_ev_current_soc.return_value = future
+    night_charge.priority_balancer.get_home_current_soc = AsyncMock(return_value=60)
+    night_charge.priority_balancer.get_ev_target_for_today.return_value = 80
+    night_charge.priority_balancer.is_ev_target_reached.return_value = False
+    night_charge._emit_diagnostic = AsyncMock()
+    night_charge._mobile_notifier.send_night_charge_skipped_notification = AsyncMock()
+    night_charge.charger_controller.stop_charger = AsyncMock()
+    night_charge._night_charge_active = True
+    night_charge._active_mode = NIGHT_CHARGE_MODE_BATTERY
+
+    async def mock_is_in_active_window(now):
+        return True
+
+    night_charge._is_in_active_window = mock_is_in_active_window
+
+    with patch(
+        "custom_components.ev_smart_charger.night_smart_charge.dt_util.now",
+        return_value=datetime(2023, 1, 1, 2, 0, 0),
+    ):
+        await night_charge._evaluate_and_charge()
+
+    assert night_charge.is_active() is True
+    assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_BATTERY
+    night_charge.charger_controller.stop_charger.assert_not_awaited()
+    night_charge._mobile_notifier.send_night_charge_skipped_notification.assert_not_awaited()
 
 
 # ============================================================================

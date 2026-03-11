@@ -654,6 +654,12 @@ class SolarSurplusAutomation:
                 "target_charging_a": target_amps,
                 "charger_on": charger_is_on,
                 "battery_support_active": self._battery_support_active,
+                "use_home_battery_enabled": get_bool(self.hass, self._use_home_battery_entity),
+                "grid_threshold_w": grid_threshold,
+                "grid_import_delay_s": grid_import_delay,
+                "grid_import_timer_started_ts": self._last_grid_import_high,
+                "grid_import_elapsed_s": None,
+                "grid_import_remaining_s": None,
             }
         )
 
@@ -661,6 +667,35 @@ class SolarSurplusAutomation:
 
         # Grid Import Protection
         if grid_import > grid_threshold:
+            debug_context = self._get_grid_import_debug_context(
+                grid_import=grid_import,
+                grid_threshold=grid_threshold,
+                grid_import_delay=grid_import_delay,
+                current_amps=current_amps,
+                target_amps=target_amps,
+            )
+            self.logger.warning(
+                "Grid import protection gate: import=%sW threshold=%sW delay=%ss "
+                "elapsed=%ss remaining=%ss current=%sA target=%sA battery_support=%s use_home_battery=%s",
+                round(debug_context["grid_import_w"], 1),
+                round(debug_context["grid_threshold_w"], 1),
+                round(debug_context["grid_import_delay_s"], 1),
+                debug_context["grid_import_elapsed_s"],
+                debug_context["grid_import_remaining_s"],
+                debug_context["current_charging_a"],
+                debug_context["target_charging_a"],
+                debug_context["battery_support_active"],
+                debug_context["use_home_battery_enabled"],
+            )
+            await self._update_diagnostic_sensor(
+                "GRID_IMPORT_PROTECTION",
+                {
+                    "last_check": datetime.now().isoformat(),
+                    "priority": priority if priority else "DISABLED",
+                    "decision": "grid_import_protection_active",
+                    **debug_context,
+                },
+            )
             await self._handle_grid_import_protection(grid_import, grid_threshold, grid_import_delay, current_amps)
             self.logger.separator()
             return
@@ -1055,11 +1090,37 @@ class SolarSurplusAutomation:
             self.logger.warning(
                 f"Grid import ({grid_import}W) > threshold ({grid_threshold}W) - Starting {grid_import_delay}s delay"
             )
+            await self._update_diagnostic_sensor(
+                "GRID_IMPORT_DELAY",
+                {
+                    "decision": "start_delay",
+                    "reason": "Grid import above threshold",
+                    **self._get_grid_import_debug_context(
+                        grid_import=grid_import,
+                        grid_threshold=grid_threshold,
+                        grid_import_delay=grid_import_delay,
+                        current_amps=current_amps,
+                    ),
+                },
+            )
             return
 
         elapsed = current_time - self._last_grid_import_high
         if elapsed < grid_import_delay:
             self.logger.info(f"Grid import delay: {elapsed:.1f}s / {grid_import_delay}s")
+            await self._update_diagnostic_sensor(
+                "GRID_IMPORT_DELAY",
+                {
+                    "decision": "waiting_delay",
+                    "reason": "Grid import still above threshold",
+                    **self._get_grid_import_debug_context(
+                        grid_import=grid_import,
+                        grid_threshold=grid_threshold,
+                        grid_import_delay=grid_import_delay,
+                        current_amps=current_amps,
+                    ),
+                },
+            )
             return
 
         self.logger.warning("Grid import delay ELAPSED - Reducing charging")
@@ -1071,10 +1132,51 @@ class SolarSurplusAutomation:
             if current_index > 0:
                 next_amps = CHARGER_AMP_LEVELS[current_index - 1]
                 self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")
+                self.logger.warning(
+                    "Grid import protection action: step_down current=%sA next=%sA import=%sW threshold=%sW",
+                    current_amps,
+                    next_amps,
+                    round(grid_import, 1),
+                    round(grid_threshold, 1),
+                )
+                await self._update_diagnostic_sensor(
+                    "GRID_IMPORT_STEP_DOWN",
+                    {
+                        "decision": "step_down",
+                        "reason": "Grid import persisted above threshold",
+                        **self._get_grid_import_debug_context(
+                            grid_import=grid_import,
+                            grid_threshold=grid_threshold,
+                            grid_import_delay=grid_import_delay,
+                            current_amps=current_amps,
+                            target_amps=next_amps,
+                        ),
+                    },
+                )
                 if await self._ensure_control("Grid import protection"):
                     await self.charger_controller.set_amperage(next_amps, "Grid import protection")
             else:
                 self.logger.info("Already at minimum level - stopping charger")
+                self.logger.warning(
+                    "Grid import protection action: stop current=%sA import=%sW threshold=%sW",
+                    current_amps,
+                    round(grid_import, 1),
+                    round(grid_threshold, 1),
+                )
+                await self._update_diagnostic_sensor(
+                    "GRID_IMPORT_STOP",
+                    {
+                        "decision": "stop_at_minimum",
+                        "reason": "Grid import persisted above threshold at minimum amperage",
+                        **self._get_grid_import_debug_context(
+                            grid_import=grid_import,
+                            grid_threshold=grid_threshold,
+                            grid_import_delay=grid_import_delay,
+                            current_amps=current_amps,
+                            target_amps=0,
+                        ),
+                    },
+                )
                 if await self._acquire_control(
                     "turn_off",
                     "Grid import protection - minimum level reached",
@@ -1088,8 +1190,36 @@ class SolarSurplusAutomation:
             # Handle 0A (charger off) or other non-standard levels
             if current_amps == 0:
                 self.logger.info("Charger is already off (0A) - keeping charger stopped")
+                await self._update_diagnostic_sensor(
+                    "GRID_IMPORT_NOOP",
+                    {
+                        "decision": "charger_already_off",
+                        "reason": "Grid import high but charger was already off",
+                        **self._get_grid_import_debug_context(
+                            grid_import=grid_import,
+                            grid_threshold=grid_threshold,
+                            grid_import_delay=grid_import_delay,
+                            current_amps=current_amps,
+                            target_amps=0,
+                        ),
+                    },
+                )
             else:
                 self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
+                await self._update_diagnostic_sensor(
+                    "GRID_IMPORT_INVALID_LEVEL",
+                    {
+                        "decision": "invalid_current_level",
+                        "reason": "Current amperage not in standard levels",
+                        **self._get_grid_import_debug_context(
+                            grid_import=grid_import,
+                            grid_threshold=grid_threshold,
+                            grid_import_delay=grid_import_delay,
+                            current_amps=current_amps,
+                            target_amps=0,
+                        ),
+                    },
+                )
                 if await self._acquire_control(
                     "turn_off",
                     "Grid import protection - invalid amperage level",
@@ -1277,6 +1407,38 @@ class SolarSurplusAutomation:
             await self._solar_surplus_diagnostic_sensor_obj.async_publish(state, payload)
             return
         self.logger.warning("Solar Surplus diagnostic entity object not registered in runtime data")
+
+    def _get_grid_import_debug_context(
+        self,
+        *,
+        grid_import: float,
+        grid_threshold: float,
+        grid_import_delay: float,
+        current_amps: int,
+        target_amps: int | None = None,
+    ) -> dict:
+        """Return a debug snapshot for grid import protection decisions."""
+        now_ts = time.time()
+        timer_started = self._last_grid_import_high
+        elapsed = None
+        remaining = None
+
+        if timer_started is not None:
+            elapsed = max(0.0, now_ts - timer_started)
+            remaining = max(0.0, grid_import_delay - elapsed)
+
+        return {
+            "grid_import_w": grid_import,
+            "grid_threshold_w": grid_threshold,
+            "grid_import_delay_s": grid_import_delay,
+            "grid_import_timer_started_ts": timer_started,
+            "grid_import_elapsed_s": round(elapsed, 1) if elapsed is not None else None,
+            "grid_import_remaining_s": round(remaining, 1) if remaining is not None else None,
+            "battery_support_active": self._battery_support_active,
+            "use_home_battery_enabled": get_bool(self.hass, self._use_home_battery_entity),
+            "current_charging_a": current_amps,
+            "target_charging_a": target_amps,
+        }
 
     async def async_request_immediate_check(self, reason: str = "") -> None:
         """Force an immediate periodic check, bypassing the rate limit."""

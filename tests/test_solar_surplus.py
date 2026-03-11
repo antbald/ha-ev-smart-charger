@@ -106,6 +106,46 @@ async def test_grid_import_protection(hass, automation):
         assert automation._last_grid_import_high is None
         automation.charger_controller.set_amperage.assert_called_with(13, "Grid import protection")
 
+
+async def test_grid_import_protection_publishes_debug_diagnostics(hass, automation):
+    """Grid import protection should publish diagnostic decisions and timing context."""
+    automation._update_diagnostic_sensor = AsyncMock()
+
+    with patch("time.time", return_value=1000):
+        await automation._handle_grid_import_protection(
+            grid_import=400, grid_threshold=250, grid_import_delay=30, current_amps=24
+        )
+
+    first_call = automation._update_diagnostic_sensor.await_args_list[0]
+    assert first_call.args[0] == "GRID_IMPORT_DELAY"
+    assert first_call.args[1]["decision"] == "start_delay"
+    assert first_call.args[1]["grid_import_w"] == 400
+    assert first_call.args[1]["grid_threshold_w"] == 250
+    assert first_call.args[1]["current_charging_a"] == 24
+    assert first_call.args[1]["use_home_battery_enabled"] is False
+
+    with patch("time.time", return_value=1020):
+        await automation._handle_grid_import_protection(
+            grid_import=400, grid_threshold=250, grid_import_delay=30, current_amps=24
+        )
+
+    second_call = automation._update_diagnostic_sensor.await_args_list[1]
+    assert second_call.args[0] == "GRID_IMPORT_DELAY"
+    assert second_call.args[1]["decision"] == "waiting_delay"
+    assert second_call.args[1]["grid_import_elapsed_s"] == 20.0
+    assert second_call.args[1]["grid_import_remaining_s"] == 10.0
+
+    with patch("time.time", return_value=1031):
+        await automation._handle_grid_import_protection(
+            grid_import=400, grid_threshold=250, grid_import_delay=30, current_amps=24
+        )
+
+    third_call = automation._update_diagnostic_sensor.await_args_list[2]
+    assert third_call.args[0] == "GRID_IMPORT_STEP_DOWN"
+    assert third_call.args[1]["decision"] == "step_down"
+    assert third_call.args[1]["current_charging_a"] == 24
+    assert third_call.args[1]["target_charging_a"] == 20
+
 async def test_grid_import_protection_keeps_charger_off_when_already_off(hass, automation):
     """When import is high and charger is OFF, protection must not start charging."""
     # Initial high import - start timer

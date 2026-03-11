@@ -33,6 +33,7 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
     runtime_data = EVSCRuntimeData(config=config, expected_entity_count=0)
     helper_map = {
         "evsc_night_smart_charge_enabled": "switch.test_evsc_night_smart_charge_enabled",
+        "evsc_preserve_home_battery": "switch.test_evsc_preserve_home_battery",
         "evsc_night_charge_time": "input_datetime.test_evsc_night_charge_time",
         "evsc_car_ready_time": "input_datetime.test_evsc_car_ready_time",
         "evsc_night_charge_amperage": "number.test_evsc_night_charge_amperage",
@@ -60,6 +61,7 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
     
     # Setup helper entities
     hass.states.async_set("switch.test_evsc_night_smart_charge_enabled", "on")
+    hass.states.async_set("switch.test_evsc_preserve_home_battery", "off")
     hass.states.async_set("switch.charger_switch", "off")
     hass.states.async_set("sensor.charger_current", "0")
     hass.states.async_set("input_datetime.test_evsc_night_charge_time", "01:00:00")

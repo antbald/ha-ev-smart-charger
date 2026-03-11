@@ -23,6 +23,7 @@ from .const import (
     NIGHT_CHARGE_MODE_GRID,
     NIGHT_CHARGE_MODE_IDLE,
     HELPER_NIGHT_CHARGE_ENABLED_SUFFIX,
+    HELPER_PRESERVE_HOME_BATTERY_SUFFIX,
     HELPER_NIGHT_CHARGE_TIME_SUFFIX,
     HELPER_CAR_READY_TIME_SUFFIX,
     HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX,
@@ -40,6 +41,7 @@ from .const import (
     DEFAULT_CAR_READY_TIME,
     PRIORITY_NIGHT_CHARGE,
 )
+from .localization import translate_runtime
 from .runtime import EVSCRuntimeData
 from .charger_controller import CurrentControlAdapter
 from .utils.logging_helper import EVSCLogger
@@ -55,6 +57,7 @@ STOP_REASON_CHARGER_NOT_CHARGING = "charger_not_charging"
 STOP_REASON_GRID_FALLBACK_FAILED = "grid_fallback_failed"
 STOP_REASON_GRID_IMPORT_CAR_NOT_READY = "grid_import_detected_car_not_ready"
 STOP_REASON_BOOST_PREEMPTED = "boost_preempted"
+REASON_CODE_PRESERVE_HOME_BATTERY = "preserve_home_battery"
 
 
 class NightSmartCharge:
@@ -109,6 +112,7 @@ class NightSmartCharge:
 
         # Helper entities (discovered in async_setup)
         self._night_charge_enabled_entity = None
+        self._preserve_home_battery_entity = None
         self._night_charge_time_entity = None
         self._car_ready_time_entity = None  # v1.3.18: Car ready deadline
         self._solar_forecast_threshold_entity = None
@@ -138,6 +142,7 @@ class NightSmartCharge:
         self._activation_date = None  # Date when last activated (prevents re-activation same day)
         self._last_completion_date = None  # Date when last completed
         self._last_diagnostic_log_time = None  # For throttling diagnostic logs
+        self._preserve_skip_announced = False
 
     @property
     def _automation_name(self) -> str:
@@ -297,6 +302,9 @@ class NightSmartCharge:
 
         # Discover helper entities (optional for backward compatibility)
         self._night_charge_enabled_entity = self._resolve_entity(HELPER_NIGHT_CHARGE_ENABLED_SUFFIX)
+        self._preserve_home_battery_entity = self._resolve_entity(
+            HELPER_PRESERVE_HOME_BATTERY_SUFFIX
+        )
         self._night_charge_time_entity = self._resolve_entity(HELPER_NIGHT_CHARGE_TIME_SUFFIX)
         self._car_ready_time_entity = self._resolve_entity(HELPER_CAR_READY_TIME_SUFFIX)
         self._solar_forecast_threshold_entity = self._resolve_entity(
@@ -338,6 +346,8 @@ class NightSmartCharge:
         missing_entities = []
         if not self._night_charge_enabled_entity:
             missing_entities.append(HELPER_NIGHT_CHARGE_ENABLED_SUFFIX)
+        if not self._preserve_home_battery_entity:
+            missing_entities.append(HELPER_PRESERVE_HOME_BATTERY_SUFFIX)
         if not self._night_charge_time_entity:
             missing_entities.append(HELPER_NIGHT_CHARGE_TIME_SUFFIX)
         if not self._solar_forecast_threshold_entity:
@@ -779,12 +789,14 @@ class NightSmartCharge:
                 scheduled_time = self._get_night_charge_time()
                 amperage = self._get_night_charge_amperage()
                 solar_threshold = self._get_solar_threshold()
+                preserve_home_battery = self._is_preserve_home_battery_enabled()
 
                 # Get car ready status (this method logs internally too)
                 car_ready_today = self._get_car_ready_for_today()
                 car_ready_deadline = self._get_car_ready_time()
 
                 self.logger.info(f"   Night Charge Enabled: {is_enabled}")
+                self.logger.info(f"   Preserve Home Battery: {preserve_home_battery}")
                 self.logger.info(f"   Scheduled Time: {scheduled_time}")
                 self.logger.info(f"   Night Charge Amperage: {amperage}A")
                 self.logger.info(f"   Solar Forecast Threshold: {solar_threshold} kWh")
@@ -829,7 +841,11 @@ class NightSmartCharge:
 
             # v1.4.10: Enhanced pre-flight check with car_ready emergency override
             car_ready_today = self._get_car_ready_for_today()
+            preserve_home_battery = self._is_preserve_home_battery_enabled()
             ev_target_entity = self.priority_balancer._ev_min_soc_entities.get(today)
+
+            if car_ready_today or not preserve_home_battery:
+                self._preserve_skip_announced = False
 
             # EMERGENCY OVERRIDE: When car_ready=True, bypass validation and force charge
             if car_ready_today:
@@ -891,10 +907,10 @@ class NightSmartCharge:
                     self.logger.success("✅ All monitoring sensors available")
                     # Continue with normal logic below
     
-            # NORMAL MODE: car_ready=False - use relaxed validation and battery-only policy
+            # NORMAL MODE: car_ready=False - use relaxed validation and defer mode decision.
             else:
                 self.logger.info(
-                    "car_ready=False - using normal validation and battery-only overnight policy"
+                    "car_ready=False - using normal validation before overnight source selection"
                 )
     
                 # Check monitoring sensors with fallback logic
@@ -996,7 +1012,58 @@ class NightSmartCharge:
     
             # Step 5: Decide charging mode
             self.logger.info(f"{self.logger.DECISION} Step 5: Decide charging mode")
-    
+
+            if not car_ready_today and preserve_home_battery:
+                reason_detail = (
+                    "Preserve Home Battery enabled while car_ready is OFF - "
+                    "skipping overnight charging to avoid unnecessary home battery cycles"
+                )
+                raw_values = {
+                    "car_ready": car_ready_today,
+                    "preserve_home_battery": preserve_home_battery,
+                    "ev_soc": ev_soc,
+                    "ev_target": ev_target,
+                    "home_soc": home_soc,
+                    "home_min_soc": self._get_home_battery_min_soc(),
+                    "pv_forecast": pv_forecast,
+                    "threshold": threshold,
+                }
+
+                if self.is_active():
+                    self.logger.debug(
+                        "Preserve Home Battery enabled while a night charge session is already active - "
+                        "leaving the current session unchanged"
+                    )
+                    self.logger.separator()
+                    return
+
+                if not self._preserve_skip_announced:
+                    await self._emit_diagnostic(
+                        event="night_charge_mode_selected",
+                        result="skipped",
+                        reason_code=REASON_CODE_PRESERVE_HOME_BATTERY,
+                        reason_detail=reason_detail,
+                        raw_values=raw_values,
+                    )
+                    await self._mobile_notifier.send_night_charge_skipped_notification(
+                        reason=translate_runtime(
+                            self.hass,
+                            "night_charge.reason.preserve_home_battery",
+                        )
+                    )
+                    self._preserve_skip_announced = True
+                    self.logger.decision("Charging mode", "SKIP", reason_detail)
+                    self.logger.info(
+                        "Night charge session skipped; waiting for a future evaluation if conditions change"
+                    )
+                else:
+                    self.logger.debug(
+                        "Preserve-home-battery skip already announced for the current night charge conditions"
+                    )
+
+                self.logger.separator()
+                return
+
             if not car_ready_today:
                 await self._emit_diagnostic(
                     event="night_charge_mode_selected",
@@ -1864,6 +1931,14 @@ class NightSmartCharge:
 
         return time_state
 
+    def _is_preserve_home_battery_enabled(self) -> bool:
+        """Return True when overnight charging should be skipped to protect the home battery."""
+        return state_helper.get_bool(
+            self.hass,
+            self._preserve_home_battery_entity,
+            default=False,
+        )
+
     def _get_home_battery_min_soc(self) -> float:
         """Get home battery minimum SOC."""
         return state_helper.get_float(
@@ -2112,12 +2187,14 @@ class NightSmartCharge:
     def _log_configuration(self) -> None:
         """Log current configuration."""
         enabled = state_helper.get_bool(self.hass, self._night_charge_enabled_entity) if self._night_charge_enabled_entity else False
+        preserve_home_battery = self._is_preserve_home_battery_enabled()
         scheduled_time = state_helper.get_state(self.hass, self._night_charge_time_entity) if self._night_charge_time_entity else "Not configured"
         threshold = self._get_solar_threshold()
         amperage = self._get_night_charge_amperage()
 
         self.logger.info("Configuration:")
         self.logger.info(f"   Enabled: {enabled}")
+        self.logger.info(f"   Preserve Home Battery: {preserve_home_battery}")
         self.logger.info(f"   Scheduled Time: {scheduled_time}")
         self.logger.info(f"   Solar Forecast Threshold: {threshold} kWh")
         self.logger.info(f"   Night Charge Amperage: {amperage} A")

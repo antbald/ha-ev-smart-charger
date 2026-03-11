@@ -13,6 +13,7 @@ from homeassistant.const import STATE_ON
 from .const import (
     DEFAULT_CAR_READY_WEEKDAY,
     DEFAULT_CAR_READY_WEEKEND,
+    HELPER_PRESERVE_HOME_BATTERY_SUFFIX,
     HELPER_TRACE_LOGGING_ENABLED_SUFFIX,
 )
 from .entity_base import EVSCEntityMixin
@@ -95,6 +96,18 @@ async def async_setup_entry(
             "evsc_night_smart_charge_enabled",
             "Night Smart Charge",
             "mdi:moon-waning-crescent",
+        )
+    )
+
+    # Create Preserve Home Battery switch
+    entities.append(
+        EVSCSwitch(
+            runtime_data,
+            entry.entry_id,
+            HELPER_PRESERVE_HOME_BATTERY_SUFFIX,
+            "Preserve Home Battery",
+            "mdi:battery-heart-variant",
+            default_state=False,
         )
     )
 

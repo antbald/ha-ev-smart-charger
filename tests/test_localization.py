@@ -109,6 +109,38 @@ async def test_mobile_notifications_follow_hass_language(hass, language, expecte
     assert notify_call.args[2]["title"] == "BORGO"
 
 
+@pytest.mark.parametrize(
+    ("language", "expected_fragment"),
+    [
+        ("en", "Night Smart Charge skipped"),
+        ("it", "Night Smart Charge saltato"),
+        ("fr", "Night Smart Charge skipped"),
+    ],
+)
+async def test_night_charge_skip_notifications_follow_hass_language(
+    hass, language, expected_fragment
+):
+    """Night Charge skip notifications follow the HA language with English fallback."""
+    hass.config.language = language
+    hass.services.async_call = AsyncMock()
+
+    service = MobileNotificationService(
+        hass,
+        notify_services=["mobile_app_test_phone"],
+        entry_id="entry_123",
+    )
+
+    await service.send_night_charge_skipped_notification(
+        reason="Reason text",
+    )
+
+    notify_call = hass.services.async_call.await_args
+    assert notify_call.args[0] == "notify"
+    assert notify_call.args[1] == "mobile_app_test_phone"
+    assert expected_fragment in notify_call.args[2]["message"]
+    assert notify_call.args[2]["title"] == "BORGO"
+
+
 def test_frontend_locale_dictionary_has_parity_and_english_fallback() -> None:
     """Frontend dashboard locales must stay aligned and keep English fallback."""
     source = FRONTEND_PATH.read_text()

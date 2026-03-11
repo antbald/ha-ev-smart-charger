@@ -1591,24 +1591,27 @@ A: Set **Charging Profile** to `manual` and use charger's native controls.
 
 ## 📚 Version History
 
-### Latest: v1.5.8 (2026-03-11) - Diagnostic Logging and Ownership Hardening
+### Latest: v1.5.9 (2026-03-11) - Home Battery Preservation and Solar Import Diagnostics
 
-**🎯 Major Reliability Release: traceable diagnostics and stronger coordinator recovery**
+**🎯 Charging Strategy Release: less unnecessary battery cycling and clearer solar import traces**
 
 **What changed:**
-- New unified diagnostics across coordinator, blocker, night smart charge, and solar surplus
-- New `switch.evsc_trace_logging_enabled` helper for on-demand trace logging
-- Expanded `sensor.evsc_diagnostic` with active owner, denial/release snapshots, trace state, and recent history
-- `Smart Charger Blocker` now detects and releases stale ownership more aggressively, including periodic re-check recovery
-- Night and Solar diagnostics now expose coordinator denial context directly
+- Added `switch.evsc_preserve_home_battery` to skip `Night Smart Charge` entirely when `car_ready` is off
+- Night Smart Charge now emits explicit diagnostics, logs, and notifications when a session is skipped to preserve the home battery
+- Dashboard and translations updated in EN/IT/NL for the new preserve-home-battery toggle
+- Solar Surplus now logs and publishes detailed `grid import protection` timing and decision context
 
 **Benefits:**
-✅ Overnight charging failures are now diagnosable from logs and sensors without guessing
-✅ Stale ownership is surfaced explicitly instead of appearing as a silent denial
-✅ File logging, coordinator diagnostics, and runtime SSOT are aligned
-✅ Maintainer test entrypoint standardized with `make test`
+✅ Prevents overnight home battery cycles when the car does not need to be ready in the morning
+✅ Makes “why didn’t Solar Surplus step down?” diagnosable from logs and diagnostic sensors
+✅ Clarifies the UI around home battery preservation behavior
+✅ Keeps runtime diagnostics aligned with the actual charging decision path
 
-**Upgrade:** 🟢 RECOMMENDED - Improves observability and reduces hidden coordinator lockouts
+**Upgrade:** 🟢 RECOMMENDED - Adds a new Night Smart Charge safeguard and improves solar troubleshooting
+
+---
+
+### Previous: v1.5.8 (2026-03-11) - Diagnostic Logging and Ownership Hardening
 
 ---
 

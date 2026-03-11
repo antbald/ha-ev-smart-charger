@@ -40,6 +40,15 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "Amperage: {amperage}A\n"
             "Time: {time}"
         ),
+        "mobile.night_charge_skipped.message": (
+            "Night Smart Charge skipped\n\n"
+            "{reason}\n"
+            "Time: {time}"
+        ),
+        "night_charge.reason.preserve_home_battery": (
+            "Preserve Home Battery is enabled and the car is not required by morning. "
+            "Overnight charging is skipped to avoid unnecessary home battery cycles."
+        ),
         "mobile.boost_started.message": (
             "EV boost charge started\n\n"
             "EV: {start_soc:.1f}%\n"
@@ -135,6 +144,15 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "{reason}\n"
             "Amperaggio: {amperage}A\n"
             "Ora: {time}"
+        ),
+        "mobile.night_charge_skipped.message": (
+            "Night Smart Charge saltato\n\n"
+            "{reason}\n"
+            "Ora: {time}"
+        ),
+        "night_charge.reason.preserve_home_battery": (
+            "Preserva batteria di casa e' attivo e l'auto non deve essere pronta al mattino. "
+            "La ricarica notturna viene saltata per evitare cicli inutili della batteria domestica."
         ),
         "mobile.boost_started.message": (
             "Boost EV avviato\n\n"
@@ -233,6 +251,15 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "{reason}\n"
             "Stroomsterkte: {amperage}A\n"
             "Tijd: {time}"
+        ),
+        "mobile.night_charge_skipped.message": (
+            "Slim nachtelijk laden overgeslagen\n\n"
+            "{reason}\n"
+            "Tijd: {time}"
+        ),
+        "night_charge.reason.preserve_home_battery": (
+            "Thuisbatterij sparen is ingeschakeld en de auto hoeft 's ochtends niet klaar te zijn. "
+            "Nachtelijk laden wordt overgeslagen om onnodige cycli van de thuisbatterij te voorkomen."
         ),
         "mobile.boost_started.message": (
             "EV-boostladen gestart\n\n"

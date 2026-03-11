@@ -176,6 +176,33 @@ class MobileNotificationService:
             priority="normal"
         )
 
+    async def send_night_charge_skipped_notification(self, reason: str) -> None:
+        """Send Night Smart Charge notification when a session is intentionally skipped."""
+        if not self._is_night_charge_enabled():
+            _LOGGER.debug("Night Charge notifications disabled, skipping skip notification")
+            return
+
+        if not self._is_car_owner_home():
+            _LOGGER.debug("Car owner not home, skipping Night Charge skip notification")
+            return
+
+        message = translate_runtime(
+            self.hass,
+            "mobile.night_charge_skipped.message",
+            reason=reason,
+            time=dt_util.now().strftime("%H:%M"),
+        )
+
+        _LOGGER.info(
+            "Sending Night Charge skipped notification at %s",
+            dt_util.now().strftime("%H:%M:%S"),
+        )
+        await self._send_notification(
+            message=message,
+            tag="evsc_night_charge",
+            priority="normal",
+        )
+
     async def send_boost_charge_started_notification(
         self,
         amperage: int,

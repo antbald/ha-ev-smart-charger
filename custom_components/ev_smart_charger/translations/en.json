@@ -240,6 +240,7 @@
       "evsc_use_home_battery": { "name": "Use home battery" },
       "evsc_priority_balancer_enabled": { "name": "Priority balancer" },
       "evsc_night_smart_charge_enabled": { "name": "Night smart charge" },
+      "evsc_preserve_home_battery": { "name": "Preserve home battery" },
       "evsc_notify_smart_blocker_enabled": { "name": "Notify smart blocker" },
       "evsc_notify_priority_balancer_enabled": { "name": "Notify priority balancer" },
       "evsc_notify_night_charge_enabled": { "name": "Notify night charge" },

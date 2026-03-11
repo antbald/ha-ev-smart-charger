@@ -240,6 +240,7 @@
       "evsc_use_home_battery": { "name": "Thuisbatterij gebruiken" },
       "evsc_priority_balancer_enabled": { "name": "Prioriteitsbalans" },
       "evsc_night_smart_charge_enabled": { "name": "Slim nachtelijk laden" },
+      "evsc_preserve_home_battery": { "name": "Thuisbatterij sparen" },
       "evsc_notify_smart_blocker_enabled": { "name": "Melding laadblokkering" },
       "evsc_notify_priority_balancer_enabled": { "name": "Melding prioriteitsbalans" },
       "evsc_notify_night_charge_enabled": { "name": "Melding nachtladen" },

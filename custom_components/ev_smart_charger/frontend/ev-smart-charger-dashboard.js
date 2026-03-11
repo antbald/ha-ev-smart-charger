@@ -6,6 +6,7 @@ const DOMAIN_SUFFIXES = {
   boostAmperage: ["number", "evsc_boost_charge_amperage"],
   boostTargetSoc: ["number", "evsc_boost_target_soc"],
   nightEnabled: ["switch", "evsc_night_smart_charge_enabled"],
+  preserveHomeBattery: ["switch", "evsc_preserve_home_battery"],
   nightTime: ["time", "evsc_night_charge_time"],
   minSolarForecast: ["number", "evsc_min_solar_forecast_threshold"],
   nightAmperage: ["number", "evsc_night_charge_amperage"],
@@ -76,6 +77,8 @@ const FRONTEND_LOCALES = {
     "module.night_smart_charge": "Night Smart Charge",
     "control.enable_night_smart_charge": "Enable Night Smart Charge",
     "control.night_window": "Night Window",
+    "control.preserve_home_battery": "Preserve Home Battery",
+    "control.skip_when_not_required": "Skip overnight charging when the car is not required by morning",
     "control.start_time": "Start Time",
     "control.schedule": "Schedule",
     "control.min_solar_forecast": "Min Solar Forecast",
@@ -164,6 +167,8 @@ const FRONTEND_LOCALES = {
     "module.night_smart_charge": "Night Smart Charge",
     "control.enable_night_smart_charge": "Abilita Night Smart Charge",
     "control.night_window": "Finestra notturna",
+    "control.preserve_home_battery": "Preserva batteria di casa",
+    "control.skip_when_not_required": "Salta la ricarica notturna quando l'auto non deve essere pronta al mattino",
     "control.start_time": "Ora di avvio",
     "control.schedule": "Programmazione",
     "control.min_solar_forecast": "Previsione solare minima",
@@ -252,6 +257,8 @@ const FRONTEND_LOCALES = {
     "module.night_smart_charge": "Slim nachtelijk laden",
     "control.enable_night_smart_charge": "Slim nachtelijk laden inschakelen",
     "control.night_window": "Nachtvenster",
+    "control.preserve_home_battery": "Thuisbatterij sparen",
+    "control.skip_when_not_required": "Sla 's nachts laden over wanneer de auto 's ochtends niet klaar hoeft te zijn",
     "control.start_time": "Starttijd",
     "control.schedule": "Planning",
     "control.min_solar_forecast": "Minimale zonneverwachting",
@@ -630,6 +637,7 @@ class EvSmartChargerDashboard extends HTMLElement {
     const boostAmperageId = this._entityId("boostAmperage");
     const boostTargetSocId = this._entityId("boostTargetSoc");
     const nightEnabledId = this._entityId("nightEnabled");
+    const preserveHomeBatteryId = this._entityId("preserveHomeBattery");
     const nightTimeId = this._entityId("nightTime");
     const minSolarForecastId = this._entityId("minSolarForecast");
     const nightAmperageId = this._entityId("nightAmperage");
@@ -728,6 +736,7 @@ class EvSmartChargerDashboard extends HTMLElement {
                 <h2>${this._t("module.night_smart_charge")}</h2>
               </div>
               ${this._renderToggle(nightEnabledId, this._t("control.enable_night_smart_charge"), this._t("control.night_window"), "violet")}
+              ${this._renderToggle(preserveHomeBatteryId, this._t("control.preserve_home_battery"), this._t("control.skip_when_not_required"), "lime")}
               ${this._renderTimeControl(nightTimeId, this._t("control.start_time"), this._t("control.schedule"))}
               ${this._renderStepper(minSolarForecastId, this._t("control.min_solar_forecast"), this._t("control.tomorrow_threshold"), "cyan")}
               ${this._renderStepper(nightAmperageId, this._t("control.night_charge_amperage"), this._t("control.overnight_current"), "teal")}

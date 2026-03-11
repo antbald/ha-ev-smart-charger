@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.5.8"
+VERSION = "1.5.9"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -87,6 +87,7 @@ HELPER_SMART_BLOCKER_ENABLED_SUFFIX = "evsc_smart_charger_blocker_enabled"
 HELPER_USE_HOME_BATTERY_SUFFIX = "evsc_use_home_battery"
 HELPER_PRIORITY_BALANCER_ENABLED_SUFFIX = "evsc_priority_balancer_enabled"
 HELPER_NIGHT_CHARGE_ENABLED_SUFFIX = "evsc_night_smart_charge_enabled"
+HELPER_PRESERVE_HOME_BATTERY_SUFFIX = "evsc_preserve_home_battery"
 
 # Notification Switches
 HELPER_NOTIFY_SMART_BLOCKER_SUFFIX = "evsc_notify_smart_blocker_enabled"
@@ -228,4 +229,4 @@ SERVICE_CALL_TIMEOUT = 10  # seconds for service calls
 EV_SOC_MONITOR_INTERVAL = 5  # seconds - polling frequency for cloud sensor reliability
 
 # ========== ENTITY REGISTRATION ==========
-TOTAL_INTEGRATION_ENTITIES = 52
+TOTAL_INTEGRATION_ENTITIES = 53
