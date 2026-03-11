@@ -19,6 +19,7 @@ const DOMAIN_SUFFIXES = {
   batterySupportAmperage: ["number", "evsc_battery_support_amperage"],
   priorityBalancer: ["switch", "evsc_priority_balancer_enabled"],
   smartBlocker: ["switch", "evsc_smart_charger_blocker_enabled"],
+  traceLogging: ["switch", "evsc_trace_logging_enabled"],
   priorityState: ["sensor", "evsc_priority_daily_state"],
   todayEvTarget: ["sensor", "evsc_today_ev_target"],
   todayHomeTarget: ["sensor", "evsc_today_home_target"],
@@ -103,8 +104,15 @@ const FRONTEND_LOCALES = {
     "control.target_arbitration": "Target Arbitration",
     "control.smart_charger_blocker": "Smart Charger Blocker",
     "control.nighttime_lockout": "Nighttime Lockout",
+    "control.trace_logging": "Trace Logging",
+    "control.deep_diagnostics": "Deep Diagnostics",
     "diagnostic.automation": "Automation Diagnostic",
     "diagnostic.solar_surplus": "Solar Surplus Diagnostic",
+    "diagnostic.active_owner": "Active Owner",
+    "diagnostic.last_reason": "Last Reason",
+    "diagnostic.external_cause": "External Cause",
+    "diagnostic.last_denial": "Last Denial",
+    "diagnostic.trace_mode": "Trace Mode",
     "profile.manual": "Manual",
     "profile.solar_surplus": "Solar Surplus"
   },
@@ -184,8 +192,15 @@ const FRONTEND_LOCALES = {
     "control.target_arbitration": "Arbitraggio target",
     "control.smart_charger_blocker": "Smart Charger Blocker",
     "control.nighttime_lockout": "Blocco notturno",
+    "control.trace_logging": "Trace logging",
+    "control.deep_diagnostics": "Diagnostica profonda",
     "diagnostic.automation": "Diagnostica automazione",
     "diagnostic.solar_surplus": "Diagnostica surplus solare",
+    "diagnostic.active_owner": "Owner attivo",
+    "diagnostic.last_reason": "Ultimo motivo",
+    "diagnostic.external_cause": "Causa esterna",
+    "diagnostic.last_denial": "Ultimo denial",
+    "diagnostic.trace_mode": "Modalita trace",
     "profile.manual": "Manuale",
     "profile.solar_surplus": "Surplus solare"
   },
@@ -265,8 +280,15 @@ const FRONTEND_LOCALES = {
     "control.target_arbitration": "Doelarbitrage",
     "control.smart_charger_blocker": "Slimme laadblokkering",
     "control.nighttime_lockout": "Nachtblokkering",
+    "control.trace_logging": "Trace-logging",
+    "control.deep_diagnostics": "Diepe diagnostiek",
     "diagnostic.automation": "Automatiseringsdiagnose",
     "diagnostic.solar_surplus": "Diagnose zonne-overschot",
+    "diagnostic.active_owner": "Actieve eigenaar",
+    "diagnostic.last_reason": "Laatste reden",
+    "diagnostic.external_cause": "Externe oorzaak",
+    "diagnostic.last_denial": "Laatste weigering",
+    "diagnostic.trace_mode": "Trace-modus",
     "profile.manual": "Handmatig",
     "profile.solar_surplus": "Zonne-overschot"
   }
@@ -536,16 +558,54 @@ class EvSmartChargerDashboard extends HTMLElement {
     `;
   }
 
+  _diagnosticValue(value) {
+    return value === undefined || value === null || value === ""
+      ? this._t("common.unavailable")
+      : value;
+  }
+
+  _renderDiagnosticDetail(label, value) {
+    return `
+      <div class="diag-detail">
+        <span class="eyebrow">${label}</span>
+        <strong>${this._diagnosticValue(value)}</strong>
+      </div>
+    `;
+  }
+
   _renderDiagnostics(primary, secondary) {
+    const primaryAttrs = primary?.attributes || {};
+    const secondaryAttrs = secondary?.attributes || {};
+    const lastDenial = primaryAttrs.last_denial?.denial_reason || primaryAttrs.last_denial?.reason;
+    const activeOwner = primaryAttrs.active_owner;
+    const lastReason = primaryAttrs.last_reason_detail || primaryAttrs.last_reason_code;
+    const externalCause = primaryAttrs.last_external_cause;
+    const traceMode = primaryAttrs.trace_enabled ? "ON" : "OFF";
+    const solarReason =
+      secondaryAttrs.last_reason_detail ||
+      secondaryAttrs.reason ||
+      secondaryAttrs.night_mode ||
+      secondaryAttrs.profile;
+
     return `
       <section class="diagnostic-panel">
-          <div class="diag-card">
+        <div class="diag-card">
           <span class="eyebrow">${this._t("diagnostic.automation")}</span>
           <p>${primary?.state || this._t("common.unavailable")}</p>
+          <div class="diag-grid">
+            ${this._renderDiagnosticDetail(this._t("diagnostic.active_owner"), activeOwner)}
+            ${this._renderDiagnosticDetail(this._t("diagnostic.last_reason"), lastReason)}
+            ${this._renderDiagnosticDetail(this._t("diagnostic.external_cause"), externalCause)}
+            ${this._renderDiagnosticDetail(this._t("diagnostic.last_denial"), lastDenial)}
+            ${this._renderDiagnosticDetail(this._t("diagnostic.trace_mode"), traceMode)}
+          </div>
         </div>
         <div class="diag-card">
           <span class="eyebrow">${this._t("diagnostic.solar_surplus")}</span>
           <p>${secondary?.state || this._t("common.unavailable")}</p>
+          <div class="diag-grid">
+            ${this._renderDiagnosticDetail(this._t("diagnostic.last_reason"), solarReason)}
+          </div>
         </div>
       </section>
     `;
@@ -583,6 +643,7 @@ class EvSmartChargerDashboard extends HTMLElement {
     const batterySupportAmperageId = this._entityId("batterySupportAmperage");
     const priorityBalancerId = this._entityId("priorityBalancer");
     const smartBlockerId = this._entityId("smartBlocker");
+    const traceLoggingId = this._entityId("traceLogging");
 
     const priorityState = this._integrationState("priorityState");
     const todayEvTarget = this._integrationState("todayEvTarget");
@@ -693,6 +754,7 @@ class EvSmartChargerDashboard extends HTMLElement {
               </div>
               ${this._renderToggle(priorityBalancerId, this._t("control.priority_balancer"), this._t("control.target_arbitration"), "cyan")}
               ${this._renderToggle(smartBlockerId, this._t("control.smart_charger_blocker"), this._t("control.nighttime_lockout"), "rose")}
+              ${this._renderToggle(traceLoggingId, this._t("control.trace_logging"), this._t("control.deep_diagnostics"), "amber")}
             </section>
           </section>
 
@@ -890,6 +952,25 @@ class EvSmartChargerDashboard extends HTMLElement {
           padding: 18px;
           display: grid;
           gap: 10px;
+        }
+
+        .diag-grid {
+          display: grid;
+          gap: 10px;
+          grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        }
+
+        .diag-detail {
+          display: grid;
+          gap: 4px;
+        }
+
+        .diag-detail strong {
+          font-size: 0.92rem;
+          line-height: 1.35;
+          letter-spacing: -0.02em;
+          color: rgba(245, 247, 255, 0.92);
+          word-break: break-word;
         }
 
         .module-grid {

@@ -13,6 +13,7 @@ from homeassistant.const import STATE_ON
 from .const import (
     DEFAULT_CAR_READY_WEEKDAY,
     DEFAULT_CAR_READY_WEEKEND,
+    HELPER_TRACE_LOGGING_ENABLED_SUFFIX,
 )
 from .entity_base import EVSCEntityMixin
 from .runtime import get_runtime_data
@@ -140,6 +141,18 @@ async def async_setup_entry(
             "Enable File Logging",
             "mdi:file-document-outline",
             default_state=False  # Default OFF to save storage
+        )
+    )
+
+    # Trace Logging switch
+    entities.append(
+        EVSCSwitch(
+            runtime_data,
+            entry.entry_id,
+            HELPER_TRACE_LOGGING_ENABLED_SUFFIX,
+            "Trace Logging",
+            "mdi:timeline-text-outline",
+            default_state=False,
         )
     )
 

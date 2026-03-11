@@ -150,6 +150,32 @@ class NightSmartCharge:
             return True
         return self._coordinator.is_automation_active(self._automation_name)
 
+    async def _emit_diagnostic(
+        self,
+        *,
+        event: str,
+        result: str,
+        reason_code: str,
+        reason_detail: str,
+        raw_values: dict | None = None,
+        severity: str = "info",
+        external_cause: str | None = None,
+    ) -> None:
+        """Publish structured night charge diagnostics when available."""
+        if self._runtime_data is None or self._runtime_data.diagnostic_manager is None:
+            return
+
+        await self._runtime_data.diagnostic_manager.async_emit_event(
+            component="Night Smart Charge",
+            event=event,
+            result=result,
+            reason_code=reason_code,
+            reason_detail=reason_detail,
+            raw_values=raw_values,
+            severity=severity,
+            external_cause=external_cause,
+        )
+
     async def _acquire_control(self, action: str, reason: str) -> bool:
         """Acquire coordinator ownership for a charger action."""
         if self._coordinator is None or self._has_control():
@@ -163,6 +189,33 @@ class NightSmartCharge:
         )
         if not allowed:
             self.logger.info(f"Coordinator denied Night Smart Charge action: {denial_reason}")
+            active = self._coordinator.get_active_automation()
+            snapshot = self._coordinator.get_debug_snapshot()
+            if active:
+                timestamp = active.get("timestamp")
+                since = timestamp.strftime("%Y-%m-%d %H:%M:%S") if timestamp else "unknown"
+                self.logger.info(
+                    "Coordinator owner snapshot: "
+                    f"name={active.get('name')}, "
+                    f"priority={active.get('priority')}, "
+                    f"action={active.get('action')}, "
+                    f"reason={active.get('reason')}, "
+                    f"since={since}"
+                )
+            await self._emit_diagnostic(
+                event="coordinator_denied",
+                result="denied",
+                reason_code="coordinator_denied",
+                reason_detail=denial_reason,
+                raw_values={
+                    "requested_action": action,
+                    "requested_reason": reason,
+                    "active_owner": active,
+                    "coordinator_snapshot": snapshot,
+                },
+                severity="warning",
+                external_cause="stale_owner_detected" if "health=stale" in denial_reason else None,
+            )
             return False
         return True
 
@@ -192,6 +245,14 @@ class NightSmartCharge:
 
         if self.is_active():
             self.logger.warning(f"Night Smart Charge lost ownership: {reason}")
+            await self._emit_diagnostic(
+                event="ownership_lost",
+                result="stopped",
+                reason_code="coordinator_denied",
+                reason_detail=reason,
+                raw_values={"active_mode": self._active_mode},
+                severity="warning",
+            )
 
         self._night_charge_active = False
         self._active_mode = NIGHT_CHARGE_MODE_IDLE
@@ -906,7 +967,14 @@ class NightSmartCharge:
             if ev_target_reached:
                 self.logger.success(f"EV at or above target ({ev_soc}% >= {ev_target}%)")
                 self.logger.info("No charging needed")
-    
+                await self._emit_diagnostic(
+                    event="night_charge_evaluation",
+                    result="skipped",
+                    reason_code="target_reached",
+                    reason_detail=f"EV at or above target ({ev_soc}% >= {ev_target}%)",
+                    raw_values={"ev_soc": ev_soc, "ev_target": ev_target},
+                )
+
                 # If we were charging, mark as complete
                 if self.is_active():
                     self.logger.info("Completing active night charge session")
@@ -930,6 +998,20 @@ class NightSmartCharge:
             self.logger.info(f"{self.logger.DECISION} Step 5: Decide charging mode")
     
             if not car_ready_today:
+                await self._emit_diagnostic(
+                    event="night_charge_mode_selected",
+                    result="battery",
+                    reason_code="night_window",
+                    reason_detail=(
+                        "Car ready OFF - battery-only overnight charging "
+                        "(grid disabled; stop at home battery minimum SOC)"
+                    ),
+                    raw_values={
+                        "car_ready": car_ready_today,
+                        "pv_forecast": pv_forecast,
+                        "threshold": threshold,
+                    },
+                )
                 self.logger.decision(
                     "Charging mode",
                     "BATTERY MODE",
@@ -940,6 +1022,17 @@ class NightSmartCharge:
                 )
                 await self._start_battery_charge(pv_forecast)
             elif pv_forecast >= threshold:
+                await self._emit_diagnostic(
+                    event="night_charge_mode_selected",
+                    result="battery",
+                    reason_code="night_window",
+                    reason_detail=f"Good solar forecast ({pv_forecast} kWh >= {threshold} kWh)",
+                    raw_values={
+                        "car_ready": car_ready_today,
+                        "pv_forecast": pv_forecast,
+                        "threshold": threshold,
+                    },
+                )
                 self.logger.decision(
                     "Charging mode",
                     "BATTERY MODE",
@@ -947,6 +1040,17 @@ class NightSmartCharge:
                 )
                 await self._start_battery_charge(pv_forecast)
             else:
+                await self._emit_diagnostic(
+                    event="night_charge_mode_selected",
+                    result="grid",
+                    reason_code="night_window",
+                    reason_detail=f"Low/no solar forecast ({pv_forecast} kWh < {threshold} kWh)",
+                    raw_values={
+                        "car_ready": car_ready_today,
+                        "pv_forecast": pv_forecast,
+                        "threshold": threshold,
+                    },
+                )
                 self.logger.decision(
                     "Charging mode",
                     "GRID MODE",
@@ -1012,6 +1116,17 @@ class NightSmartCharge:
                     "and waiting for solar surplus"
                 )
                 self.logger.info("Night charge session cancelled (waiting for solar)")
+                await self._emit_diagnostic(
+                    event="battery_charge_precheck",
+                    result="skipped",
+                    reason_code="home_battery_min",
+                    reason_detail="Home battery already at minimum, waiting for solar",
+                    raw_values={
+                        "home_soc": home_soc,
+                        "home_min_soc": home_min_soc,
+                        "car_ready": car_ready_today,
+                    },
+                )
                 self.logger.separator()
                 return
 
@@ -1039,6 +1154,18 @@ class NightSmartCharge:
 
             # Start charger with specified amperage
             await self.charger_controller.start_charger(amperage, "Night charge - Battery mode")
+            await self._emit_diagnostic(
+                event="battery_charge_started",
+                result="started",
+                reason_code="command_executed",
+                reason_detail="Battery mode charging started",
+                raw_values={
+                    "amperage": amperage,
+                    "ev_target": ev_target,
+                    "home_min_soc": home_min_soc,
+                    "pv_forecast": pv_forecast,
+                },
+            )
 
             # Send mobile notification with safety logging (v1.3.20, v1.3.21 exception handling)
             try:
@@ -1296,6 +1423,18 @@ class NightSmartCharge:
 
             # Start charger with specified amperage
             await self.charger_controller.start_charger(amperage, "Night charge - Grid mode")
+            await self._emit_diagnostic(
+                event="grid_charge_started",
+                result="started",
+                reason_code="command_executed",
+                reason_detail="Grid mode charging started",
+                raw_values={
+                    "amperage": amperage,
+                    "ev_target": ev_target,
+                    "pv_forecast": pv_forecast,
+                    "threshold": threshold,
+                },
+            )
 
             # Send mobile notification with safety logging (v1.3.20, v1.3.21 exception handling)
             try:
@@ -1539,6 +1678,18 @@ class NightSmartCharge:
         self.logger.info(f"{self.logger.SUCCESS} Completing night charge session")
         self.logger.info(f"   Stop reason: {stop_reason}")
         self.logger.info(f"   Terminal completion: {terminal}")
+        await self._emit_diagnostic(
+            event="night_charge_completed",
+            result="completed" if terminal else "reset",
+            reason_code=stop_reason,
+            reason_detail=stop_reason,
+            raw_values={
+                "terminal": terminal,
+                "previous_mode": self._active_mode,
+                "session_state": self._session_state,
+            },
+            severity="warning" if stop_reason in (STOP_REASON_HOME_BATTERY_MIN, STOP_REASON_GRID_IMPORT_CAR_NOT_READY) else "info",
+        )
 
         # Stop battery monitoring if active
         if self._battery_monitor_unsub:

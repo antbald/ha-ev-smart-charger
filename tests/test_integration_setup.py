@@ -52,6 +52,7 @@ def _component(name: str) -> SimpleNamespace:
     return SimpleNamespace(
         logger=f"{name}-logger",
         async_setup=AsyncMock(),
+        async_refresh=AsyncMock(),
         async_remove=AsyncMock(),
         set_related_automations=Mock(),
     )
@@ -92,6 +93,7 @@ async def test_async_setup_entry_populates_runtime_data_and_component_refs(hass)
     smart_blocker = _component("blocker")
     solar_surplus = _component("solar")
     log_manager = _component("log")
+    diagnostic_manager = _component("diagnostic")
     coordinator = SimpleNamespace()
 
     async def forward_setups(config_entry, platforms):
@@ -114,6 +116,9 @@ async def test_async_setup_entry_populates_runtime_data_and_component_refs(hass)
     ), patch(
         "custom_components.ev_smart_charger.AutomationCoordinator",
         return_value=coordinator,
+    ), patch(
+        "custom_components.ev_smart_charger.DiagnosticManager",
+        return_value=diagnostic_manager,
     ), patch(
         "custom_components.ev_smart_charger.PriorityBalancer",
         return_value=priority_balancer,
@@ -148,10 +153,13 @@ async def test_async_setup_entry_populates_runtime_data_and_component_refs(hass)
     assert runtime_data.smart_blocker is smart_blocker
     assert runtime_data.solar_surplus is solar_surplus
     assert runtime_data.log_manager is log_manager
+    assert runtime_data.diagnostic_manager is diagnostic_manager
     boost_charge.set_related_automations.assert_called_once_with(
         night_smart_charge=night_smart_charge,
         solar_surplus=solar_surplus,
     )
+    diagnostic_manager.async_setup.assert_awaited_once()
+    diagnostic_manager.async_refresh.assert_awaited_once()
     log_manager.async_setup.assert_awaited_once()
 
 
@@ -179,6 +187,54 @@ async def test_async_setup_entry_raises_not_ready_on_registration_timeout(hass) 
             await async_setup_entry(hass, entry)
 
 
+async def test_async_setup_entry_cleans_up_diagnostic_manager_on_late_failure(hass) -> None:
+    """Late setup failures must clean up the diagnostic manager before bubbling up."""
+    entry = MockConfigEntry(domain=DOMAIN, data=_entry_data(), entry_id="entry-1")
+    entry.add_to_hass(hass)
+    _stub_http(hass)
+
+    charger_controller = _component("charger")
+    ev_soc_monitor = _component("soc")
+    priority_balancer = _component("priority")
+    diagnostic_manager = _component("diagnostic")
+    coordinator = SimpleNamespace()
+    priority_balancer.async_setup.side_effect = RuntimeError("priority setup failed")
+
+    async def forward_setups(config_entry, platforms):
+        assert platforms == PLATFORMS
+        runtime_data = config_entry.runtime_data
+        runtime_data.registered_entity_count = TOTAL_INTEGRATION_ENTITIES
+        runtime_data.registration_event.set()
+
+    with patch.object(
+        hass.config_entries,
+        "async_forward_entry_setups",
+        side_effect=forward_setups,
+        autospec=True,
+    ), patch(
+        "custom_components.ev_smart_charger.ChargerController",
+        return_value=charger_controller,
+    ), patch(
+        "custom_components.ev_smart_charger.EVSOCMonitor",
+        return_value=ev_soc_monitor,
+    ), patch(
+        "custom_components.ev_smart_charger.AutomationCoordinator",
+        return_value=coordinator,
+    ), patch(
+        "custom_components.ev_smart_charger.DiagnosticManager",
+        return_value=diagnostic_manager,
+    ), patch(
+        "custom_components.ev_smart_charger.PriorityBalancer",
+        return_value=priority_balancer,
+    ):
+        with pytest.raises(RuntimeError, match="priority setup failed"):
+            await async_setup_entry(hass, entry)
+
+    diagnostic_manager.async_setup.assert_awaited_once()
+    diagnostic_manager.async_remove.assert_awaited_once()
+    ev_soc_monitor.async_remove.assert_awaited_once()
+
+
 async def test_async_unload_entry_removes_components_in_reverse_order(hass) -> None:
     """Unload removes runtime components in reverse setup order and clears runtime data."""
     entry = MockConfigEntry(domain=DOMAIN, data=_entry_data(), entry_id="entry-1")
@@ -197,6 +253,7 @@ async def test_async_unload_entry_removes_components_in_reverse_order(hass) -> N
     runtime_data.boost_charge = remover("boost")
     runtime_data.night_smart_charge = remover("night")
     runtime_data.priority_balancer = remover("priority")
+    runtime_data.diagnostic_manager = remover("diagnostic")
     runtime_data.log_manager = remover("log")
     runtime_data.ev_soc_monitor = remover("soc")
     runtime_data.charger_controller = SimpleNamespace()
@@ -210,5 +267,5 @@ async def test_async_unload_entry_removes_components_in_reverse_order(hass) -> N
         result = await async_unload_entry(hass, entry)
 
     assert result is True
-    assert call_order == ["solar", "blocker", "boost", "night", "priority", "log", "soc"]
+    assert call_order == ["solar", "blocker", "boost", "night", "priority", "diagnostic", "log", "soc"]
     assert entry.runtime_data is None

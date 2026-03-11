@@ -197,9 +197,9 @@ For Night Smart Charge feature:
 
 ### Step 3: Automatic Helper Entities
 
-After setup, the integration **automatically creates 51 entities**:
+After setup, the integration **automatically creates 52 entities**:
 
-- 🔘 **17 Switches** (feature toggles, car ready flags, notifications)
+- 🔘 **18 Switches** (feature toggles, trace logging, car ready flags, notifications)
 - 🔢 **24 Numbers** (intervals, thresholds, delays, targets, boost controls)
 - ⏰ **2 Time** entities (night charge start time, car ready deadline)
 - 📋 **1 Select** (charging profile selector)
@@ -1485,7 +1485,7 @@ cards:
 1. **Helper entities not created**
    - Wait 2 seconds after restart
    - Check: Developer Tools → States → search "evsc"
-   - Should see 51 entities
+   - Should see 52 entities
 
 2. **Entity mappings incorrect**
    - Settings → Devices & Services → EV Smart Charger → Configure
@@ -1591,7 +1591,28 @@ A: Set **Charging Profile** to `manual` and use charger's native controls.
 
 ## 📚 Version History
 
-### Latest: v1.5.7 (2026-03-09) - Smart Blocker Coordinator Release Fix
+### Latest: v1.5.8 (2026-03-11) - Diagnostic Logging and Ownership Hardening
+
+**🎯 Major Reliability Release: traceable diagnostics and stronger coordinator recovery**
+
+**What changed:**
+- New unified diagnostics across coordinator, blocker, night smart charge, and solar surplus
+- New `switch.evsc_trace_logging_enabled` helper for on-demand trace logging
+- Expanded `sensor.evsc_diagnostic` with active owner, denial/release snapshots, trace state, and recent history
+- `Smart Charger Blocker` now detects and releases stale ownership more aggressively, including periodic re-check recovery
+- Night and Solar diagnostics now expose coordinator denial context directly
+
+**Benefits:**
+✅ Overnight charging failures are now diagnosable from logs and sensors without guessing
+✅ Stale ownership is surfaced explicitly instead of appearing as a silent denial
+✅ File logging, coordinator diagnostics, and runtime SSOT are aligned
+✅ Maintainer test entrypoint standardized with `make test`
+
+**Upgrade:** 🟢 RECOMMENDED - Improves observability and reduces hidden coordinator lockouts
+
+---
+
+### Previous: v1.5.7 (2026-03-09) - Smart Blocker Coordinator Release Fix
 
 **🎯 Critical Fix: Night Smart Charge blocked by stale Smart Charger Blocker ownership**
 
@@ -1706,6 +1727,18 @@ Contributions are welcome! Please:
 - Add tests for new features
 - Update documentation
 - Test with Home Assistant 2024.4+
+
+### Running Tests
+
+- Canonical command: `make test`
+- This runs the full suite through the repo-local `.venv` and avoids accidentally using the global Python interpreter
+- If `.venv` is missing, create it and install test dependencies:
+
+```bash
+python3 -m venv .venv
+./.venv/bin/python -m pip install -r requirements_test.txt
+make test
+```
 
 ---
 

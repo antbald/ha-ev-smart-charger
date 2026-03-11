@@ -13,6 +13,7 @@ custom_components/
     runtime.py
     entity_base.py
     automation_coordinator.py
+    diagnostic_manager.py
     charger_controller.py
     priority_balancer.py
     night_smart_charge.py
@@ -31,6 +32,7 @@ custom_components/
 tests/
 docs/
 README.md
+Makefile
 ```
 
 ## 2. Bootstrap and runtime
@@ -42,6 +44,7 @@ README.md
 | `custom_components/ev_smart_charger/entity_base.py` | Shared entity registration, metadata, and runtime-aware base behavior |
 | `custom_components/ev_smart_charger/const.py` | Shared constants, helper suffixes, defaults, and automation priorities |
 | `custom_components/ev_smart_charger/config_flow.py` | Initial setup flow, native reconfigure flow, compatibility options wrapper |
+| `custom_components/ev_smart_charger/diagnostic_manager.py` | Unified diagnostics publisher for runtime events and coordinator snapshots |
 
 ## 3. Charger control and orchestration
 
@@ -60,6 +63,7 @@ README.md
 | File | Responsibility |
 | --- | --- |
 | `custom_components/ev_smart_charger/ev_soc_monitor.py` | Cached EV SOC layer for unreliable cloud sensors |
+| `custom_components/ev_smart_charger/diagnostic_manager.py` | Unified diagnostic sensor state, recent event history, and trace toggle handling |
 | `custom_components/ev_smart_charger/log_manager.py` | File logging toggle and log file path handling |
 | `custom_components/ev_smart_charger/utils/amperage_helper.py` | Amperage math and surplus-control helpers |
 | `custom_components/ev_smart_charger/utils/astral_time_service.py` | Sunrise and sunset window calculations |

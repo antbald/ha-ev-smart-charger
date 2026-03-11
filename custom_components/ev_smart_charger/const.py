@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.5.7"
+VERSION = "1.5.8"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -95,6 +95,7 @@ HELPER_NOTIFY_NIGHT_CHARGE_SUFFIX = "evsc_notify_night_charge_enabled"
 
 # File Logging Switch (v1.3.25)
 HELPER_ENABLE_FILE_LOGGING_SUFFIX = "evsc_enable_file_logging"
+HELPER_TRACE_LOGGING_ENABLED_SUFFIX = "evsc_trace_logging_enabled"
 
 # Numbers - Solar Surplus
 HELPER_CHECK_INTERVAL_SUFFIX = "evsc_check_interval"
@@ -227,4 +228,4 @@ SERVICE_CALL_TIMEOUT = 10  # seconds for service calls
 EV_SOC_MONITOR_INTERVAL = 5  # seconds - polling frequency for cloud sensor reliability
 
 # ========== ENTITY REGISTRATION ==========
-TOTAL_INTEGRATION_ENTITIES = 51
+TOTAL_INTEGRATION_ENTITIES = 52

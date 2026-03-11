@@ -121,8 +121,9 @@ class LogManager:
         if self._runtime_data is not None:
             self._toggle_entity = self._runtime_data.get_entity_id(HELPER_ENABLE_FILE_LOGGING_SUFFIX)
 
-        # Temporary compatibility fallback for older installs/tests
-        if not self._toggle_entity:
+        # Compatibility fallback for standalone tests only.
+        # Production code paths must resolve integration entities via runtime_data.
+        if not self._toggle_entity and self._runtime_data is None:
             for entity_id in self.hass.states.async_entity_ids():
                 if entity_id.endswith(HELPER_ENABLE_FILE_LOGGING_SUFFIX):
                     self._toggle_entity = entity_id

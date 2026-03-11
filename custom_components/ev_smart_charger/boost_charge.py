@@ -72,6 +72,32 @@ class BoostCharge:
         self._boost_switch_unsub = None
         self._soc_read_failures = 0
 
+    async def _emit_diagnostic(
+        self,
+        *,
+        event: str,
+        result: str,
+        reason_code: str,
+        reason_detail: str,
+        raw_values: dict | None = None,
+        severity: str = "info",
+        external_cause: str | None = None,
+    ) -> None:
+        """Publish structured boost diagnostics when available."""
+        if self._runtime_data is None or self._runtime_data.diagnostic_manager is None:
+            return
+
+        await self._runtime_data.diagnostic_manager.async_emit_event(
+            component="Boost Charge",
+            event=event,
+            result=result,
+            reason_code=reason_code,
+            reason_detail=reason_detail,
+            raw_values=raw_values,
+            severity=severity,
+            external_cause=external_cause,
+        )
+
     async def async_setup(self) -> None:
         """Set up Boost Charge automation."""
         self._boost_switch_entity = self._resolve_entity(HELPER_BOOST_CHARGE_ENABLED_SUFFIX)
@@ -261,6 +287,17 @@ class BoostCharge:
             start_soc=current_soc,
             target_soc=target_soc,
         )
+        await self._emit_diagnostic(
+            event="boost_started",
+            result="started",
+            reason_code="control_acquired",
+            reason_detail=f"Boost Charge started toward {target_soc}%",
+            raw_values={
+                "target_soc": target_soc,
+                "target_amps": target_amps,
+                "start_soc": current_soc,
+            },
+        )
 
         self.logger.success(
             f"Boost Charge started at {target_amps}A toward target {target_soc}%"
@@ -378,11 +415,36 @@ class BoostCharge:
         if request_recheck:
             await self._request_normal_recheck()
 
+        await self._emit_diagnostic(
+            event="boost_completed",
+            result="completed" if success else "stopped",
+            reason_code="target_reached" if success else "session_stopped",
+            reason_detail=reason,
+            raw_values={
+                "stop_charger": stop_charger,
+                "notify": notify,
+                "success": success,
+                "end_soc": end_soc,
+            },
+            severity="warning" if not success else "info",
+        )
         self.logger.info(f"Boost Charge completed: {reason}")
 
     async def _handle_start_failure(self, message: str) -> None:
         """Reset boost switch and notify when start validation fails."""
         await self._set_boost_switch(False)
+        await self._emit_diagnostic(
+            event="boost_start_failed",
+            result="failed",
+            reason_code="boost_start_failed",
+            reason_detail=message,
+            raw_values={
+                "target_soc": self.get_target_soc(),
+                "target_amps": self.get_target_amperage(),
+            },
+            severity="warning",
+            external_cause="coordinator_denied" if "coordinator" in message.lower() else None,
+        )
         await self._notification_service.send_warning(
             translate_runtime(self.hass, "boost.title.not_started"),
             message,

@@ -30,6 +30,7 @@ from .boost_charge import BoostCharge
 from .automations import SmartChargerBlocker
 from .solar_surplus import SolarSurplusAutomation
 from .log_manager import LogManager
+from .diagnostic_manager import DiagnosticManager
 from .runtime import EVSCRuntimeData, get_runtime_data
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,6 +65,30 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
     )
 
 
+async def _async_cleanup_partial_setup(runtime_data: EVSCRuntimeData) -> None:
+    """Clean up partially initialized runtime services after setup failures."""
+    cleanup_order = [
+        ("solar_surplus", "Solar Surplus automation"),
+        ("smart_blocker", "Smart Charger Blocker"),
+        ("boost_charge", "Boost Charge"),
+        ("night_smart_charge", "Night Smart Charge"),
+        ("priority_balancer", "Priority Balancer"),
+        ("diagnostic_manager", "Diagnostic Manager"),
+        ("log_manager", "Log Manager"),
+        ("ev_soc_monitor", "EV SOC Monitor"),
+    ]
+
+    for attr_name, label in cleanup_order:
+        component = getattr(runtime_data, attr_name, None)
+        if component is None or not hasattr(component, "async_remove"):
+            continue
+        try:
+            _LOGGER.info("🧹 Partial setup cleanup: removing %s", label)
+            await component.async_remove()
+        except Exception:
+            _LOGGER.exception("Failed partial setup cleanup for %s", label)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up EV Smart Charger from a config entry."""
     hass.data.setdefault(DOMAIN, {})
@@ -87,6 +112,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         await asyncio.wait_for(runtime_data.registration_event.wait(), timeout=10)
     except TimeoutError as err:
+        entry.runtime_data = None
         raise ConfigEntryNotReady(
             "Timed out while waiting for EV Smart Charger helper entities registration"
         ) from err
@@ -96,151 +122,177 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         runtime_data.registered_entity_count,
     )
 
-    # ========== PHASE 2: CREATE CHARGER CONTROLLER (Centralized Charger Control) ==========
-    _LOGGER.info("🔌 Phase 2: Creating Charger Controller")
-    charger_controller = ChargerController(hass, entry.entry_id, entry.data, runtime_data=runtime_data)
     try:
-        await charger_controller.async_setup()
-        _LOGGER.info("✅ Charger Controller setup complete")
-    except Exception as e:
-        _LOGGER.error(f"❌ Failed to set up Charger Controller: {e}")
-        _LOGGER.exception("Charger Controller setup error details:")
-        raise
-
-    # ========== PHASE 2.5: CREATE EV SOC MONITOR (Cache Reliability Layer) ==========
-    _LOGGER.info("⏳ Phase 2.5: Creating EV SOC Monitor (cache reliability)")
-    ev_soc_monitor = EVSOCMonitor(hass, entry.entry_id, entry.data, runtime_data=runtime_data)
-    try:
-        await ev_soc_monitor.async_setup()
-        _LOGGER.info("✅ EV SOC Monitor setup complete")
-    except Exception as e:
-        _LOGGER.error(f"❌ Failed to set up EV SOC Monitor: {e}")
-        _LOGGER.exception("EV SOC Monitor setup error details:")
-        raise
-
-    # ========== PHASE 3: CREATE AUTOMATION COORDINATOR ==========
-    _LOGGER.info("🔧 Phase 3: Creating Automation Coordinator")
-    coordinator = AutomationCoordinator(hass, entry.entry_id, runtime_data=runtime_data)
-    _LOGGER.info("✅ Automation Coordinator created")
-
-    # ========== PHASE 4: CREATE PRIORITY BALANCER (Independent Component) ==========
-    _LOGGER.info("⚖️  Phase 4: Creating Priority Balancer")
-    priority_balancer = PriorityBalancer(hass, entry.entry_id, entry.data, runtime_data=runtime_data)
-    try:
-        await priority_balancer.async_setup()
-        _LOGGER.info("✅ Priority Balancer setup complete")
-    except Exception as e:
-        _LOGGER.error(f"❌ Failed to set up Priority Balancer: {e}")
-        _LOGGER.exception("Priority Balancer setup error details:")
-        raise
-
-    # ========== PHASE 5: CREATE NIGHT SMART CHARGE (depends on Priority Balancer & Charger Controller) ==========
-    _LOGGER.info("🌙 Phase 5: Creating Night Smart Charge")
-    night_smart_charge = NightSmartCharge(
-        hass,
-        entry.entry_id,
-        entry.data,
-        priority_balancer,
-        charger_controller,
-        runtime_data=runtime_data,
-        coordinator=coordinator,
-    )
-    try:
-        await night_smart_charge.async_setup()
-        _LOGGER.info("✅ Night Smart Charge setup complete")
-    except Exception as e:
-        _LOGGER.error(f"❌ Failed to set up Night Smart Charge: {e}")
-        _LOGGER.exception("Night Smart Charge setup error details:")
-        night_smart_charge = None
-
-    # ========== PHASE 5.5: CREATE BOOST CHARGE ==========
-    _LOGGER.info("⚡ Phase 5.5: Creating Boost Charge")
-    boost_charge = BoostCharge(
-        hass,
-        entry.entry_id,
-        entry.data,
-        priority_balancer,
-        charger_controller,
-        runtime_data=runtime_data,
-        coordinator=coordinator,
-        night_smart_charge=night_smart_charge,
-    )
-    try:
-        await boost_charge.async_setup()
-        _LOGGER.info("✅ Boost Charge setup complete")
-    except Exception as e:
-        _LOGGER.error(f"❌ Failed to set up Boost Charge: {e}")
-        _LOGGER.exception("Boost Charge setup error details:")
-        boost_charge = None
-
-    # ========== PHASE 6: CREATE SMART BLOCKER (depends on Night Smart Charge & Charger Controller) ==========
-    _LOGGER.info("🚫 Phase 6: Creating Smart Charger Blocker")
-    smart_blocker = SmartChargerBlocker(
-        hass,
-        entry.entry_id,
-        entry.data,
-        night_smart_charge,
-        charger_controller,
-        runtime_data=runtime_data,
-        coordinator=coordinator,
-        boost_charge=boost_charge,
-    )
-    try:
-        await smart_blocker.async_setup()
-        _LOGGER.info("✅ Smart Charger Blocker setup complete")
-    except Exception as e:
-        _LOGGER.error(f"❌ Failed to set up Smart Charger Blocker: {e}")
-        _LOGGER.exception("Smart Blocker setup error details:")
-        smart_blocker = None
-
-    # ========== PHASE 7: CREATE SOLAR SURPLUS (depends on Priority Balancer & Charger Controller) ==========
-    _LOGGER.info("☀️  Phase 7: Creating Solar Surplus automation")
-    solar_surplus = SolarSurplusAutomation(
-        hass,
-        entry.entry_id,
-        entry.data,
-        priority_balancer,
-        charger_controller,
-        runtime_data=runtime_data,
-        night_smart_charge=night_smart_charge,
-        coordinator=coordinator,
-        boost_charge=boost_charge,
-    )
-    try:
-        await solar_surplus.async_setup()
-        _LOGGER.info("✅ Solar Surplus automation setup complete")
-    except Exception as e:
-        _LOGGER.error(f"❌ Failed to set up Solar Surplus: {e}")
-        _LOGGER.exception("Solar Surplus setup error details:")
-        solar_surplus = None
-
-    if boost_charge:
-        boost_charge.set_related_automations(
-            night_smart_charge=night_smart_charge,
-            solar_surplus=solar_surplus,
+        # ========== PHASE 2: CREATE CHARGER CONTROLLER (Centralized Charger Control) ==========
+        _LOGGER.info("🔌 Phase 2: Creating Charger Controller")
+        charger_controller = ChargerController(
+            hass, entry.entry_id, entry.data, runtime_data=runtime_data
         )
+        try:
+            await charger_controller.async_setup()
+            _LOGGER.info("✅ Charger Controller setup complete")
+            runtime_data.charger_controller = charger_controller
+        except Exception as e:
+            _LOGGER.error(f"❌ Failed to set up Charger Controller: {e}")
+            _LOGGER.exception("Charger Controller setup error details:")
+            raise
 
-    # ========== PHASE 7.5: SETUP FILE LOGGING (v1.3.25) ==========
-    _LOGGER.info("📝 Phase 7.5: Setting up file logging manager")
+        # ========== PHASE 2.5: CREATE EV SOC MONITOR (Cache Reliability Layer) ==========
+        _LOGGER.info("⏳ Phase 2.5: Creating EV SOC Monitor (cache reliability)")
+        ev_soc_monitor = EVSOCMonitor(hass, entry.entry_id, entry.data, runtime_data=runtime_data)
+        runtime_data.ev_soc_monitor = ev_soc_monitor
+        try:
+            await ev_soc_monitor.async_setup()
+            _LOGGER.info("✅ EV SOC Monitor setup complete")
+        except Exception as e:
+            _LOGGER.error(f"❌ Failed to set up EV SOC Monitor: {e}")
+            _LOGGER.exception("EV SOC Monitor setup error details:")
+            raise
 
-    # Collect all EVSCLogger instances from components
-    evsc_loggers = [
-        charger_controller.logger,
-        priority_balancer.logger,
-    ]
+        # ========== PHASE 3: CREATE AUTOMATION COORDINATOR ==========
+        _LOGGER.info("🔧 Phase 3: Creating Automation Coordinator")
+        coordinator = AutomationCoordinator(hass, entry.entry_id, runtime_data=runtime_data)
+        _LOGGER.info("✅ Automation Coordinator created")
+        runtime_data.coordinator = coordinator
 
-    if night_smart_charge:
-        evsc_loggers.append(night_smart_charge.logger)
-    if smart_blocker:
-        evsc_loggers.append(smart_blocker.logger)
-    if solar_surplus:
-        evsc_loggers.append(solar_surplus.logger)
-    if boost_charge:
-        evsc_loggers.append(boost_charge.logger)
+        # ========== PHASE 3.5: CREATE DIAGNOSTIC MANAGER ==========
+        _LOGGER.info("🩺 Phase 3.5: Creating Diagnostic Manager")
+        diagnostic_manager = DiagnosticManager(hass, entry.entry_id, runtime_data)
+        runtime_data.diagnostic_manager = diagnostic_manager
+        await diagnostic_manager.async_setup()
+        _LOGGER.info("✅ Diagnostic Manager setup complete")
 
-    # Setup log manager with toggle listener
-    log_manager = LogManager(hass, entry.entry_id, runtime_data=runtime_data)
-    await log_manager.async_setup(evsc_loggers)
+        # ========== PHASE 4: CREATE PRIORITY BALANCER (Independent Component) ==========
+        _LOGGER.info("⚖️  Phase 4: Creating Priority Balancer")
+        priority_balancer = PriorityBalancer(
+            hass, entry.entry_id, entry.data, runtime_data=runtime_data
+        )
+        runtime_data.priority_balancer = priority_balancer
+        try:
+            await priority_balancer.async_setup()
+            _LOGGER.info("✅ Priority Balancer setup complete")
+        except Exception as e:
+            _LOGGER.error(f"❌ Failed to set up Priority Balancer: {e}")
+            _LOGGER.exception("Priority Balancer setup error details:")
+            raise
+
+        # ========== PHASE 5: CREATE NIGHT SMART CHARGE (depends on Priority Balancer & Charger Controller) ==========
+        _LOGGER.info("🌙 Phase 5: Creating Night Smart Charge")
+        night_smart_charge = NightSmartCharge(
+            hass,
+            entry.entry_id,
+            entry.data,
+            priority_balancer,
+            charger_controller,
+            runtime_data=runtime_data,
+            coordinator=coordinator,
+        )
+        try:
+            await night_smart_charge.async_setup()
+            _LOGGER.info("✅ Night Smart Charge setup complete")
+            runtime_data.night_smart_charge = night_smart_charge
+        except Exception as e:
+            _LOGGER.error(f"❌ Failed to set up Night Smart Charge: {e}")
+            _LOGGER.exception("Night Smart Charge setup error details:")
+            night_smart_charge = None
+
+        # ========== PHASE 5.5: CREATE BOOST CHARGE ==========
+        _LOGGER.info("⚡ Phase 5.5: Creating Boost Charge")
+        boost_charge = BoostCharge(
+            hass,
+            entry.entry_id,
+            entry.data,
+            priority_balancer,
+            charger_controller,
+            runtime_data=runtime_data,
+            coordinator=coordinator,
+            night_smart_charge=night_smart_charge,
+        )
+        try:
+            await boost_charge.async_setup()
+            _LOGGER.info("✅ Boost Charge setup complete")
+            runtime_data.boost_charge = boost_charge
+        except Exception as e:
+            _LOGGER.error(f"❌ Failed to set up Boost Charge: {e}")
+            _LOGGER.exception("Boost Charge setup error details:")
+            boost_charge = None
+
+        # ========== PHASE 6: CREATE SMART BLOCKER (depends on Night Smart Charge & Charger Controller) ==========
+        _LOGGER.info("🚫 Phase 6: Creating Smart Charger Blocker")
+        smart_blocker = SmartChargerBlocker(
+            hass,
+            entry.entry_id,
+            entry.data,
+            night_smart_charge,
+            charger_controller,
+            runtime_data=runtime_data,
+            coordinator=coordinator,
+            boost_charge=boost_charge,
+        )
+        try:
+            await smart_blocker.async_setup()
+            _LOGGER.info("✅ Smart Charger Blocker setup complete")
+            runtime_data.smart_blocker = smart_blocker
+        except Exception as e:
+            _LOGGER.error(f"❌ Failed to set up Smart Charger Blocker: {e}")
+            _LOGGER.exception("Smart Blocker setup error details:")
+            smart_blocker = None
+
+        # ========== PHASE 7: CREATE SOLAR SURPLUS (depends on Priority Balancer & Charger Controller) ==========
+        _LOGGER.info("☀️  Phase 7: Creating Solar Surplus automation")
+        solar_surplus = SolarSurplusAutomation(
+            hass,
+            entry.entry_id,
+            entry.data,
+            priority_balancer,
+            charger_controller,
+            runtime_data=runtime_data,
+            night_smart_charge=night_smart_charge,
+            coordinator=coordinator,
+            boost_charge=boost_charge,
+        )
+        try:
+            await solar_surplus.async_setup()
+            _LOGGER.info("✅ Solar Surplus automation setup complete")
+            runtime_data.solar_surplus = solar_surplus
+        except Exception as e:
+            _LOGGER.error(f"❌ Failed to set up Solar Surplus: {e}")
+            _LOGGER.exception("Solar Surplus setup error details:")
+            solar_surplus = None
+
+        if boost_charge:
+            boost_charge.set_related_automations(
+                night_smart_charge=night_smart_charge,
+                solar_surplus=solar_surplus,
+            )
+
+        # ========== PHASE 7.5: SETUP FILE LOGGING (v1.3.25) ==========
+        _LOGGER.info("📝 Phase 7.5: Setting up file logging manager")
+
+        # Collect all EVSCLogger instances from components
+        evsc_loggers = [
+            charger_controller.logger,
+            priority_balancer.logger,
+        ]
+
+        if night_smart_charge:
+            evsc_loggers.append(night_smart_charge.logger)
+        if smart_blocker:
+            evsc_loggers.append(smart_blocker.logger)
+        if solar_surplus:
+            evsc_loggers.append(solar_surplus.logger)
+        if boost_charge:
+            evsc_loggers.append(boost_charge.logger)
+
+        # Setup log manager with toggle listener
+        log_manager = LogManager(hass, entry.entry_id, runtime_data=runtime_data)
+        runtime_data.log_manager = log_manager
+        await log_manager.async_setup(evsc_loggers)
+        await diagnostic_manager.async_refresh()
+    except Exception:
+        await _async_cleanup_partial_setup(runtime_data)
+        entry.runtime_data = None
+        raise
 
     _LOGGER.info(f"✅ Log manager setup complete ({len(evsc_loggers)} loggers)")
 
@@ -255,6 +307,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime_data.smart_blocker = smart_blocker
     runtime_data.solar_surplus = solar_surplus
     runtime_data.log_manager = log_manager
+    runtime_data.diagnostic_manager = diagnostic_manager
 
     # Register update listener
     entry.async_on_unload(entry.add_update_listener(_reload_on_update))
@@ -305,6 +358,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if priority_balancer:
         _LOGGER.info("🗑️  Removing Priority Balancer")
         await priority_balancer.async_remove()
+
+    diagnostic_manager = runtime_data.diagnostic_manager
+    if diagnostic_manager:
+        _LOGGER.info("🗑️  Removing Diagnostic Manager")
+        await diagnostic_manager.async_remove()
 
     log_manager = runtime_data.log_manager
     if log_manager:

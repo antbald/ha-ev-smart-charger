@@ -6,6 +6,7 @@ import pytest
 from custom_components.ev_smart_charger.automation_coordinator import (
     AutomationCoordinator,
     PRIORITY_BOOST_CHARGE,
+    PRIORITY_SMART_BLOCKER,
     PRIORITY_SOLAR_SURPLUS,
 )
 from custom_components.ev_smart_charger.runtime import EVSCRuntimeData
@@ -117,6 +118,70 @@ async def test_action_history_limit_and_queries(hass) -> None:
 
     history = coordinator.get_action_history(limit=5)
 
-    assert len(coordinator.get_action_history(limit=0)) == 50
+    assert len(coordinator.get_action_history(limit=0)) == 55
     assert len(history) == 5
     assert history[-1]["automation"] == "Automation 54"
+
+
+async def test_debug_snapshot_marks_stale_blocker_owner(hass) -> None:
+    """Debug snapshot exposes stale blocker ownership when coordinator owner is inconsistent."""
+    runtime_data = EVSCRuntimeData(config={}, expected_entity_count=0)
+    runtime_data.smart_blocker = type("Blocker", (), {"_currently_blocking": False})()
+    coordinator = AutomationCoordinator(hass, "entry-1", runtime_data=runtime_data)
+
+    allowed, _ = await coordinator.request_charger_action(
+        "Smart Charger Blocker",
+        "turn_off",
+        "Night block",
+        PRIORITY_SMART_BLOCKER,
+    )
+    assert allowed is True
+
+    blocked, reason = await coordinator.request_charger_action(
+        "Solar Surplus",
+        "turn_on",
+        "Solar available",
+        PRIORITY_SOLAR_SURPLUS,
+    )
+
+    snapshot = coordinator.get_debug_snapshot()
+
+    assert blocked is False
+    assert "health=stale" in reason
+    assert snapshot["owner_health"] == "stale"
+    assert snapshot["active_automation"]["name"] == "Smart Charger Blocker"
+
+
+async def test_debug_snapshot_treats_pending_blocker_sequence_as_active(hass) -> None:
+    """Pending blocker enforcement must not be reported as stale ownership."""
+    runtime_data = EVSCRuntimeData(config={}, expected_entity_count=0)
+    runtime_data.smart_blocker = type(
+        "Blocker",
+        (),
+        {
+            "_currently_blocking": False,
+            "_blocking_sequence_in_progress": True,
+        },
+    )()
+    coordinator = AutomationCoordinator(hass, "entry-1", runtime_data=runtime_data)
+
+    allowed, _ = await coordinator.request_charger_action(
+        "Smart Charger Blocker",
+        "turn_off",
+        "Night block",
+        PRIORITY_SMART_BLOCKER,
+    )
+    assert allowed is True
+
+    blocked, reason = await coordinator.request_charger_action(
+        "Solar Surplus",
+        "turn_on",
+        "Solar available",
+        PRIORITY_SOLAR_SURPLUS,
+    )
+
+    snapshot = coordinator.get_debug_snapshot()
+
+    assert blocked is False
+    assert "health=active" in reason
+    assert snapshot["owner_health"] == "active"

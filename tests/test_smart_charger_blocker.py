@@ -187,3 +187,41 @@ async def test_night_charge_can_acquire_control_after_blocker_allows(hass, block
     assert allowed is True
     assert reason == "Action allowed"
     assert coordinator.is_automation_active("Night Smart Charge") is True
+
+
+async def test_periodic_recheck_releases_blocker_when_conditions_clear(hass, blocker):
+    """Periodic re-check must release blocker ownership after the blocking window ends."""
+    coordinator = await _assign_blocker_control(blocker, hass)
+    hass.states.async_set("switch.force_charge", "off")
+    hass.states.async_set("switch.blocker_enabled", "on")
+    blocker._astral_service.is_in_blocking_window.return_value = (
+        False,
+        "Outside blocking window (daytime allowed)",
+    )
+
+    await blocker._async_periodic_enforcement_check(datetime(2026, 3, 9, 7, 0, 0))
+
+    assert blocker._currently_blocking is False
+    assert blocker._enforcement_start_time is None
+    assert coordinator.get_active_automation() is None
+
+
+async def test_periodic_recheck_releases_stale_owner_without_enforcement(hass, blocker):
+    """Periodic re-check must release stale coordinator ownership even without enforcement state."""
+    coordinator = AutomationCoordinator(hass, "test-entry")
+    blocker._coordinator = coordinator
+
+    allowed, _ = await coordinator.request_charger_action(
+        automation_name="Smart Charger Blocker",
+        action="turn_off",
+        reason="Stale owner",
+        priority=PRIORITY_SMART_BLOCKER,
+    )
+
+    assert allowed is True
+    assert coordinator.is_automation_active("Smart Charger Blocker") is True
+    assert blocker._currently_blocking is False
+
+    await blocker._async_periodic_enforcement_check(datetime(2026, 3, 9, 7, 0, 0))
+
+    assert coordinator.get_active_automation() is None

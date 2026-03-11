@@ -1,10 +1,10 @@
 """Automations for EV Smart Charger."""
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.const import STATE_ON
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -78,6 +78,7 @@ class SmartChargerBlocker:
         self._unsub_switch = None
         self._unsub_blocker = None
         self._unsub_enforcement = None
+        self._unsub_periodic_check = None
 
         # Helper entities - will be found in async_setup
         self._forza_ricarica_entity = None
@@ -86,11 +87,86 @@ class SmartChargerBlocker:
 
         # Enforcement state tracking
         self._currently_blocking = False
+        self._blocking_sequence_in_progress = False
         self._enforcement_start_time = None
+
+    async def _emit_diagnostic(
+        self,
+        *,
+        event: str,
+        result: str,
+        reason_code: str,
+        reason_detail: str,
+        raw_values: dict | None = None,
+        severity: str = "info",
+        external_cause: str | None = None,
+    ) -> None:
+        """Publish structured blocker diagnostics when available."""
+        if self._runtime_data is None or self._runtime_data.diagnostic_manager is None:
+            return
+
+        await self._runtime_data.diagnostic_manager.async_emit_event(
+            component="Smart Charger Blocker",
+            event=event,
+            result=result,
+            reason_code=reason_code,
+            reason_detail=reason_detail,
+            raw_values=raw_values,
+            severity=severity,
+            external_cause=external_cause,
+        )
+
+    def _schedule_diagnostic(
+        self,
+        *,
+        event: str,
+        result: str,
+        reason_code: str,
+        reason_detail: str,
+        raw_values: dict | None = None,
+        severity: str = "info",
+        external_cause: str | None = None,
+    ) -> None:
+        """Schedule a structured diagnostic event from sync code."""
+        if self._runtime_data is None or self._runtime_data.diagnostic_manager is None:
+            return
+
+        self.hass.async_create_task(
+            self._emit_diagnostic(
+                event=event,
+                result=result,
+                reason_code=reason_code,
+                reason_detail=reason_detail,
+                raw_values=raw_values,
+                severity=severity,
+                external_cause=external_cause,
+            )
+        )
 
     def _clear_blocking_state(self, reason: str) -> None:
         """Reset enforcement state and release coordinator ownership."""
+        if (
+            self._currently_blocking
+            or self._blocking_sequence_in_progress
+            or self._enforcement_start_time is not None
+        ):
+            self.logger.info(f"Clearing blocking state: {reason}")
+            self._schedule_diagnostic(
+                event="blocker_state_cleared",
+                result="released",
+                reason_code=(
+                    "stale_owner_released"
+                    if "stale" in reason.lower()
+                    else "control_released"
+                ),
+                reason_detail=reason,
+                raw_values={
+                    "currently_blocking": self._currently_blocking,
+                    "blocking_sequence_in_progress": self._blocking_sequence_in_progress,
+                },
+            )
         self._currently_blocking = False
+        self._blocking_sequence_in_progress = False
         self._enforcement_start_time = None
 
         if self._coordinator:
@@ -154,12 +230,18 @@ class SmartChargerBlocker:
         self._unsub_enforcement = async_track_state_change_event(
             self.hass, charger_switch_entity, self._async_enforcement_monitor
         )
+        self._unsub_periodic_check = async_track_time_interval(
+            self.hass,
+            self._async_periodic_enforcement_check,
+            timedelta(minutes=1),
+        )
 
         self.logger.success("Setup completed")
         self.logger.info(f"Monitoring charger status: {charger_status_entity}")
         self.logger.info(f"Monitoring charger switch: {charger_switch_entity}")
         self.logger.info(f"Monitoring blocker switch: {self._blocker_enabled_entity or 'Not configured (enabled by default)'}")
         self.logger.info("Continuous enforcement monitoring enabled")
+        self.logger.info("Periodic enforcement re-check enabled (1 minute)")
         self.logger.separator()
 
     async def async_remove(self) -> None:
@@ -172,6 +254,8 @@ class SmartChargerBlocker:
             self._unsub_blocker()
         if self._unsub_enforcement:
             self._unsub_enforcement()
+        if self._unsub_periodic_check:
+            self._unsub_periodic_check()
         self.logger.info("Smart Charger Blocker automation removed")
 
     @callback
@@ -284,6 +368,38 @@ class SmartChargerBlocker:
                     f"Blocking no longer needed: {block_reason}"
                 )
 
+    @callback
+    async def _async_periodic_enforcement_check(self, now: datetime) -> None:
+        """Re-evaluate enforcement even when the charger switch stays idle.
+
+        Without a periodic check, stale coordinator ownership can survive until the
+        next charger state change, blocking Night Smart Charge or Solar Surplus.
+        """
+        should_exit = False
+        exit_reason = "Enforcement should continue"
+        if self._currently_blocking:
+            should_exit, exit_reason = await self._should_exit_enforcement_mode()
+        if should_exit:
+            self.logger.info("Periodic re-check exiting enforcement mode")
+            self.logger.info(f"Reason: {exit_reason}")
+            self._clear_blocking_state(exit_reason)
+            return
+
+        if self._coordinator and self._coordinator.is_automation_active("Smart Charger Blocker"):
+            self.logger.warning(
+                "Coordinator ownership is stale while blocker is not enforcing; releasing control"
+            )
+            self._schedule_diagnostic(
+                event="periodic_recheck",
+                result="released",
+                reason_code="stale_owner_released",
+                reason_detail="Coordinator ownership is stale while blocker is not enforcing",
+                raw_values={"currently_blocking": self._currently_blocking},
+                severity="warning",
+                external_cause="stale_owner_detected",
+            )
+            self._clear_blocking_state("Stale blocker ownership detected during periodic re-check")
+
     async def _check_and_block_if_needed(self, trigger_reason: str) -> None:
         """Common logic to check conditions and block if needed."""
         self.logger.separator()
@@ -318,9 +434,23 @@ class SmartChargerBlocker:
 
         if should_block:
             self.logger.decision("Blocking", "BLOCK CHARGING", reason)
+            await self._emit_diagnostic(
+                event="blocking_evaluation",
+                result="blocking",
+                reason_code="blocking_window",
+                reason_detail=reason,
+                raw_values={"trigger_reason": trigger_reason},
+            )
             await self._block_charging(f"{trigger_reason} - {reason}")
         else:
             self.logger.decision("Allowing", "ALLOW CHARGING", reason)
+            await self._emit_diagnostic(
+                event="blocking_evaluation",
+                result="allowing",
+                reason_code="blocking_window_clear",
+                reason_detail=reason,
+                raw_values={"trigger_reason": trigger_reason},
+            )
             self._clear_blocking_state(f"Allow charging: {reason}")
 
         self.logger.separator()
@@ -473,7 +603,20 @@ class SmartChargerBlocker:
 
         # Check 1: Timeout reached
         if self._enforcement_start_time:
-            elapsed = (dt_util.now() - self._enforcement_start_time).total_seconds()
+            current_time = dt_util.now()
+            if (
+                self._enforcement_start_time.tzinfo is None
+                and current_time.tzinfo is not None
+            ):
+                current_time = current_time.replace(tzinfo=None)
+            elif (
+                self._enforcement_start_time.tzinfo is not None
+                and current_time.tzinfo is None
+            ):
+                current_time = current_time.replace(
+                    tzinfo=self._enforcement_start_time.tzinfo
+                )
+            elapsed = (current_time - self._enforcement_start_time).total_seconds()
             if elapsed > ENFORCEMENT_TIMEOUT_SECONDS:
                 return True, f"Enforcement timeout reached ({elapsed / 60:.1f} minutes)"
 
@@ -498,6 +641,8 @@ class SmartChargerBlocker:
 
     async def _block_charging(self, reason: str) -> None:
         """Block charging by using ChargerController to stop the charger."""
+        self._blocking_sequence_in_progress = True
+
         # Request permission from coordinator
         if self._coordinator:
             allowed, coord_reason = await self._coordinator.request_charger_action(
@@ -508,8 +653,17 @@ class SmartChargerBlocker:
             )
 
             if not allowed:
+                self._blocking_sequence_in_progress = False
                 self.logger.warning("Blocked by coordinator")
                 self.logger.warning(f"Reason: {coord_reason}")
+                await self._emit_diagnostic(
+                    event="block_charging",
+                    result="denied",
+                    reason_code="coordinator_denied",
+                    reason_detail=coord_reason,
+                    raw_values={"reason": reason},
+                    severity="warning",
+                )
                 return
 
         # Use ChargerController to stop charger
@@ -532,7 +686,19 @@ class SmartChargerBlocker:
 
             # Set enforcement flag and timestamp
             self._currently_blocking = True
+            self._blocking_sequence_in_progress = False
             self._enforcement_start_time = dt_util.now()
+            await self._emit_diagnostic(
+                event="block_charging",
+                result="blocked",
+                reason_code="blocking_window",
+                reason_detail=reason,
+                raw_values={
+                    "enforcement_timeout_seconds": ENFORCEMENT_TIMEOUT_SECONDS,
+                    "currently_blocking": self._currently_blocking,
+                },
+                severity="warning",
+            )
 
             self.logger.success("Charger successfully blocked")
             self.logger.info("Enforcement: ACTIVE (continuous monitoring enabled)")
@@ -559,6 +725,7 @@ class SmartChargerBlocker:
             self.logger.separator()
 
         except Exception as e:
+            self._clear_blocking_state(f"Blocking failed: {e}")
             self.logger.error(f"Failed to block charging: {e}")
 
             # Send error notification

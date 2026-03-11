@@ -27,6 +27,7 @@ class EVSCRuntimeData:
     smart_blocker: Any | None = None
     solar_surplus: Any | None = None
     log_manager: Any | None = None
+    diagnostic_manager: Any | None = None
 
     def register_entity(self, key: str, entity_id: str, entity: Any) -> None:
         """Register an integration-owned entity."""

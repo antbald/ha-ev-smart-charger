@@ -162,6 +162,37 @@ class ChargerController:
             self._charger_current,
         )
 
+    async def _emit_operation_diagnostic(
+        self,
+        operation: str,
+        result: str,
+        *,
+        reason_code: str,
+        reason_detail: str,
+        target_amps: int | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Publish a structured diagnostic event for controller operations."""
+        if self._runtime_data is None or self._runtime_data.diagnostic_manager is None:
+            return
+
+        await self._runtime_data.diagnostic_manager.async_emit_event(
+            component="Charger Controller",
+            event=operation,
+            result=result,
+            reason_code=reason_code,
+            reason_detail=reason_detail,
+            raw_values={
+                "target_amps": target_amps,
+                "current_amps": self._current_amperage,
+                "charger_on": self._is_on,
+                "charger_switch": self._charger_switch,
+                "current_entity": self._charger_current,
+                "error_message": error_message,
+            },
+            severity="warning" if result == "failed" else "info",
+        )
+
     async def async_setup(self):
         """Setup controller and validate capabilities."""
         self.logger.info("Setting up ChargerController")
@@ -208,6 +239,13 @@ class ChargerController:
 
                 self._record_operation_time()
                 await self._refresh_state()
+                await self._emit_operation_diagnostic(
+                    "charger_start",
+                    "succeeded",
+                    reason_code="command_executed",
+                    reason_detail=reason or "No reason provided",
+                    target_amps=self._current_amperage,
+                )
                 return OperationResult(
                     success=True,
                     operation="start",
@@ -216,6 +254,16 @@ class ChargerController:
                 )
             except Exception as ex:
                 self.logger.error("Failed to start charger: %s", ex)
+                await self._emit_operation_diagnostic(
+                    "charger_start",
+                    "failed",
+                    reason_code="command_failed",
+                    reason_detail=reason or "No reason provided",
+                    target_amps=self._normalize_target_amps(target_amps)
+                    if target_amps is not None
+                    else None,
+                    error_message=str(ex),
+                )
                 return OperationResult(
                     success=False,
                     operation="start",
@@ -237,6 +285,12 @@ class ChargerController:
                 self.logger.info("Reason: %s", reason or "No reason provided")
                 await self._wait_for_rate_limit()
                 await self._stop_charger_unlocked()
+                await self._emit_operation_diagnostic(
+                    "charger_stop",
+                    "succeeded",
+                    reason_code="command_executed",
+                    reason_detail=reason or "No reason provided",
+                )
                 return OperationResult(
                     success=True,
                     operation="stop",
@@ -244,6 +298,13 @@ class ChargerController:
                 )
             except Exception as ex:
                 self.logger.error("Failed to stop charger: %s", ex)
+                await self._emit_operation_diagnostic(
+                    "charger_stop",
+                    "failed",
+                    reason_code="command_failed",
+                    reason_detail=reason or "No reason provided",
+                    error_message=str(ex),
+                )
                 return OperationResult(
                     success=False,
                     operation="stop",
@@ -270,6 +331,13 @@ class ChargerController:
 
                 await self._refresh_state()
                 if self._current_amperage == normalized_target:
+                    await self._emit_operation_diagnostic(
+                        "charger_set_amperage",
+                        "succeeded",
+                        reason_code="already_at_target",
+                        reason_detail=f"Already at target ({normalized_target}A)",
+                        target_amps=normalized_target,
+                    )
                     return OperationResult(
                         success=True,
                         operation="set_amperage",
@@ -279,6 +347,13 @@ class ChargerController:
 
                 await self._wait_for_rate_limit()
                 operation = await self._set_amperage_unlocked(normalized_target)
+                await self._emit_operation_diagnostic(
+                    "charger_set_amperage",
+                    "succeeded",
+                    reason_code="command_executed",
+                    reason_detail=reason or "No reason provided",
+                    target_amps=normalized_target,
+                )
                 return OperationResult(
                     success=True,
                     operation=operation,
@@ -287,6 +362,14 @@ class ChargerController:
                 )
             except Exception as ex:
                 self.logger.error("Failed to set amperage: %s", ex)
+                await self._emit_operation_diagnostic(
+                    "charger_set_amperage",
+                    "failed",
+                    reason_code="command_failed",
+                    reason_detail=reason or "No reason provided",
+                    target_amps=normalized_target,
+                    error_message=str(ex),
+                )
                 return OperationResult(
                     success=False,
                     operation="set_amperage",

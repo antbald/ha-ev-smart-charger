@@ -244,6 +244,7 @@
       "evsc_notify_priority_balancer_enabled": { "name": "Notifica priority balancer" },
       "evsc_notify_night_charge_enabled": { "name": "Notifica night charge" },
       "evsc_enable_file_logging": { "name": "Abilita log su file" },
+      "evsc_trace_logging_enabled": { "name": "Trace logging" },
       "evsc_car_ready_monday": { "name": "Auto pronta lunedi" },
       "evsc_car_ready_tuesday": { "name": "Auto pronta martedi" },
       "evsc_car_ready_wednesday": { "name": "Auto pronta mercoledi" },

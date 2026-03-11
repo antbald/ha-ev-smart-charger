@@ -10,11 +10,15 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from itertools import count
 
 _LOGGER = logging.getLogger(__name__)
+_PACKAGE_LOGGER = logging.getLogger("custom_components.ev_smart_charger")
 _GLOBAL_FILE_HANDLER: logging.FileHandler | None = None
 _GLOBAL_FILE_HANDLER_PATH: str | None = None
 _GLOBAL_FILE_HANDLER_LOCK = threading.Lock()
+_EVENT_COUNTER = count(1)
+_EVENT_COUNTER_LOCK = threading.Lock()
 
 
 class EVSCLogger:
@@ -49,6 +53,59 @@ class EVSCLogger:
     def __init__(self, component_name: str):
         """Initialize logger with component name."""
         self.component = component_name
+        self._component_slug = self._slug(component_name)
+
+    @staticmethod
+    def _slug(value: str) -> str:
+        """Return a stable lowercase slug for identifiers."""
+        return "".join(
+            char.lower() if char.isalnum() else "_"
+            for char in value
+        ).strip("_")
+
+    @staticmethod
+    def _normalize_text(value) -> str:
+        """Return compact text safe for log payloads."""
+        if value is None:
+            return "-"
+        text = " ".join(str(value).split())
+        if not text:
+            return "-"
+        if any(ch.isspace() for ch in text) or any(ch in text for ch in ['"', "=", "[", "]"]):
+            escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
+        return text
+
+    @classmethod
+    def _format_value(cls, value) -> str:
+        """Format scalars, sequences, and mappings as compact key=value values."""
+        if isinstance(value, dict):
+            items = ",".join(
+                f"{cls._slug(str(key))}:{cls._format_value(inner)}"
+                for key, inner in sorted(value.items(), key=lambda item: str(item[0]))
+            )
+            return cls._normalize_text(f"{{{items}}}")
+        if isinstance(value, (list, tuple, set)):
+            items = ",".join(cls._format_value(item) for item in value)
+            return cls._normalize_text(f"[{items}]")
+        return cls._normalize_text(value)
+
+    @classmethod
+    def next_decision_id(cls, component_name: str) -> str:
+        """Return a stable monotonic decision identifier."""
+        with _EVENT_COUNTER_LOCK:
+            seq = next(_EVENT_COUNTER)
+        return f"{cls._slug(component_name)}_{seq:06d}"
+
+    @classmethod
+    def format_event_payload(cls, payload: dict[str, object]) -> str:
+        """Format a structured payload as grep-friendly key=value pairs."""
+        parts = []
+        for key, value in payload.items():
+            if value is None:
+                continue
+            parts.append(f"{cls._slug(str(key))}={cls._format_value(value)}")
+        return " ".join(parts)
 
     def separator(self, length: int = 64):
         """Log visual separator."""
@@ -124,6 +181,72 @@ class EVSCLogger:
             message = message % args
         _LOGGER.debug(f"[{self.component}] {message}")
 
+    def event(
+        self,
+        event: str,
+        result: str,
+        reason_code: str = "",
+        *,
+        reason_detail: str = "",
+        owner=None,
+        trigger: str | None = None,
+        entity_ids: dict | list | None = None,
+        raw_values: dict | list | None = None,
+        session_id: str | None = None,
+        decision_id: str | None = None,
+        external_cause: str | None = None,
+        severity: str = "info",
+        extra: dict | None = None,
+    ) -> str:
+        """Emit a structured key=value diagnostic event."""
+        payload: dict[str, object] = {
+            "event": event,
+            "component": self._component_slug,
+            "session_id": session_id or self._component_slug,
+            "decision_id": decision_id or self.next_decision_id(self.component),
+            "result": result,
+            "reason_code": reason_code or "-",
+            "reason_detail": reason_detail or "-",
+            "owner": owner,
+            "trigger": trigger,
+            "external_cause": external_cause,
+            "entity_ids": entity_ids,
+            "raw_values": raw_values,
+        }
+        if extra:
+            payload.update(extra)
+
+        message = f"[{self.component}] {self.format_event_payload(payload)}"
+        if severity == "error":
+            _LOGGER.error(message)
+        elif severity == "warning":
+            _LOGGER.warning(message)
+        elif severity == "success":
+            _LOGGER.info(f"{self.SUCCESS} {message}")
+        else:
+            _LOGGER.info(f"{self.INFO} {message}")
+        return payload["decision_id"]  # type: ignore[return-value]
+
+    def trace_event(
+        self,
+        title: str,
+        payload: dict[str, object],
+        *,
+        decision_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Emit a multi-line trace snapshot for deep diagnostics."""
+        trace_payload = {
+            "title": title,
+            "decision_id": decision_id or self.next_decision_id(self.component),
+            "session_id": session_id or self._component_slug,
+            **payload,
+        }
+        self.info(f"TRACE START {self.format_event_payload(trace_payload)}")
+        for key, value in trace_payload.items():
+            self.info(f"TRACE {self._slug(str(key))}={self._format_value(value)}")
+        self.info("TRACE END")
+
     # ========== FILE LOGGING METHODS (v1.4.15 - Daily files) ==========
 
     @classmethod
@@ -163,14 +286,14 @@ class EVSCLogger:
                 return False
 
             if _GLOBAL_FILE_HANDLER:
-                _LOGGER.removeHandler(_GLOBAL_FILE_HANDLER)
+                _PACKAGE_LOGGER.removeHandler(_GLOBAL_FILE_HANDLER)
                 _GLOBAL_FILE_HANDLER.close()
                 _GLOBAL_FILE_HANDLER = None
                 _GLOBAL_FILE_HANDLER_PATH = None
 
             os.makedirs(os.path.dirname(normalized_path), exist_ok=True)
             handler = cls._build_file_handler(normalized_path)
-            _LOGGER.addHandler(handler)
+            _PACKAGE_LOGGER.addHandler(handler)
 
             _GLOBAL_FILE_HANDLER = handler
             _GLOBAL_FILE_HANDLER_PATH = normalized_path
@@ -190,7 +313,7 @@ class EVSCLogger:
             if not _GLOBAL_FILE_HANDLER:
                 return False
 
-            _LOGGER.removeHandler(_GLOBAL_FILE_HANDLER)
+            _PACKAGE_LOGGER.removeHandler(_GLOBAL_FILE_HANDLER)
             _GLOBAL_FILE_HANDLER.close()
             _GLOBAL_FILE_HANDLER = None
             _GLOBAL_FILE_HANDLER_PATH = None
@@ -209,7 +332,11 @@ class EVSCLogger:
     @classmethod
     def get_global_file_handler_count(cls) -> int:
         """Expose current number of file handlers attached to EVSC logger."""
-        return sum(1 for handler in _LOGGER.handlers if isinstance(handler, logging.FileHandler))
+        return sum(
+            1
+            for handler in _PACKAGE_LOGGER.handlers
+            if isinstance(handler, logging.FileHandler)
+        )
 
     def enable_file_logging(self, log_file_path: str):
         """

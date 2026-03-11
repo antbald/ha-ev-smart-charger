@@ -1,6 +1,6 @@
 # EV Smart Charger SSOT
 
-This file is the single source of truth for the current architecture as of 2026-03-06.
+This file is the single source of truth for the current architecture as of 2026-03-11.
 
 If it conflicts with historical notes, release files, or old session summaries, this file wins for maintainer-facing architecture. `README.md` remains the user-facing guide.
 
@@ -36,6 +36,7 @@ The setup sequence is:
    - `ChargerController`
    - `EVSOCMonitor`
    - `AutomationCoordinator`
+   - `DiagnosticManager`
    - `PriorityBalancer`
    - `NightSmartCharge`
    - `BoostCharge`
@@ -126,6 +127,7 @@ Core runtime modules:
 - `entity_base.py`
 - `charger_controller.py`
 - `automation_coordinator.py`
+- `diagnostic_manager.py`
 - `priority_balancer.py`
 - `night_smart_charge.py`
 - `boost_charge.py`
@@ -143,17 +145,17 @@ Canonical maintainer docs:
 
 ## 9. Quality baseline
 
-Final validation run on 2026-03-06:
+Final validation run on 2026-03-11:
 
 ```bash
-./.venv/bin/python -m pytest -q
+make test
 ```
 
 Observed result:
 
-- `103 passed`
+- `130 passed`
 - `2 warnings` from `pytest_cov`
-- total coverage `66%`
+- total coverage `69%`
 
 Release bar now met:
 

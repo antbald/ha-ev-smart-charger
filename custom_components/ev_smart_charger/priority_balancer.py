@@ -183,6 +183,19 @@ class PriorityBalancer:
         self.logger.separator()
         self.logger.decision("Priority", priority, reason)
         self.logger.separator()
+        await self._emit_diagnostic(
+            event="priority_calculated",
+            result=priority,
+            reason_code="priority_decision",
+            reason_detail=reason,
+            raw_values={
+                "ev_soc": round(ev_soc, 1),
+                "ev_target": ev_target,
+                "home_soc": round(home_soc, 1),
+                "home_target": home_target,
+                "today": today,
+            },
+        )
 
         # Check if priority changed and send notification
         if self._last_priority is not None and self._last_priority != priority:
@@ -419,6 +432,28 @@ class PriorityBalancer:
 
         except Exception as e:
             self.logger.error(f"Failed to update priority sensor: {e}")
+
+    async def _emit_diagnostic(
+        self,
+        *,
+        event: str,
+        result: str,
+        reason_code: str,
+        reason_detail: str,
+        raw_values: dict | None = None,
+    ) -> None:
+        """Publish structured balancer diagnostics when available."""
+        if self._runtime_data is None or self._runtime_data.diagnostic_manager is None:
+            return
+
+        await self._runtime_data.diagnostic_manager.async_emit_event(
+            component="Priority Balancer",
+            event=event,
+            result=result,
+            reason_code=reason_code,
+            reason_detail=reason_detail,
+            raw_values=raw_values,
+        )
 
     async def async_remove(self):
         """Cleanup."""

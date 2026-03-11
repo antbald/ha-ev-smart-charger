@@ -108,7 +108,7 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
 
     await switch_platform.async_setup_entry(hass, entry, async_add_entities)
 
-    assert len(entities) == 17
+    assert len(entities) == 18
 
     restored_switch = next(
         entity for entity in entities if entity.entity_id.endswith("evsc_forza_ricarica")
@@ -117,6 +117,9 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
         entity
         for entity in entities
         if entity.entity_id.endswith("evsc_notify_smart_blocker_enabled")
+    )
+    trace_switch = next(
+        entity for entity in entities if entity.entity_id.endswith("evsc_trace_logging_enabled")
     )
 
     await _attach_entity(
@@ -131,6 +134,8 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
     assert restored_switch.translation_key == "evsc_forza_ricarica"
     assert restored_switch.is_on is True
     assert default_on_switch.is_on is True
+    assert trace_switch.translation_key == "evsc_trace_logging_enabled"
+    assert trace_switch.is_on is False
 
     await restored_switch.async_turn_off()
     assert restored_switch.is_on is False

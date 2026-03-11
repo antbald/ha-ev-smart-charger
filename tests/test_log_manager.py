@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.ev_smart_charger.const import HELPER_ENABLE_FILE_LOGGING_SUFFIX
 from custom_components.ev_smart_charger.log_manager import LogManager
+from custom_components.ev_smart_charger.runtime import EVSCRuntimeData
 from custom_components.ev_smart_charger.utils.logging_helper import EVSCLogger
 
 
@@ -21,7 +22,7 @@ def reset_global_file_logging():
 
 
 def _flush_evsc_file_handlers() -> None:
-    logger = logging.getLogger("custom_components.ev_smart_charger.utils.logging_helper")
+    logger = logging.getLogger("custom_components.ev_smart_charger")
     for handler in logger.handlers:
         if isinstance(handler, logging.FileHandler):
             handler.flush()
@@ -107,3 +108,35 @@ async def test_log_manager_toggle_off_disables_global_handler(hass):
     assert EVSCLogger.is_global_file_logging_enabled() is False
     assert EVSCLogger.get_global_file_handler_count() == 0
     await manager.async_remove()
+
+
+async def test_log_manager_captures_package_child_loggers(hass):
+    """Coordinator/package child loggers must be written by the shared file handler."""
+    toggle_entity = f"switch.test_{HELPER_ENABLE_FILE_LOGGING_SUFFIX}"
+    hass.states.async_set(toggle_entity, "on")
+
+    manager = LogManager(hass, "test_entry")
+    await manager.async_setup([EVSCLogger("A")])
+
+    marker = f"COORDINATOR_CHILD_LOG_{datetime.now().timestamp()}"
+    logging.getLogger("custom_components.ev_smart_charger.automation_coordinator").info(marker)
+    _flush_evsc_file_handlers()
+
+    log_path = EVSCLogger.get_global_log_file_path()
+    assert log_path is not None
+    log_contents = Path(log_path).read_text(encoding="utf-8")
+    assert marker in log_contents
+
+    await manager.async_remove()
+
+
+async def test_log_manager_does_not_scan_global_state_when_runtime_data_exists(hass):
+    """Runtime-backed setups must not bind another entry's toggle via global state scan."""
+    hass.states.async_set(f"switch.other_{HELPER_ENABLE_FILE_LOGGING_SUFFIX}", "on")
+    runtime_data = EVSCRuntimeData(config={}, expected_entity_count=0)
+
+    manager = LogManager(hass, "test_entry", runtime_data=runtime_data)
+    await manager.async_setup([EVSCLogger("A")])
+
+    assert manager._toggle_entity is None
+    assert EVSCLogger.is_global_file_logging_enabled() is False

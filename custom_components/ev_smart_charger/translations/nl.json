@@ -244,6 +244,7 @@
       "evsc_notify_priority_balancer_enabled": { "name": "Melding prioriteitsbalans" },
       "evsc_notify_night_charge_enabled": { "name": "Melding nachtladen" },
       "evsc_enable_file_logging": { "name": "Bestandslogging inschakelen" },
+      "evsc_trace_logging_enabled": { "name": "Trace-logging" },
       "evsc_car_ready_monday": { "name": "Auto klaar maandag" },
       "evsc_car_ready_tuesday": { "name": "Auto klaar dinsdag" },
       "evsc_car_ready_wednesday": { "name": "Auto klaar woensdag" },

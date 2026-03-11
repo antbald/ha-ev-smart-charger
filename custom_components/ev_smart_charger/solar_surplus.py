@@ -127,6 +127,32 @@ class SolarSurplusAutomation:
             return True
         return self._coordinator.is_automation_active(self._automation_name)
 
+    async def _emit_diagnostic(
+        self,
+        *,
+        event: str,
+        result: str,
+        reason_code: str,
+        reason_detail: str,
+        raw_values: dict | None = None,
+        severity: str = "info",
+        external_cause: str | None = None,
+    ) -> None:
+        """Publish structured solar surplus diagnostics when available."""
+        if self._runtime_data is None or self._runtime_data.diagnostic_manager is None:
+            return
+
+        await self._runtime_data.diagnostic_manager.async_emit_event(
+            component="Solar Surplus",
+            event=event,
+            result=result,
+            reason_code=reason_code,
+            reason_detail=reason_detail,
+            raw_values=raw_values,
+            severity=severity,
+            external_cause=external_cause,
+        )
+
     async def _acquire_control(self, action: str, reason: str) -> bool:
         """Acquire coordinator ownership for a start/stop action."""
         if self._coordinator is None or self._has_control():
@@ -140,7 +166,34 @@ class SolarSurplusAutomation:
         )
         if not allowed:
             self.logger.info(f"Coordinator denied Solar Surplus action: {denial_reason}")
+            active = self._coordinator.get_active_automation()
+            snapshot = self._coordinator.get_debug_snapshot()
+            if active:
+                timestamp = active.get("timestamp")
+                since = timestamp.strftime("%Y-%m-%d %H:%M:%S") if timestamp else "unknown"
+                self.logger.info(
+                    "Coordinator owner snapshot: "
+                    f"name={active.get('name')}, "
+                    f"priority={active.get('priority')}, "
+                    f"action={active.get('action')}, "
+                    f"reason={active.get('reason')}, "
+                    f"since={since}"
+                )
             self._handle_control_loss(denial_reason)
+            await self._emit_diagnostic(
+                event="coordinator_denied",
+                result="denied",
+                reason_code="coordinator_denied",
+                reason_detail=denial_reason,
+                raw_values={
+                    "action": action,
+                    "reason": reason,
+                    "active_owner": active,
+                    "coordinator_snapshot": snapshot,
+                },
+                severity="warning",
+                external_cause="stale_owner_detected" if "health=stale" in denial_reason else None,
+            )
             return False
         return True
 
@@ -158,6 +211,16 @@ class SolarSurplusAutomation:
         self._battery_support_active = False
         self._reset_state_tracking()
         self.logger.info(f"Solar Surplus standing down: {reason}")
+        if self._runtime_data is not None and self._runtime_data.diagnostic_manager is not None:
+            self.hass.async_create_task(
+                self._emit_diagnostic(
+                    event="standing_down",
+                    result="stopped",
+                    reason_code="control_released",
+                    reason_detail=reason,
+                    severity="warning" if "denied" in reason.lower() else "info",
+                )
+            )
 
     def _find_entity_by_suffix(self, suffix: str) -> str | None:
         """Resolve an integration-owned helper entity from runtime data."""
@@ -323,6 +386,13 @@ class SolarSurplusAutomation:
         # === 1. Check Forza Ricarica (Kill Switch) ===
         if get_bool(self.hass, self._forza_ricarica_entity):
             self.logger.skip("Forza Ricarica is ON")
+            await self._emit_diagnostic(
+                event="periodic_check",
+                result="skipped",
+                reason_code="manual_override",
+                reason_detail="Forza Ricarica is ON",
+                external_cause="manual_override",
+            )
             await self._update_diagnostic_sensor(
                 "SKIPPED: Forza Ricarica ON",
                 {"reason": "Override switch enabled", "last_check": datetime.now().isoformat()}
@@ -336,6 +406,13 @@ class SolarSurplusAutomation:
                 self._release_control("Boost Charge active")
                 self._handle_control_loss("Boost Charge active")
             self.logger.skip("Boost Charge active")
+            await self._emit_diagnostic(
+                event="periodic_check",
+                result="skipped",
+                reason_code="manual_override",
+                reason_detail="Boost Charge active",
+                external_cause="manual_override",
+            )
             await self._update_diagnostic_sensor(
                 "SKIPPED: Boost Charge Active",
                 {"reason": "Boost override enabled", "last_check": datetime.now().isoformat()}
@@ -360,6 +437,13 @@ class SolarSurplusAutomation:
                 self._handle_control_loss("Night Smart Charge active")
             night_mode = self._night_smart_charge.get_active_mode()
             self.logger.skip(f"Night Smart Charge active (mode: {night_mode})")
+            await self._emit_diagnostic(
+                event="periodic_check",
+                result="skipped",
+                reason_code="night_window",
+                reason_detail=f"Night Smart Charge active (mode: {night_mode})",
+                external_cause="night_window",
+            )
             await self._update_diagnostic_sensor(
                 "SKIPPED: Night Smart Charge Active",
                 {"night_mode": night_mode, "last_check": datetime.now().isoformat()}
@@ -392,6 +476,13 @@ class SolarSurplusAutomation:
                 self._release_control("Charging profile changed away from solar_surplus")
                 self._handle_control_loss("Charging profile changed")
             self.logger.skip(f"Profile not 'solar_surplus' (current: {current_profile})")
+            await self._emit_diagnostic(
+                event="periodic_check",
+                result="skipped",
+                reason_code="profile_mismatch",
+                reason_detail=f"Profile not 'solar_surplus' (current: {current_profile})",
+                external_cause="profile_mismatch",
+            )
             await self._update_diagnostic_sensor(
                 "SKIPPED: Wrong Profile",
                 {"profile": current_profile, "last_check": datetime.now().isoformat()}
@@ -411,6 +502,13 @@ class SolarSurplusAutomation:
                 self._release_control("Charger disconnected")
                 self._handle_control_loss("Charger disconnected")
             self.logger.skip("Charger is free (not connected)")
+            await self._emit_diagnostic(
+                event="periodic_check",
+                result="skipped",
+                reason_code="charger_disconnected",
+                reason_detail="Charger is free (not connected)",
+                external_cause="charger_disconnected",
+            )
             self.logger.separator()
             return
 
@@ -1133,6 +1231,34 @@ class SolarSurplusAutomation:
         self._waiting_for_surplus_decrease = False
         self._surplus_decrease_start_time = None
 
+    def _build_standard_diagnostic_attributes(
+        self,
+        state: str,
+        attributes: dict,
+    ) -> dict:
+        """Align solar diagnostic attributes with the unified diagnostic schema."""
+        normalized = dict(attributes)
+        reason_detail = (
+            normalized.get("last_reason_detail")
+            or normalized.get("reason")
+            or normalized.get("night_mode")
+            or normalized.get("profile")
+            or normalized.get("errors")
+            or state
+        )
+        reason_code = normalized.get("last_reason_code") or (
+            "sensor_unavailable" if normalized.get("errors") else "status_update"
+        )
+
+        normalized.setdefault("last_decision_component", "Solar Surplus")
+        normalized.setdefault("last_decision_result", state)
+        normalized.setdefault("last_reason_code", reason_code)
+        normalized.setdefault("last_reason_detail", reason_detail)
+        normalized.setdefault("last_external_cause", normalized.get("external_cause"))
+        if self._coordinator is not None:
+            normalized.setdefault("active_owner", self._coordinator.get_active_automation_name())
+        return normalized
+
     async def _update_diagnostic_sensor(self, state: str, attributes: dict) -> None:
         """Update the solar surplus diagnostic sensor.
 
@@ -1143,10 +1269,12 @@ class SolarSurplusAutomation:
         if not self._solar_surplus_diagnostic_sensor_entity:
             return
 
+        payload = self._build_standard_diagnostic_attributes(state, attributes)
+
         if self._solar_surplus_diagnostic_sensor_obj and hasattr(
             self._solar_surplus_diagnostic_sensor_obj, "async_publish"
         ):
-            await self._solar_surplus_diagnostic_sensor_obj.async_publish(state, attributes)
+            await self._solar_surplus_diagnostic_sensor_obj.async_publish(state, payload)
             return
         self.logger.warning("Solar Surplus diagnostic entity object not registered in runtime data")
 
