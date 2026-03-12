@@ -1591,27 +1591,27 @@ A: Set **Charging Profile** to `manual` and use charger's native controls.
 
 ## 📚 Version History
 
-### Latest: v1.5.9 (2026-03-11) - Home Battery Preservation and Solar Import Diagnostics
+### Latest: v1.5.10 (2026-03-12) - Solar Surplus Opportunistic Charging Fix
 
-**🎯 Charging Strategy Release: less unnecessary battery cycling and clearer solar import traces**
+**🎯 Charging Strategy Release: surplus charging now continues after both minimum SOC targets are met**
 
 **What changed:**
-- Added `switch.evsc_preserve_home_battery` to skip `Night Smart Charge` entirely when `car_ready` is off
-- Night Smart Charge now emits explicit diagnostics, logs, and notifications when a session is skipped to preserve the home battery
-- Dashboard and translations updated in EN/IT/NL for the new preserve-home-battery toggle
-- Solar Surplus now logs and publishes detailed `grid import protection` timing and decision context
+- Fixed `Solar Surplus` so the EV daily target is no longer treated as a daytime hard maximum
+- When both EV and Home minimum SOC targets are reached, `Solar Surplus` now keeps charging the EV opportunistically with real solar surplus
+- Preserved the existing `PRIORITY_HOME` behavior so the home battery still wins whenever it is below its minimum target
+- Added regression tests covering `EV_FREE` opportunistic charging and the removal of the daytime hard-cap stop path
 
 **Benefits:**
-✅ Prevents overnight home battery cycles when the car does not need to be ready in the morning
-✅ Makes “why didn’t Solar Surplus step down?” diagnosable from logs and diagnostic sensors
-✅ Clarifies the UI around home battery preservation behavior
-✅ Keeps runtime diagnostics aligned with the actual charging decision path
+✅ Matches the intended 3-step charging policy: EV minimum, then Home minimum, then surplus-to-EV
+✅ Prevents daytime Solar Surplus from stopping the charger just because the EV minimum target was already satisfied
+✅ Preserves home battery protection while allowing excess solar production to be used productively
+✅ Adds regression coverage for the charging-policy edge case reported from real logs
 
-**Upgrade:** 🟢 RECOMMENDED - Adds a new Night Smart Charge safeguard and improves solar troubleshooting
+**Upgrade:** 🟢 RECOMMENDED - Fixes a user-visible daytime Solar Surplus charging bug
 
 ---
 
-### Previous: v1.5.8 (2026-03-11) - Diagnostic Logging and Ownership Hardening
+### Previous: v1.5.9 (2026-03-11) - Home Battery Preservation and Solar Import Diagnostics
 
 ---
 

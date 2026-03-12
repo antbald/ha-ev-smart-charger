@@ -191,8 +191,8 @@ async def test_surplus_increase_stability(hass, automation):
         automation.charger_controller.set_amperage.assert_called_with(16, "Stable surplus increase")
         assert automation._surplus_stable_since is None
 
-async def test_priority_stop_runs_even_if_energy_sensors_invalid(hass, automation):
-    """Priority EV_FREE must stop charging even if solar/grid sensors are unavailable."""
+async def test_ev_free_does_not_stop_before_energy_checks(hass, automation):
+    """Priority EV_FREE must not stop charging before Solar Surplus evaluates energy sensors."""
     # Preconditions for periodic flow
     hass.states.async_set("switch.force", "off")
     hass.states.async_set("select.profile", "solar_surplus")
@@ -209,9 +209,7 @@ async def test_priority_stop_runs_even_if_energy_sensors_invalid(hass, automatio
 
     await automation._async_periodic_check()
 
-    automation.charger_controller.stop_charger.assert_called_with(
-        "Both EV and Home targets reached (Priority = EV_FREE)"
-    )
+    automation.charger_controller.stop_charger.assert_not_called()
 
 async def test_no_start_when_grid_import_is_above_threshold(hass, automation):
     """Do not start charger in solar window when grid import is above threshold."""
@@ -290,8 +288,8 @@ async def test_nighttime_sunset_transition_handover_rejected_stops_charger(hass,
     assert "Sunset transition safe stop" in stop_reason
 
 
-async def test_periodic_check_enforces_target_hard_cap_before_energy_checks(hass, automation):
-    """Target hard cap must stop charging even when energy sensors are invalid."""
+async def test_periodic_check_does_not_enforce_daytime_target_hard_cap_before_energy_checks(hass, automation):
+    """Daytime Solar Surplus must not stop charging just because the EV target is already met."""
     hass.states.async_set("switch.force", "off")
     hass.states.async_set("select.profile", "solar_surplus")
     hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
@@ -307,30 +305,80 @@ async def test_periodic_check_enforces_target_hard_cap_before_energy_checks(hass
 
     await automation._async_periodic_check()
 
-    automation.priority_balancer.calculate_priority.assert_not_called()
-    automation.charger_controller.stop_charger.assert_awaited_once()
-    stop_reason = automation.charger_controller.stop_charger.await_args.args[0]
-    assert "Target hard cap enforced (periodic_check)" in stop_reason
+    automation.priority_balancer.calculate_priority.assert_awaited_once()
+    automation.charger_controller.stop_charger.assert_not_called()
 
 
-async def test_periodic_check_logs_stale_soc_but_continues_by_policy(hass, automation, caplog):
-    """Stale EV SOC should generate warning diagnostics without forcing a stop."""
+async def test_periodic_check_starts_opportunistic_charging_when_both_targets_met(hass, automation):
+    """Priority EV_FREE should still start charging when surplus is available."""
     hass.states.async_set("switch.force", "off")
     hass.states.async_set("select.profile", "solar_surplus")
     hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
-    hass.states.async_set("sensor.solar", "unavailable")
-    hass.states.async_set("sensor.consumption", "unavailable")
-    hass.states.async_set("sensor.grid", "unavailable")
+    hass.states.async_set("sensor.solar", "4000")
+    hass.states.async_set("sensor.consumption", "1000")
+    hass.states.async_set("sensor.grid", "0")
+    hass.states.async_set("number.grid_threshold", "50")
+    hass.states.async_set("number.grid_delay", "30")
+    hass.states.async_set("number.surplus_delay", "30")
+    hass.states.async_set("switch.use_battery", "off")
+
+    automation.priority_balancer.is_enabled.return_value = True
+    automation.priority_balancer.calculate_priority = AsyncMock(return_value=PRIORITY_EV_FREE)
+    automation.charger_controller.is_charging.return_value = False
+    automation.charger_controller.get_current_amperage.return_value = 0
+
+    with patch.object(automation, "_calculate_target_amperage", return_value=6):
+        await automation._async_periodic_check()
+
+    automation.charger_controller.start_charger.assert_awaited_once_with(
+        6,
+        "Solar surplus available",
+    )
+    automation.charger_controller.stop_charger.assert_not_called()
+
+
+async def test_periodic_check_keeps_opportunistic_charging_when_both_targets_met(hass, automation):
+    """Priority EV_FREE should continue charging based on surplus instead of forcing a stop."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+    hass.states.async_set("sensor.solar", "6000")
+    hass.states.async_set("sensor.consumption", "1000")
+    hass.states.async_set("sensor.grid", "0")
+    hass.states.async_set("number.grid_threshold", "50")
+    hass.states.async_set("number.grid_delay", "30")
+    hass.states.async_set("number.surplus_delay", "30")
+    hass.states.async_set("switch.use_battery", "off")
+
+    automation.priority_balancer.is_enabled.return_value = True
+    automation.priority_balancer.calculate_priority = AsyncMock(return_value=PRIORITY_EV_FREE)
+    automation.charger_controller.is_charging.return_value = True
+    automation.charger_controller.get_current_amperage.return_value = 6
+
+    with patch.object(automation, "_calculate_target_amperage", return_value=10):
+        await automation._async_periodic_check()
+
+    automation.charger_controller.stop_charger.assert_not_called()
+    automation.charger_controller.set_amperage.assert_not_called()
+
+
+async def test_sunset_transition_logs_stale_soc_but_continues_by_policy(hass, automation, caplog):
+    """Sunset handover should log stale EV SOC warnings without forcing a target stop."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
     hass.states.async_set("sensor.ev_soc", "55")
 
     ev_state = hass.states.get("sensor.ev_soc")
     stale_now = ev_state.last_updated + timedelta(minutes=15)
 
-    automation._astral_service.is_nighttime.return_value = False
+    automation._astral_service.is_nighttime.return_value = True
     automation.charger_controller.is_charging.return_value = True
     automation.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
     automation.priority_balancer.get_ev_current_soc = AsyncMock(return_value=55)
     automation.priority_balancer.get_ev_target_for_today = MagicMock(return_value=80)
+    automation._night_smart_charge = MagicMock()
+    automation._night_smart_charge.async_try_handover_from_solar_surplus = AsyncMock(return_value=True)
     caplog.set_level("WARNING")
 
     with patch(

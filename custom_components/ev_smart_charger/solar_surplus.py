@@ -515,16 +515,7 @@ class SolarSurplusAutomation:
         self.logger.info(f"Charger status: '{charger_status}' - proceeding")
         charger_is_on = await self.charger_controller.is_charging()
 
-        # === 7.1 EV Target Hard Cap (always enforced, even before energy checks) ===
-        if await self._enforce_ev_target_hard_cap(
-            context="periodic_check",
-            charger_is_on=charger_is_on,
-        ):
-            self._battery_support_active = False
-            self.logger.separator()
-            return
-
-        # === 8. Priority Balancer Decision (target enforcement must run even if energy sensors fail) ===
+        # === 8. Priority Balancer Decision ===
         priority = None
         if self.priority_balancer.is_enabled():
             priority = await self.priority_balancer.calculate_priority()
@@ -544,24 +535,11 @@ class SolarSurplusAutomation:
                 self.logger.separator()
                 return
 
-            # v1.3.24: Stop opportunistic charging when both targets met
             if priority == PRIORITY_EV_FREE:
-                if charger_is_on:
-                    self.logger.info(
-                        f"{self.logger.SUCCESS} Both targets met (Priority = EV_FREE) - "
-                        "Stopping opportunistic charging"
-                    )
-                    if await self._acquire_control(
-                        "turn_off",
-                        "Both EV and Home targets reached (Priority = EV_FREE)",
-                    ):
-                        await self.charger_controller.stop_charger(
-                            "Both EV and Home targets reached (Priority = EV_FREE)"
-                        )
-                        self._release_control("Priority = EV_FREE")
-                        self._handle_control_loss("Priority = EV_FREE")
-                    self.logger.separator()
-                return
+                self.logger.info(
+                    f"{self.logger.SUCCESS} Both targets met (Priority = EV_FREE) - "
+                    "allowing opportunistic solar charging"
+                )
         else:
             self.logger.info("Priority Balancer disabled - using fallback mode")
 
