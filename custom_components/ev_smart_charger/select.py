@@ -96,3 +96,7 @@ class EVSCSelect(EVSCEntityMixin, SelectEntity, RestoreEntity):
                     self.entity_id,
                     PROFILE_MANUAL,
                 )
+
+        # CRITICAL FIX (v1.6.0): Push restored value to state machine immediately
+        # Without this, state remains "unavailable" until manual modification
+        self.async_write_ha_state()

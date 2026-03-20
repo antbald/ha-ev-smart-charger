@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.4.4
+**Current Version:** 1.6.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -752,6 +752,116 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.6.0 (2026-03-20) — Refactoring Release
+
+#### Phase 4: Cleanup & Consistency
+**REFACTORING: Fix hardcoded notification title, translate Italian text to English**
+
+- **Notification title**: Changed `NOTIFICATION_TITLE = "BORGO"` to `NOTIFICATION_TITLE = DEFAULT_NAME` (`"EV Smart Charger"`) in `utils/mobile_notification_service.py`. All mobile notifications now display the correct integration name.
+- **Italian → English**: Translated 15 Italian text instances (comments, docstrings, log messages) in `night_smart_charge.py` to English:
+  - `_calculate_and_save_energy_forecast()` method: docstring, 5 comments, 4 log messages
+  - 2 inline comments at lines 1216 and 1485 ("Calcola e salva energy forecast" → "Calculate and save energy forecast")
+
+**Files Modified**: utils/mobile_notification_service.py, night_smart_charge.py, CLAUDE.md
+
+---
+
+#### Phase 3: Solar Surplus — time.monotonic() + AmperageCalculator
+**REFACTORING: NTP-safe timing + shared step-down utility**
+
+- **`time.time()` → `time.monotonic()`**: Replaced all 5 instances in `solar_surplus.py`. `time.monotonic()` is immune to NTP clock jumps, making elapsed-time measurements reliable for rate limiting, grid import delays, and surplus drop delays.
+- **`AmperageCalculator.get_next_level_down()`**: Replaced 2 inline `CHARGER_AMP_LEVELS.index()` + step-down blocks in `_handle_grid_import_protection` and `_handle_surplus_decrease` with calls to the shared `AmperageCalculator` utility. Eliminates try/except ValueError boilerplate. No behavioral change.
+
+---
+
+#### Phase 2: Data-Driven Entity Registration
+**REFACTORING: Replace repetitive entity.append() with table-driven registration**
+
+- **switch.py**: Replaced 19 `entities.append()` calls (~215 lines) with a `_SWITCH_DEFS` table (12 entries) + day loop (7 car_ready switches). Total entities unchanged: 19.
+- **number.py**: Replaced 20 `entities.append()` calls (~390 lines) with a `_NUMBER_DEFS` table (10 entries) + day loops (14 daily SOC entities). Total entities unchanged: 24.
+- **sensor.py**: Merged identical `EVSCTodayEVTargetSensor` and `EVSCTodayHomeTargetSensor` into a single `EVSCTodayTargetSensor` class with a `label` parameter. Entity IDs and behavior unchanged.
+
+All entity IDs, defaults, icons, and EntityCategory.CONFIG preserved exactly.
+
+---
+
+#### Phase 1: Critical Bug Fixes & Code Cleanup
+**REFACTORING: Fix critical bugs, remove dead code, move lazy imports to top-level**
+
+**BUG 1 — RestoreEntity state machine sync (CRITICAL)**:
+After HA restart, 22 entities (19 switches, 1 select, 2 time) remained "unavailable" in the state machine until manually modified. Root cause: `async_added_to_hass()` restored internal values but never called `self.async_write_ha_state()` to push to the state machine. Fixed in `switch.py`, `select.py`, and `time.py` (number.py already had the fix from v1.3.22).
+
+**BUG 2 — OperationResult.__post_init__ overwrites queued field**:
+`charger_controller.py` OperationResult dataclass had `self.queued = False` in `__post_init__`, which unconditionally overwrote the constructor argument. Creating `OperationResult(queued=True)` silently produced `queued=False`. Removed the line; the field-level default `queued: bool = False` suffices.
+
+**BUG 3 — 5 dead constants removed from const.py**:
+`SURPLUS_HYSTERESIS_MARGIN`, `SURPLUS_STABLE_DURATION`, `SMART_BLOCKER_RETRY_ATTEMPTS`, `SMART_BLOCKER_RETRY_DELAYS`, `CHARGER_QUEUE_MAX_SIZE` — verified never imported anywhere.
+
+**BUG 4 — 4 dead methods removed**:
+- `charger_controller.py`: `get_queue_size()`, `get_last_operation_time()`, `get_seconds_since_last_operation()`
+- `automation_coordinator.py`: `get_action_history()`
+
+**BUG 5 — Unused attribute in LogManager**:
+`self._components` was assigned in `__init__` and `async_setup` but never read. Both assignments removed.
+
+**BUG 6 — 9 lazy imports moved to top-level**:
+Moved `from .const import ...` and `from .utils import ...` inside method bodies to module-level imports:
+- `solar_surplus.py`: 2 lazy imports removed (SURPLUS_INCREASE_DELAY, NIGHT_CHARGE_COOLDOWN_SECONDS)
+- `night_smart_charge.py`: 5 lazy imports removed (NIGHT_CHARGE_COOLDOWN_SECONDS ×3, ACTIVATION_GRACE constants, GridImportProtection)
+- `charger_controller.py`: 2 lazy imports removed (AmperageCalculator ×2)
+
+**Files Modified**: switch.py, select.py, time.py, charger_controller.py, automation_coordinator.py, const.py, log_manager.py, solar_surplus.py, night_smart_charge.py, manifest.json, CLAUDE.md
+
+**Upgrade Priority**: 🔴 CRITICAL — Fixes 22 entities stuck "unavailable" after HA restart
+
+---
+
+### v1.5.12 (2026-03-20)
+**FIX: Solar Surplus Opportunistic Dead Band Start**
+
+**Problem Fixed**:
+Solar Surplus never started charging when surplus was in the hysteresis dead band (5.5A-6.5A / ~1265-1495W) for extended periods. The charger could sit idle for 30+ minutes with 1200-1400W of usable surplus because the start threshold (6.5A) was never reached.
+
+**Root Cause**:
+The hysteresis design has a dead band between the STOP threshold (5.5A) and the START threshold (6.5A). When the charger is OFF and surplus is in this band, `_calculate_target_amperage()` returns 0 ("waiting for 6.5A to start"). With fluctuating surplus around 1200-1400W (5.2-6.1A), the system perpetually waited for a threshold it couldn't reach.
+
+**Log Evidence**:
+```
+09:04 - Surplus in hysteresis band (5.73A) but not charging - Waiting for 6.5A to start
+09:05 - Surplus in hysteresis band (5.91A) but not charging - Waiting for 6.5A to start
+09:06 - Surplus in hysteresis band (5.48A) but not charging - Waiting for 6.5A to start
+... (30+ minutes of wasted surplus)
+```
+
+**Solution - Opportunistic Dead Band Start**:
+Added a persistent dead band timer. When surplus stays >= 5.5A (SURPLUS_STOP_THRESHOLD) for 120 consecutive seconds while the charger is OFF, the system overrides the target to 6A (minimum) and starts charging. This differentiates between:
+- **Brief cloud spike** (surplus at 5.8A for 30s then drops) → don't start (cloud protection preserved)
+- **Sustained moderate surplus** (surplus at 5.8A for 2+ minutes) → start at 6A (new behavior)
+
+Grid import protection continues to operate normally after the charger starts, handling any small deficit between surplus and charger draw.
+
+**New Constant**:
+- `SURPLUS_DEADBAND_START_DELAY = 120` seconds (2 minutes of persistent dead band before opportunistic start)
+
+**Flow Example**:
+```
+09:04 - Surplus 5.73A (dead band) → Start 120s timer
+09:05 - Surplus 5.91A (dead band) → Timer: 60s / 120s
+09:06 - Surplus 5.48A (below 5.5A) → Timer RESET
+09:07 - Surplus 5.65A (dead band) → Start new 120s timer
+09:08 - Surplus 5.82A (dead band) → Timer: 60s / 120s
+09:09 - Surplus 5.71A (dead band) → Timer: 120s / 120s → START at 6A!
+```
+
+**Files Modified**:
+- [const.py](custom_components/ev_smart_charger/const.py): Added `SURPLUS_DEADBAND_START_DELAY`, VERSION = "1.5.12"
+- [solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py): Added dead band timer logic in `_async_periodic_check()`, new state variable `_deadband_start_time`, import and reset
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.5.12"
+
+**Upgrade Priority**: 🟡 RECOMMENDED - Fixes Solar Surplus failing to charge with moderate surplus (1200-1400W)
+
+---
 
 ### v1.5.11 (2026-03-20)
 **CRITICAL FIX: Night Smart Charge Ownership Loss Loop + Timezone Mismatch**

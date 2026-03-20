@@ -23,6 +23,7 @@ from .const import (
     SERVICE_CALL_TIMEOUT,
 )
 from .runtime import EVSCRuntimeData
+from .utils.amperage_helper import AmperageCalculator
 from .utils.logging_helper import EVSCLogger
 
 
@@ -117,7 +118,6 @@ class OperationResult:
         """Set timestamp if not provided."""
         if self.timestamp is None:
             self.timestamp = dt_util.now()
-        self.queued = False
 
     def __str__(self) -> str:
         """Human-readable representation for logging."""
@@ -386,8 +386,6 @@ class ChargerController:
         reason: str = "Grid import detected",
     ) -> OperationResult:
         """Reduce charging amperage by one level for grid import protection."""
-        from .utils.amperage_helper import AmperageCalculator
-
         async with self._lock:
             try:
                 self.logger.separator()
@@ -431,8 +429,6 @@ class ChargerController:
         reason: str = "Conditions improved",
     ) -> OperationResult:
         """Gradually recover charging amperage toward target by one level."""
-        from .utils.amperage_helper import AmperageCalculator
-
         normalized_target = self._normalize_target_amps(target_amps)
 
         async with self._lock:
@@ -601,16 +597,3 @@ class ChargerController:
         await self._refresh_state()
         return self._current_amperage
 
-    def get_queue_size(self) -> int:
-        """Compatibility shim: execution is serialized, not queued."""
-        return 0
-
-    def get_last_operation_time(self) -> Optional[datetime]:
-        """Get timestamp of last operation."""
-        return self._last_operation_time
-
-    def get_seconds_since_last_operation(self) -> Optional[float]:
-        """Get seconds since last operation."""
-        if self._last_operation_time is None:
-            return None
-        return (dt_util.now() - self._last_operation_time).total_seconds()

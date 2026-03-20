@@ -5,13 +5,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.const import STATE_ON
 from homeassistant.util import dt as dt_util
 
+from ..const import DEFAULT_NAME
 from ..localization import translate_runtime
 from ..runtime import EVSCRuntimeData
 
 _LOGGER = logging.getLogger(__name__)
 
 # Notification title
-NOTIFICATION_TITLE = "BORGO"
+NOTIFICATION_TITLE = DEFAULT_NAME
 
 
 class MobileNotificationService:

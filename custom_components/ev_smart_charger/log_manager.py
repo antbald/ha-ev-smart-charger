@@ -56,7 +56,6 @@ class LogManager:
             "logs"
         )
 
-        self._components = []  # Store EVSCLogger instances
         self._toggle_entity = None  # Toggle switch entity ID
         self._state_listener_unsub = None  # State change listener
         self._midnight_listener_unsub = None  # Midnight rotation listener
@@ -115,7 +114,6 @@ class LogManager:
         Args:
             components: List of EVSCLogger instances from all components
         """
-        self._components = components
         self._current_date = dt_util.now().date()
         _LOGGER.info(f"LogManager setup with {len(components)} component loggers")
 

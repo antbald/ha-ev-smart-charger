@@ -128,3 +128,7 @@ class EVSCTime(EVSCEntityMixin, RestoreEntity, TimeEntity):
                 self.entity_id,
                 self._attr_native_value,
             )
+
+        # CRITICAL FIX (v1.6.0): Push restored value to state machine immediately
+        # Without this, state remains "unavailable" until manual modification
+        self.async_write_ha_state()

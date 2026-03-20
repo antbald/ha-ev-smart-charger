@@ -140,7 +140,6 @@ async def test_rate_limiting_waits_instead_of_queue(
 
     assert result.success is True
     assert result.queued is False
-    assert controller.get_queue_size() == 0
     assert sleep_mock.await_args_list[0].args[0] == pytest.approx(
         CHARGER_MIN_OPERATION_INTERVAL,
         rel=0.1,

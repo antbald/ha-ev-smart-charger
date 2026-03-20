@@ -39,7 +39,12 @@ from .const import (
     HELPER_CAR_READY_SATURDAY_SUFFIX,
     HELPER_CAR_READY_SUNDAY_SUFFIX,
     DEFAULT_CAR_READY_TIME,
+    DEFAULT_EV_MIN_SOC_WEEKDAY,
+    DEFAULT_EV_MIN_SOC_WEEKEND,
     PRIORITY_NIGHT_CHARGE,
+    NIGHT_CHARGE_COOLDOWN_SECONDS,
+    ACTIVATION_GRACE_BEFORE_MINUTES,
+    ACTIVATION_GRACE_AFTER_MINUTES,
 )
 from .localization import translate_runtime
 from .runtime import EVSCRuntimeData
@@ -48,6 +53,7 @@ from .utils.logging_helper import EVSCLogger
 from .utils import state_helper
 from .utils.mobile_notification_service import MobileNotificationService
 from .utils.astral_time_service import AstralTimeService
+from .utils.amperage_helper import StabilityTracker, GridImportProtection
 from .utils.time_parsing_service import TimeParsingService
 
 STOP_REASON_DEADLINE_OR_TARGET = "deadline_or_target_reached"
@@ -133,7 +139,6 @@ class NightSmartCharge:
         self._last_completion_time = None  # Track when session completed
 
         # v1.3.23: Dynamic amperage management state
-        from .utils.amperage_helper import StabilityTracker
         self._grid_import_trigger_time = None  # When grid import first exceeded threshold
         self._recovery_tracker = StabilityTracker()  # Track stability for recovery (60s)
 
@@ -452,11 +457,6 @@ class NightSmartCharge:
 
         This is used by Solar Surplus sunset handover validation and must stay side-effect free.
         """
-        from .const import (
-            ACTIVATION_GRACE_BEFORE_MINUTES,
-            ACTIVATION_GRACE_AFTER_MINUTES,
-            NIGHT_CHARGE_COOLDOWN_SECONDS,
-        )
 
         if self._session_state == "completed_today" and self._last_completion_date == now.date():
             return False, "already_completed_today"
@@ -570,8 +570,6 @@ class NightSmartCharge:
     @callback
     async def _async_periodic_check(self, now) -> None:
         """Periodic check every minute."""
-        from .const import NIGHT_CHARGE_COOLDOWN_SECONDS
-
         current_time = dt_util.now()
         self.logger.debug(f"Periodic check at {current_time.strftime('%H:%M:%S')}")
 
@@ -663,8 +661,6 @@ class NightSmartCharge:
         Returns:
             True if in active window
         """
-        from .const import ACTIVATION_GRACE_BEFORE_MINUTES, ACTIVATION_GRACE_AFTER_MINUTES
-
         # === STEP 1: State-based protection ===
         if self._session_state == "completed_today":
             if self._last_completion_date != now.date():
@@ -681,7 +677,6 @@ class NightSmartCharge:
                 self.logger.info("✅ Cooldown expired - ready for activation")
             else:
                 elapsed = (now - self._last_completion_time).total_seconds()
-                from .const import NIGHT_CHARGE_COOLDOWN_SECONDS
                 remaining = NIGHT_CHARGE_COOLDOWN_SECONDS - elapsed
                 self.logger.debug(f"Cooldown active - {remaining:.0f}s remaining")
                 return False
@@ -1218,7 +1213,7 @@ class NightSmartCharge:
             self._night_charge_active = True
             self._active_mode = NIGHT_CHARGE_MODE_BATTERY
 
-            # Calcola e salva energy forecast (non bloccante) (v1.4.8+)
+            # Calculate and save energy forecast (non-blocking) (v1.4.8+)
             await self._calculate_and_save_energy_forecast(NIGHT_CHARGE_MODE_BATTERY)
 
             # Start charger with specified amperage
@@ -1487,7 +1482,7 @@ class NightSmartCharge:
             self._night_charge_active = True
             self._active_mode = NIGHT_CHARGE_MODE_GRID
 
-            # Calcola e salva energy forecast (non bloccante) (v1.4.8+)
+            # Calculate and save energy forecast (non-blocking) (v1.4.8+)
             await self._calculate_and_save_energy_forecast(NIGHT_CHARGE_MODE_GRID)
 
             # Start charger with specified amperage
@@ -1574,8 +1569,6 @@ class NightSmartCharge:
         - adjust_for_grid_import() - Gradual reduction
         - recover_to_target() - Gradual recovery
         """
-        from .utils.amperage_helper import GridImportProtection
-
         # Get current amperage
         if not await self._ensure_control("dynamic_amperage"):
             return
@@ -1999,7 +1992,6 @@ class NightSmartCharge:
         if not self._last_completion_time:
             return True
 
-        from .const import NIGHT_CHARGE_COOLDOWN_SECONDS
         elapsed = (now - self._last_completion_time).total_seconds()
         return elapsed >= NIGHT_CHARGE_COOLDOWN_SECONDS
 
@@ -2098,25 +2090,25 @@ class NightSmartCharge:
 
     async def _calculate_and_save_energy_forecast(self, mode: str) -> None:
         """
-        Calcola la previsione energetica e salva nel sensore target (v1.4.8+).
+        Calculate energy forecast and save to target sensor (v1.4.8+).
 
-        Formula: Energia (kWh) = (Target SOC % - Current SOC %) × Capacità Batteria (kWh) / 100
+        Formula: Energy (kWh) = (Target SOC % - Current SOC %) × Battery Capacity (kWh) / 100
 
         Args:
-            mode: Modalità di ricarica (BATTERY o GRID) per logging
+            mode: Charging mode (BATTERY or GRID) for logging
         """
-        # Controlla se la funzionalità è configurata
+        # Check if the feature is configured
         battery_capacity = self.config.get(CONF_BATTERY_CAPACITY)
         energy_target_entity = self.config.get(CONF_ENERGY_FORECAST_TARGET)
 
         if not battery_capacity or not energy_target_entity:
             self.logger.debug(
-                "Energy forecast non configurato (battery_capacity o sensore target mancante), skip"
+                "Energy forecast not configured (battery_capacity or target sensor missing), skip"
             )
             return
 
         try:
-            # Ottieni SOC corrente e target
+            # Get current SOC and target
             current_soc = await self.priority_balancer.get_ev_current_soc()
             target_soc = self.priority_balancer.get_ev_target_for_today()
 
@@ -2135,11 +2127,11 @@ class NightSmartCharge:
             # Calculate required energy
             soc_delta = target_soc - current_soc
 
-            # Gestisci edge cases
+            # Handle edge cases
             if soc_delta <= 0:
                 self.logger.info(
-                    f"📊 Energy forecast: EV già al target o sopra "
-                    f"(corrente={current_soc}%, target={target_soc}%), imposto 0 kWh"
+                    f"📊 Energy forecast: EV already at or above target "
+                    f"(current={current_soc}%, target={target_soc}%), setting 0 kWh"
                 )
                 energy_required = 0.0
             else:
@@ -2157,8 +2149,8 @@ class NightSmartCharge:
             target_state = self.hass.states.get(energy_target_entity)
             if target_state is None:
                 self.logger.warning(
-                    f"⚠️ Sensore target energy forecast ({energy_target_entity}) "
-                    f"non trovato, impossibile salvare previsione"
+                    f"⚠️ Target energy forecast sensor ({energy_target_entity}) "
+                    f"not found, unable to save forecast"
                 )
                 return
 
@@ -2174,16 +2166,16 @@ class NightSmartCharge:
                 blocking=True,
             )
 
-            # Log successo
+            # Log success
             self.logger.info(
-                f"📊 Energy forecast calcolato e salvato: {energy_required:.2f} kWh "
-                f"(corrente={current_soc}%, target={target_soc}%, capacità={battery_capacity} kWh)"
+                f"📊 Energy forecast calculated and saved: {energy_required:.2f} kWh "
+                f"(current={current_soc}%, target={target_soc}%, capacity={battery_capacity} kWh)"
             )
 
         except Exception as ex:
-            # Errore non critico, log warning ma non bloccare la ricarica
+            # Non-critical error, log warning but do not block charging
             self.logger.warning(
-                f"⚠️ Errore nel calcolo energy forecast: {ex}. La ricarica procederà normalmente."
+                f"⚠️ Error calculating energy forecast: {ex}. Charging will proceed normally."
             )
 
     def _log_configuration(self) -> None:

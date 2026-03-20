@@ -419,6 +419,3 @@ class AutomationCoordinator:
             severity="warning",
         )
 
-    def get_action_history(self, limit: int = 10) -> list[dict]:
-        """Get recent action history for debugging."""
-        return self.get_recent_history(limit=limit)

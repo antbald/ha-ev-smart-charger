@@ -116,11 +116,10 @@ async def test_action_history_limit_and_queries(hass) -> None:
             PRIORITY_SOLAR_SURPLUS,
         )
 
-    history = coordinator.get_action_history(limit=5)
-
-    assert len(coordinator.get_action_history(limit=0)) == 55
-    assert len(history) == 5
-    assert history[-1]["automation"] == "Automation 54"
+    # get_action_history() was removed in v1.6.0 (dead method)
+    # Verify the coordinator still tracks actions internally
+    assert coordinator._action_history is not None
+    assert len(coordinator._action_history) == 55
 
 
 async def test_debug_snapshot_marks_stale_blocker_owner(hass) -> None:

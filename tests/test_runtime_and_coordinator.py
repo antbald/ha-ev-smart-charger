@@ -85,6 +85,7 @@ async def test_automation_coordinator_blocks_lower_priority_conflicts(hass):
     coordinator.release_control("Boost Charge", "Boost completed")
     assert coordinator.get_active_automation() is None
 
-    history = coordinator.get_action_history(limit=10)
-    assert len(history) >= 2
-    assert {item["result"] for item in history} == {"allowed", "denied"}
+    # get_action_history() was removed in v1.6.0 (dead method)
+    # Verify the coordinator still tracks actions internally
+    assert len(coordinator._action_history) >= 2
+    assert {item["result"] for item in coordinator._action_history} == {"allowed", "denied"}

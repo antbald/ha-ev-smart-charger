@@ -26,10 +26,14 @@ from .const import (
     HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX,
     SURPLUS_START_THRESHOLD,
     SURPLUS_STOP_THRESHOLD,
+    SURPLUS_DEADBAND_START_DELAY,
+    SURPLUS_INCREASE_DELAY,
+    NIGHT_CHARGE_COOLDOWN_SECONDS,
 )
 from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
 from .utils.state_helper import get_state, get_float, get_bool, validate_sensor
+from .utils.amperage_helper import AmperageCalculator
 from .utils.astral_time_service import AstralTimeService
 
 EV_SOC_STALE_WARNING_SECONDS = 300
@@ -105,6 +109,7 @@ class SolarSurplusAutomation:
         self._last_surplus_sufficient = None  # Timestamp when surplus was last sufficient
         self._battery_support_active = False  # Flag for home battery support mode
         self._surplus_stable_since = None  # Timestamp when surplus became stable (for hysteresis)
+        self._deadband_start_time = None  # Timestamp when dead band first detected (opportunistic start)
         self._waiting_for_surplus_decrease = False  # Flag for surplus drop delay in EV_FREE mode
         self._surplus_decrease_start_time = None  # Timestamp when surplus drop started
 
@@ -347,7 +352,7 @@ class SolarSurplusAutomation:
 
             # Trigger immediate recalculation ONLY if rate limit allows
             # Avoid triggering if last check was too recent
-            current_time = time.time()
+            current_time = time.monotonic()
             if not self._last_check_time or (current_time - self._last_check_time) >= SOLAR_SURPLUS_MIN_CHECK_INTERVAL:
                 self.hass.async_create_task(self._async_periodic_check())
             else:
@@ -360,7 +365,7 @@ class SolarSurplusAutomation:
     async def _async_periodic_check(self, now=None, ignore_rate_limit: bool = False) -> None:
         """Periodic check for solar surplus charging."""
         # === Rate Limiting ===
-        current_time = time.time()
+        current_time = time.monotonic()
         if (
             not ignore_rate_limit
             and self._last_check_time
@@ -421,7 +426,6 @@ class SolarSurplusAutomation:
             return
 
         # === 3. Check Nighttime (Solar Surplus only works during daytime) ===
-        from .const import NIGHT_CHARGE_COOLDOWN_SECONDS
         now = dt_util.now()
         current_profile = get_state(self.hass, self._charging_profile_entity)
 
@@ -611,6 +615,43 @@ class SolarSurplusAutomation:
         # === 12. Calculate Target Amperage (with hysteresis) ===
         target_amps = self._calculate_target_amperage(surplus_watts, current_amps)
         self.logger.info(f"Target amperage: {target_amps}A")
+
+        # === 12b. Opportunistic Dead Band Start ===
+        # When charger is OFF and surplus is in dead band (5.5-6.5A) for a prolonged
+        # period, override target to 6A. This prevents the charger from sitting idle
+        # for 30+ minutes when there's ~1200-1400W of usable surplus.
+        if not charger_is_on and target_amps == 0 and surplus_amps >= SURPLUS_STOP_THRESHOLD:
+            if self._deadband_start_time is None:
+                self._deadband_start_time = dt_util.now()
+                self.logger.info(
+                    f"Surplus in dead band ({surplus_amps:.2f}A, "
+                    f"range {SURPLUS_STOP_THRESHOLD}-{SURPLUS_START_THRESHOLD}A) - "
+                    f"Starting {SURPLUS_DEADBAND_START_DELAY}s timer for opportunistic start"
+                )
+            else:
+                elapsed = (dt_util.now() - self._deadband_start_time).total_seconds()
+                if elapsed >= SURPLUS_DEADBAND_START_DELAY:
+                    target_amps = CHARGER_AMP_LEVELS[0]  # 6A minimum
+                    self.logger.info(
+                        f"Dead band surplus persistent for {elapsed:.0f}s >= "
+                        f"{SURPLUS_DEADBAND_START_DELAY}s - "
+                        f"Opportunistic start at {target_amps}A"
+                    )
+                    self._deadband_start_time = None
+                else:
+                    self.logger.info(
+                        f"Dead band timer: {elapsed:.0f}s / "
+                        f"{SURPLUS_DEADBAND_START_DELAY}s "
+                        f"(surplus {surplus_amps:.2f}A)"
+                    )
+        else:
+            # Reset dead band timer when conditions no longer match:
+            # - Charger is ON (already charging)
+            # - Surplus above start threshold (normal start path)
+            # - Surplus below stop threshold (insufficient)
+            if self._deadband_start_time is not None:
+                self.logger.debug("Dead band timer reset (conditions changed)")
+                self._deadband_start_time = None
 
         # === 13. Get Configuration Values ===
         grid_threshold = get_float(self.hass, self._grid_import_threshold_entity)
@@ -1061,7 +1102,7 @@ class SolarSurplusAutomation:
         current_amps: int,
     ) -> None:
         """Handle grid import protection with delay."""
-        current_time = time.time()
+        current_time = time.monotonic()
 
         if self._last_grid_import_high is None:
             self._last_grid_import_high = current_time
@@ -1104,109 +1145,82 @@ class SolarSurplusAutomation:
         self.logger.warning("Grid import delay ELAPSED - Reducing charging")
         self._last_grid_import_high = None
 
-        # Gradual ramp down: one level at a time
-        try:
-            current_index = CHARGER_AMP_LEVELS.index(current_amps)
-            if current_index > 0:
-                next_amps = CHARGER_AMP_LEVELS[current_index - 1]
-                self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")
-                self.logger.warning(
-                    "Grid import protection action: step_down current=%sA next=%sA import=%sW threshold=%sW",
-                    current_amps,
-                    next_amps,
-                    round(grid_import, 1),
-                    round(grid_threshold, 1),
-                )
-                await self._update_diagnostic_sensor(
-                    "GRID_IMPORT_STEP_DOWN",
-                    {
-                        "decision": "step_down",
-                        "reason": "Grid import persisted above threshold",
-                        **self._get_grid_import_debug_context(
-                            grid_import=grid_import,
-                            grid_threshold=grid_threshold,
-                            grid_import_delay=grid_import_delay,
-                            current_amps=current_amps,
-                            target_amps=next_amps,
-                        ),
-                    },
-                )
-                if await self._ensure_control("Grid import protection"):
-                    await self.charger_controller.set_amperage(next_amps, "Grid import protection")
-            else:
-                self.logger.info("Already at minimum level - stopping charger")
-                self.logger.warning(
-                    "Grid import protection action: stop current=%sA import=%sW threshold=%sW",
-                    current_amps,
-                    round(grid_import, 1),
-                    round(grid_threshold, 1),
-                )
-                await self._update_diagnostic_sensor(
-                    "GRID_IMPORT_STOP",
-                    {
-                        "decision": "stop_at_minimum",
-                        "reason": "Grid import persisted above threshold at minimum amperage",
-                        **self._get_grid_import_debug_context(
-                            grid_import=grid_import,
-                            grid_threshold=grid_threshold,
-                            grid_import_delay=grid_import_delay,
-                            current_amps=current_amps,
-                            target_amps=0,
-                        ),
-                    },
-                )
-                if await self._acquire_control(
-                    "turn_off",
-                    "Grid import protection - minimum level reached",
-                ):
-                    await self.charger_controller.stop_charger(
-                        "Grid import protection - minimum level reached"
-                    )
-                    self._release_control("Grid import protection stop")
-                    self._handle_control_loss("Grid import protection stop")
-        except ValueError:
-            # Handle 0A (charger off) or other non-standard levels
-            if current_amps == 0:
-                self.logger.info("Charger is already off (0A) - keeping charger stopped")
-                await self._update_diagnostic_sensor(
-                    "GRID_IMPORT_NOOP",
-                    {
-                        "decision": "charger_already_off",
-                        "reason": "Grid import high but charger was already off",
-                        **self._get_grid_import_debug_context(
-                            grid_import=grid_import,
-                            grid_threshold=grid_threshold,
-                            grid_import_delay=grid_import_delay,
-                            current_amps=current_amps,
-                            target_amps=0,
-                        ),
-                    },
-                )
-            else:
-                self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
-                await self._update_diagnostic_sensor(
-                    "GRID_IMPORT_INVALID_LEVEL",
-                    {
-                        "decision": "invalid_current_level",
-                        "reason": "Current amperage not in standard levels",
-                        **self._get_grid_import_debug_context(
-                            grid_import=grid_import,
-                            grid_threshold=grid_threshold,
-                            grid_import_delay=grid_import_delay,
-                            current_amps=current_amps,
-                            target_amps=0,
-                        ),
-                    },
-                )
-                if await self._acquire_control(
-                    "turn_off",
-                    "Grid import protection - invalid amperage level",
-                ):
-                    await self.charger_controller.stop_charger(
-                        "Grid import protection - invalid amperage level"
-                    )
-                    self._release_control("Grid import invalid amperage")
-                    self._handle_control_loss("Grid import invalid amperage")
+        # Gradual ramp down: one level at a time via AmperageCalculator
+        next_amps = AmperageCalculator.get_next_level_down(current_amps)
+
+        if next_amps > 0:
+            self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")
+            self.logger.warning(
+                "Grid import protection action: step_down current=%sA next=%sA import=%sW threshold=%sW",
+                current_amps,
+                next_amps,
+                round(grid_import, 1),
+                round(grid_threshold, 1),
+            )
+            await self._update_diagnostic_sensor(
+                "GRID_IMPORT_STEP_DOWN",
+                {
+                    "decision": "step_down",
+                    "reason": "Grid import persisted above threshold",
+                    **self._get_grid_import_debug_context(
+                        grid_import=grid_import,
+                        grid_threshold=grid_threshold,
+                        grid_import_delay=grid_import_delay,
+                        current_amps=current_amps,
+                        target_amps=next_amps,
+                    ),
+                },
+            )
+            if await self._ensure_control("Grid import protection"):
+                await self.charger_controller.set_amperage(next_amps, "Grid import protection")
+        elif current_amps == 0:
+            self.logger.info("Charger is already off (0A) - keeping charger stopped")
+            await self._update_diagnostic_sensor(
+                "GRID_IMPORT_NOOP",
+                {
+                    "decision": "charger_already_off",
+                    "reason": "Grid import high but charger was already off",
+                    **self._get_grid_import_debug_context(
+                        grid_import=grid_import,
+                        grid_threshold=grid_threshold,
+                        grid_import_delay=grid_import_delay,
+                        current_amps=current_amps,
+                        target_amps=0,
+                    ),
+                },
+            )
+        else:
+            # At minimum level or non-standard level — stop charger
+            reason = (
+                "Grid import protection - minimum level reached"
+                if current_amps in CHARGER_AMP_LEVELS
+                else f"Grid import protection - non-standard level {current_amps}A"
+            )
+            self.logger.info(f"Stopping charger: {reason}")
+            self.logger.warning(
+                "Grid import protection action: stop current=%sA import=%sW threshold=%sW",
+                current_amps,
+                round(grid_import, 1),
+                round(grid_threshold, 1),
+            )
+            await self._update_diagnostic_sensor(
+                "GRID_IMPORT_STOP",
+                {
+                    "decision": "stop_at_minimum",
+                    "reason": reason,
+                    **self._get_grid_import_debug_context(
+                        grid_import=grid_import,
+                        grid_threshold=grid_threshold,
+                        grid_import_delay=grid_import_delay,
+                        current_amps=current_amps,
+                        target_amps=0,
+                    ),
+                },
+            )
+            if await self._acquire_control("turn_off", reason):
+                await self.charger_controller.stop_charger(reason)
+                self._release_control("Grid import protection stop")
+                self._handle_control_loss("Grid import protection stop")
 
     async def _handle_surplus_decrease(
         self,
@@ -1216,7 +1230,7 @@ class SolarSurplusAutomation:
         surplus_drop_delay: float,
     ) -> None:
         """Handle surplus decrease with delay."""
-        current_time = time.time()
+        current_time = time.monotonic()
 
         if self._last_surplus_sufficient is None:
             self._last_surplus_sufficient = current_time
@@ -1233,41 +1247,32 @@ class SolarSurplusAutomation:
         self.logger.warning("Surplus drop delay ELAPSED - Starting gradual ramp-down")
         self._last_surplus_sufficient = None
 
-        # Gradual ramp down: one level at a time
-        try:
-            current_index = CHARGER_AMP_LEVELS.index(current_amps)
-            if current_index > 0:
-                next_amps = CHARGER_AMP_LEVELS[current_index - 1]
-                self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")
-                if await self._ensure_control("Surplus decrease"):
-                    await self.charger_controller.set_amperage(next_amps, "Surplus decrease")
-            else:
-                self.logger.info("Already at minimum level - stopping charger")
-                if await self._acquire_control(
-                    "turn_off",
-                    "Surplus decrease - minimum level reached",
-                ):
-                    await self.charger_controller.stop_charger(
-                        "Surplus decrease - minimum level reached"
-                    )
-                    self._release_control("Surplus decrease stop")
-                    self._handle_control_loss("Surplus decrease stop")
-        except ValueError:
-            # Handle 0A (charger off) or other non-standard levels
-            if current_amps == 0:
-                self.logger.warning("Charger is off (0A) - starting at minimum 6A")
-                if await self._ensure_control("Surplus decrease - start at 6A"):
-                    await self.charger_controller.set_amperage(
-                        6,
-                        "Surplus decrease - charger was off, starting at 6A",
-                    )
-            else:
-                self.logger.warning(f"Current amperage {current_amps}A not in standard levels")
-                if await self._ensure_control("Surplus decrease - fallback to 6A"):
-                    await self.charger_controller.set_amperage(
-                        6,
-                        "Surplus decrease - fallback to 6A",
-                    )
+        # Gradual ramp down: one level at a time via AmperageCalculator
+        next_amps = AmperageCalculator.get_next_level_down(current_amps)
+
+        if next_amps > 0:
+            self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")
+            if await self._ensure_control("Surplus decrease"):
+                await self.charger_controller.set_amperage(next_amps, "Surplus decrease")
+        elif current_amps == 0:
+            self.logger.warning("Charger is off (0A) - starting at minimum 6A")
+            if await self._ensure_control("Surplus decrease - start at 6A"):
+                await self.charger_controller.set_amperage(
+                    6,
+                    "Surplus decrease - charger was off, starting at 6A",
+                )
+        else:
+            # At minimum level or non-standard level — stop charger
+            self.logger.info(f"At minimum/non-standard level ({current_amps}A) - stopping charger")
+            if await self._acquire_control(
+                "turn_off",
+                "Surplus decrease - minimum level reached",
+            ):
+                await self.charger_controller.stop_charger(
+                    "Surplus decrease - minimum level reached"
+                )
+                self._release_control("Surplus decrease stop")
+                self._handle_control_loss("Surplus decrease stop")
 
     async def _handle_surplus_increase(self, target_amps: int, current_amps: int) -> None:
         """Handle surplus increase with stability requirement.
@@ -1276,7 +1281,6 @@ class SolarSurplusAutomation:
             target_amps: Target amperage to set
             current_amps: Current amperage (0 if charger off)
         """
-        from .const import SURPLUS_INCREASE_DELAY
 
         # Starting from 0A (charger off) requires 60s stability (cloud protection)
         if current_amps == 0:
@@ -1336,6 +1340,7 @@ class SolarSurplusAutomation:
         self._last_surplus_sufficient = None
         self._last_grid_import_high = None
         self._surplus_stable_since = None
+        self._deadband_start_time = None
         self._waiting_for_surplus_decrease = False
         self._surplus_decrease_start_time = None
 
@@ -1396,7 +1401,7 @@ class SolarSurplusAutomation:
         target_amps: int | None = None,
     ) -> dict:
         """Return a debug snapshot for grid import protection decisions."""
-        now_ts = time.time()
+        now_ts = time.monotonic()
         timer_started = self._last_grid_import_high
         elapsed = None
         remaining = None

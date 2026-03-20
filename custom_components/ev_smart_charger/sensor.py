@@ -58,19 +58,21 @@ async def async_setup_entry(
             "EVSC Log File Path",
             "mdi:file-document-outline",
         ),
-        EVSCTodayEVTargetSensor(
+        EVSCTodayTargetSensor(
             runtime_data,
             entry.entry_id,
             "evsc_today_ev_target",
             "EVSC Today EV Target",
             "mdi:battery-charging-80",
+            label="EV",
         ),
-        EVSCTodayHomeTargetSensor(
+        EVSCTodayTargetSensor(
             runtime_data,
             entry.entry_id,
             "evsc_today_home_target",
             "EVSC Today Home Target",
             "mdi:home-battery",
+            label="Home",
         ),
         EVSCCachedEVSOCSensor(
             runtime_data,
@@ -320,8 +322,8 @@ class EVSCLogFilePathSensor(EVSCEntityMixin, SensorEntity):
         _LOGGER.info("  📄 Today's log file: %s", self._attr_native_value)
 
 
-class EVSCTodayEVTargetSensor(EVSCBaseSensor):
-    """EVSC Today EV Target Sensor."""
+class EVSCTodayTargetSensor(EVSCBaseSensor):
+    """EVSC Today Target Sensor (unified for EV and Home)."""
 
     def __init__(
         self,
@@ -330,6 +332,7 @@ class EVSCTodayEVTargetSensor(EVSCBaseSensor):
         suffix: str,
         name: str,
         icon: str,
+        label: str = "Target",
     ) -> None:
         """Initialize the sensor."""
         super().__init__(
@@ -341,54 +344,14 @@ class EVSCTodayEVTargetSensor(EVSCBaseSensor):
             native_value=None,
             native_unit_of_measurement="%",
         )
+        self._label = label
 
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
         _LOGGER.info(
-            "✅ Today EV Target sensor registered: %s (unique_id: %s)",
-            self.entity_id,
-            self.unique_id,
-        )
-        if (last_state := await self.async_get_last_state()) is not None:
-            try:
-                self._attr_native_value = (
-                    float(last_state.state)
-                    if last_state.state not in (None, "unknown", "unavailable")
-                    else None
-                )
-            except (ValueError, TypeError):
-                self._attr_native_value = None
-            self._attr_extra_state_attributes = dict(last_state.attributes)
-
-
-class EVSCTodayHomeTargetSensor(EVSCBaseSensor):
-    """EVSC Today Home Target Sensor."""
-
-    def __init__(
-        self,
-        runtime_data: EVSCRuntimeData,
-        entry_id: str,
-        suffix: str,
-        name: str,
-        icon: str,
-    ) -> None:
-        """Initialize the sensor."""
-        super().__init__(
-            runtime_data,
-            entry_id,
-            suffix,
-            name,
-            icon,
-            native_value=None,
-            native_unit_of_measurement="%",
-        )
-
-    async def async_added_to_hass(self) -> None:
-        """Restore last state."""
-        await super().async_added_to_hass()
-        _LOGGER.info(
-            "✅ Today Home Target sensor registered: %s (unique_id: %s)",
+            "✅ Today %s Target sensor registered: %s (unique_id: %s)",
+            self._label,
             self.entity_id,
             self.unique_id,
         )

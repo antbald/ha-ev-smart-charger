@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.5.11"
+VERSION = "1.6.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -166,9 +166,8 @@ DEFAULT_SURPLUS_DROP_DELAY = 30  # seconds
 # ========== SURPLUS HYSTERESIS SETTINGS ==========
 SURPLUS_START_THRESHOLD = 6.5  # amps - minimum surplus to START charging (with margin)
 SURPLUS_STOP_THRESHOLD = 5.5   # amps - minimum surplus to CONTINUE charging
-SURPLUS_HYSTERESIS_MARGIN = 1.0  # amps - dead band to prevent oscillation (6.5 - 5.5)
-SURPLUS_STABLE_DURATION = 15  # seconds - required stable surplus before starting
 SURPLUS_INCREASE_DELAY = 60  # seconds - delay before increasing amperage (cloud protection)
+SURPLUS_DEADBAND_START_DELAY = 120  # seconds - persistent dead band surplus before opportunistic start
 
 # ========== DEFAULT VALUES - HOME BATTERY SUPPORT ==========
 DEFAULT_HOME_BATTERY_MIN_SOC = 20  # percent
@@ -200,8 +199,6 @@ DEFAULT_CAR_READY_WEEKEND = False  # Saturday-Sunday (car not urgently needed)
 
 # ========== SMART BLOCKER SETTINGS ==========
 SMART_BLOCKER_ENFORCEMENT_TIMEOUT = 1800  # 30 minutes in seconds
-SMART_BLOCKER_RETRY_ATTEMPTS = 3
-SMART_BLOCKER_RETRY_DELAYS = [2, 4, 6]  # seconds
 
 # ========== RATE LIMITING ==========
 SOLAR_SURPLUS_MIN_CHECK_INTERVAL = 30  # seconds between checks
@@ -209,7 +206,6 @@ SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE = 10  # warning threshold
 
 # ========== CHARGER CONTROLLER SETTINGS ==========
 CHARGER_MIN_OPERATION_INTERVAL = 30  # seconds between charger operations (rate limiting)
-CHARGER_QUEUE_MAX_SIZE = 10  # maximum operations in queue
 
 # ========== DELAYS ==========
 CHARGER_COMMAND_DELAY = 2  # seconds to wait after charger commands

@@ -18,6 +18,7 @@ from .const import (
     DEFAULT_BATTERY_SUPPORT_AMPERAGE,
     DEFAULT_EV_MIN_SOC_WEEKDAY,
     DEFAULT_EV_MIN_SOC_WEEKEND,
+    DEFAULT_HOME_MIN_SOC,
     DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD,
     DEFAULT_NIGHT_CHARGE_AMPERAGE,
     DEFAULT_BOOST_CHARGE_AMPERAGE,
@@ -37,394 +38,70 @@ async def async_setup_entry(
     """Set up EVSC number entities."""
 
     runtime_data = get_runtime_data(entry)
-    entities = []
 
-    # Create Check Interval
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_check_interval",
-            "EVSC Check Interval",
-            "mdi:timer-outline",
-            min_value=1,
-            max_value=60,
-            step=1,
-            default_value=DEFAULT_CHECK_INTERVAL,
-            unit="min",
-        )
-    )
+    # ── Number definition table ──────────────────────────────────
+    # (suffix, name, icon, min, max, step, default, unit)
+    _NUMBER_DEFS: list[tuple[str, str, str, float, float, float, float, str]] = [
+        # Solar Surplus controls
+        ("evsc_check_interval", "EVSC Check Interval", "mdi:timer-outline", 1, 60, 1, DEFAULT_CHECK_INTERVAL, "min"),
+        ("evsc_grid_import_threshold", "EVSC Grid Import Threshold", "mdi:transmission-tower", 0, 1000, 10, DEFAULT_GRID_IMPORT_THRESHOLD, "W"),
+        ("evsc_grid_import_delay", "EVSC Grid Import Delay", "mdi:timer-sand", 0, 120, 5, DEFAULT_GRID_IMPORT_DELAY, "s"),
+        ("evsc_surplus_drop_delay", "EVSC Surplus Drop Delay", "mdi:timer-sand", 0, 120, 5, DEFAULT_SURPLUS_DROP_DELAY, "s"),
+        # Home battery
+        ("evsc_home_battery_min_soc", "EVSC Home Battery Min SOC", "mdi:battery-50", 0, 100, 5, DEFAULT_HOME_BATTERY_MIN_SOC, "%"),
+        ("evsc_battery_support_amperage", "EVSC Battery Support Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_BATTERY_SUPPORT_AMPERAGE, "A"),
+        # Night Smart Charge
+        ("evsc_min_solar_forecast_threshold", "EVSC Min Solar Forecast Threshold", "mdi:solar-power-variant", 0, 100, 1, DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD, "kWh"),
+        ("evsc_night_charge_amperage", "EVSC Night Charge Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_NIGHT_CHARGE_AMPERAGE, "A"),
+        # Boost Charge
+        ("evsc_boost_charge_amperage", "EVSC Boost Charge Amperage", "mdi:flash", 6, 32, 2, DEFAULT_BOOST_CHARGE_AMPERAGE, "A"),
+        ("evsc_boost_target_soc", "EVSC Boost Target SOC", "mdi:battery-charging-90", 0, 100, 1, DEFAULT_BOOST_TARGET_SOC, "%"),
+    ]
 
-    # Create Grid Import Threshold
-    entities.append(
+    entities = [
         EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_grid_import_threshold",
-            "EVSC Grid Import Threshold",
-            "mdi:transmission-tower",
-            min_value=0,
-            max_value=1000,
-            step=10,
-            default_value=DEFAULT_GRID_IMPORT_THRESHOLD,
-            unit="W",
+            runtime_data, entry.entry_id,
+            suffix, name, icon,
+            min_value=mn, max_value=mx, step=st,
+            default_value=dv, unit=u,
         )
-    )
+        for suffix, name, icon, mn, mx, st, dv, u in _NUMBER_DEFS
+    ]
 
-    # Create Grid Import Delay
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_grid_import_delay",
-            "EVSC Grid Import Delay",
-            "mdi:timer-sand",
-            min_value=0,
-            max_value=120,
-            step=5,
-            default_value=DEFAULT_GRID_IMPORT_DELAY,
-            unit="s",
+    # Daily SOC targets — generated per day
+    _DAYS = [
+        ("monday", DEFAULT_EV_MIN_SOC_WEEKDAY),
+        ("tuesday", DEFAULT_EV_MIN_SOC_WEEKDAY),
+        ("wednesday", DEFAULT_EV_MIN_SOC_WEEKDAY),
+        ("thursday", DEFAULT_EV_MIN_SOC_WEEKDAY),
+        ("friday", DEFAULT_EV_MIN_SOC_WEEKDAY),
+        ("saturday", DEFAULT_EV_MIN_SOC_WEEKEND),
+        ("sunday", DEFAULT_EV_MIN_SOC_WEEKEND),
+    ]
+    for day, ev_default in _DAYS:
+        cap = day.capitalize()
+        # EV daily SOC target
+        entities.append(
+            EVSCNumber(
+                runtime_data, entry.entry_id,
+                f"evsc_ev_min_soc_{day}",
+                f"EVSC EV Min SOC {cap}",
+                f"mdi:calendar-{day}",
+                min_value=0, max_value=100, step=5,
+                default_value=ev_default, unit="%",
+            )
         )
-    )
-
-    # Create Surplus Drop Delay
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_surplus_drop_delay",
-            "EVSC Surplus Drop Delay",
-            "mdi:timer-sand",
-            min_value=0,
-            max_value=120,
-            step=5,
-            default_value=DEFAULT_SURPLUS_DROP_DELAY,
-            unit="s",
+        # Home daily SOC target
+        entities.append(
+            EVSCNumber(
+                runtime_data, entry.entry_id,
+                f"evsc_home_min_soc_{day}",
+                f"EVSC Home Min SOC {cap}",
+                f"mdi:calendar-{day}",
+                min_value=0, max_value=100, step=5,
+                default_value=DEFAULT_HOME_MIN_SOC, unit="%",
+            )
         )
-    )
-
-    # Create Home Battery Minimum SOC
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_home_battery_min_soc",
-            "EVSC Home Battery Min SOC",
-            "mdi:battery-50",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=DEFAULT_HOME_BATTERY_MIN_SOC,
-            unit="%",
-        )
-    )
-
-    # Create Battery Support Amperage
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_battery_support_amperage",
-            "EVSC Battery Support Amperage",
-            "mdi:current-ac",
-            min_value=6,
-            max_value=32,
-            step=2,
-            default_value=DEFAULT_BATTERY_SUPPORT_AMPERAGE,
-            unit="A",
-        )
-    )
-
-    # Create EV Minimum SOC for each day of the week
-    # Monday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_ev_min_soc_monday",
-            "EVSC EV Min SOC Monday",
-            "mdi:calendar-monday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=DEFAULT_EV_MIN_SOC_WEEKDAY,
-            unit="%",
-        )
-    )
-
-    # Tuesday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_ev_min_soc_tuesday",
-            "EVSC EV Min SOC Tuesday",
-            "mdi:calendar-tuesday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=DEFAULT_EV_MIN_SOC_WEEKDAY,
-            unit="%",
-        )
-    )
-
-    # Wednesday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_ev_min_soc_wednesday",
-            "EVSC EV Min SOC Wednesday",
-            "mdi:calendar-wednesday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=DEFAULT_EV_MIN_SOC_WEEKDAY,
-            unit="%",
-        )
-    )
-
-    # Thursday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_ev_min_soc_thursday",
-            "EVSC EV Min SOC Thursday",
-            "mdi:calendar-thursday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=DEFAULT_EV_MIN_SOC_WEEKDAY,
-            unit="%",
-        )
-    )
-
-    # Friday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_ev_min_soc_friday",
-            "EVSC EV Min SOC Friday",
-            "mdi:calendar-friday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=DEFAULT_EV_MIN_SOC_WEEKDAY,
-            unit="%",
-        )
-    )
-
-    # Saturday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_ev_min_soc_saturday",
-            "EVSC EV Min SOC Saturday",
-            "mdi:calendar-saturday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=DEFAULT_EV_MIN_SOC_WEEKEND,
-            unit="%",
-        )
-    )
-
-    # Sunday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_ev_min_soc_sunday",
-            "EVSC EV Min SOC Sunday",
-            "mdi:calendar-sunday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=DEFAULT_EV_MIN_SOC_WEEKEND,
-            unit="%",
-        )
-    )
-
-    # Create Home Battery Minimum SOC for each day of the week (for Priority Balancer)
-    # Monday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_home_min_soc_monday",
-            "EVSC Home Min SOC Monday",
-            "mdi:calendar-monday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=50,
-            unit="%",
-        )
-    )
-
-    # Tuesday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_home_min_soc_tuesday",
-            "EVSC Home Min SOC Tuesday",
-            "mdi:calendar-tuesday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=50,
-            unit="%",
-        )
-    )
-
-    # Wednesday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_home_min_soc_wednesday",
-            "EVSC Home Min SOC Wednesday",
-            "mdi:calendar-wednesday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=50,
-            unit="%",
-        )
-    )
-
-    # Thursday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_home_min_soc_thursday",
-            "EVSC Home Min SOC Thursday",
-            "mdi:calendar-thursday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=50,
-            unit="%",
-        )
-    )
-
-    # Friday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_home_min_soc_friday",
-            "EVSC Home Min SOC Friday",
-            "mdi:calendar-friday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=50,
-            unit="%",
-        )
-    )
-
-    # Saturday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_home_min_soc_saturday",
-            "EVSC Home Min SOC Saturday",
-            "mdi:calendar-saturday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=50,
-            unit="%",
-        )
-    )
-
-    # Sunday
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_home_min_soc_sunday",
-            "EVSC Home Min SOC Sunday",
-            "mdi:calendar-sunday",
-            min_value=0,
-            max_value=100,
-            step=5,
-            default_value=50,
-            unit="%",
-        )
-    )
-
-    # Create Night Smart Charge entities
-    # Minimum Solar Forecast Threshold
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_min_solar_forecast_threshold",
-            "EVSC Min Solar Forecast Threshold",
-            "mdi:solar-power-variant",
-            min_value=0,
-            max_value=100,
-            step=1,
-            default_value=DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD,
-            unit="kWh",
-        )
-    )
-
-    # Night Charge Amperage
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_night_charge_amperage",
-            "EVSC Night Charge Amperage",
-            "mdi:current-ac",
-            min_value=6,
-            max_value=32,
-            step=2,
-            default_value=DEFAULT_NIGHT_CHARGE_AMPERAGE,
-            unit="A",
-        )
-    )
-
-    # Boost Charge Amperage
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_boost_charge_amperage",
-            "EVSC Boost Charge Amperage",
-            "mdi:flash",
-            min_value=6,
-            max_value=32,
-            step=2,
-            default_value=DEFAULT_BOOST_CHARGE_AMPERAGE,
-            unit="A",
-        )
-    )
-
-    # Boost Charge Target SOC
-    entities.append(
-        EVSCNumber(
-            runtime_data,
-            entry.entry_id,
-            "evsc_boost_target_soc",
-            "EVSC Boost Target SOC",
-            "mdi:battery-charging-90",
-            min_value=0,
-            max_value=100,
-            step=1,
-            default_value=DEFAULT_BOOST_TARGET_SOC,
-            unit="%",
-        )
-    )
 
     async_add_entities(entities)
     _LOGGER.info(f"✅ Created {len(entities)} EVSC number entities")

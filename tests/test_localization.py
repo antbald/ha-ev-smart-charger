@@ -106,7 +106,7 @@ async def test_mobile_notifications_follow_hass_language(hass, language, expecte
     assert notify_call.args[0] == "notify"
     assert notify_call.args[1] == "mobile_app_test_phone"
     assert expected_fragment in notify_call.args[2]["message"]
-    assert notify_call.args[2]["title"] == "BORGO"
+    assert notify_call.args[2]["title"] == "EV Smart Charger"
 
 
 @pytest.mark.parametrize(
@@ -138,7 +138,7 @@ async def test_night_charge_skip_notifications_follow_hass_language(
     assert notify_call.args[0] == "notify"
     assert notify_call.args[1] == "mobile_app_test_phone"
     assert expected_fragment in notify_call.args[2]["message"]
-    assert notify_call.args[2]["title"] == "BORGO"
+    assert notify_call.args[2]["title"] == "EV Smart Charger"
 
 
 def test_frontend_locale_dictionary_has_parity_and_english_fallback() -> None:
