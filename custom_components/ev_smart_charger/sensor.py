@@ -8,6 +8,7 @@ from typing import Any
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -272,7 +273,7 @@ class EVSCLogFilePathSensor(EVSCEntityMixin, SensorEntity):
         if log_manager:
             return log_manager.get_log_file_path()
 
-        now = datetime.now()
+        now = dt_util.now()
         return self._hass.config.path(
             "custom_components",
             "ev_smart_charger",

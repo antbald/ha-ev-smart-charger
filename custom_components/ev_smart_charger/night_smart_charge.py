@@ -261,7 +261,9 @@ class NightSmartCharge:
 
         self._night_charge_active = False
         self._active_mode = NIGHT_CHARGE_MODE_IDLE
-        self._session_state = "ready"
+        self._session_state = "completed_today"
+        self._last_completion_time = dt_util.now()
+        self._last_completion_date = dt_util.now().date()
 
     async def _stop_charger_with_control(self, reason: str) -> bool:
         """Stop the charger only while Night Smart Charge still owns the session."""
@@ -1607,7 +1609,7 @@ class NightSmartCharge:
             # First detection or delay elapsed
             if self._grid_import_trigger_time is None:
                 # First detection - start tracking
-                self._grid_import_trigger_time = datetime.now()
+                self._grid_import_trigger_time = dt_util.now()
                 self.logger.warning(
                     f"{self.logger.ALERT} Grid import detected: {grid_import:.0f}W > {grid_threshold:.0f}W"
                 )

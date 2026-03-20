@@ -753,6 +753,52 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.5.11 (2026-03-20)
+**CRITICAL FIX: Night Smart Charge Ownership Loss Loop + Timezone Mismatch**
+
+**Three critical bugs fixed that caused Night Smart Charge to never complete, restart every ~60 seconds, and spam logs with datetime errors.**
+
+**BUG #1 (CRITICAL) - Coordinator Override Doesn't Set Ownership:**
+
+**Root Cause:** In `automation_coordinator.py`, when Forza Ricarica is ON, the `turn_on` override path returned `True` (allowed) but NEVER set `_active_automation`. This meant Night Smart Charge believed it had control, but 15 seconds later when grid/battery monitors called `_ensure_control()` → `_has_control()` → `is_automation_active()`, the answer was always `False` because `_active_automation` was `None`.
+
+**Impact:** 355+ `ownership_lost` events per day, Night Smart Charge restart loop every ~60 seconds, charging sessions never completing properly.
+
+**Fix:** Added `_active_automation` and `_last_action`/`_last_action_time` assignment to the override `turn_on` path in `request_charger_action()`.
+
+**BUG #2 (HIGH) - datetime.now() Timezone Mismatch (40+ instances):**
+
+**Root Cause:** 40+ instances of `datetime.now()` (offset-naive) across the codebase. Home Assistant uses `dt_util.now()` (offset-aware). When mixed in arithmetic or comparisons → `TypeError: can't subtract offset-naive and offset-aware datetimes` every ~60 seconds.
+
+**Affected Files:** charger_controller.py (4), utils/amperage_helper.py (4), utils/astral_time_service.py (8), solar_surplus.py (15+), night_smart_charge.py (1), sensor.py (1), log_manager.py (2).
+
+**Fix:** Replaced all 40+ `datetime.now()` with `dt_util.now()` and added `from homeassistant.util import dt as dt_util` import where missing.
+
+**BUG #3 (MEDIUM) - Control Loss Resets State to "ready":**
+
+**Root Cause:** `_handle_control_loss()` in night_smart_charge.py set `_session_state = "ready"` instead of `"completed_today"`. Combined with BUG #1, this allowed immediate re-activation creating the infinite restart loop.
+
+**Fix:** Changed to `_session_state = "completed_today"` and set `_last_completion_time`/`_last_completion_date` to prevent same-day re-activation.
+
+**Note on Amperage Decrease Sequence:**
+The safe decrease sequence (stop → 5s → set → 1s → restart) is correctly implemented in `charger_controller.py:_decrease_amperage_unlocked()`. The `charger_wait → charger_charging` transitions visible in logs are EXPECTED behavior from this sequence, not a bug.
+
+**Files Modified:**
+- [automation_coordinator.py](custom_components/ev_smart_charger/automation_coordinator.py): Added ownership to override path
+- [charger_controller.py](custom_components/ev_smart_charger/charger_controller.py): datetime.now() → dt_util.now() (4 instances)
+- [utils/amperage_helper.py](custom_components/ev_smart_charger/utils/amperage_helper.py): datetime.now() → dt_util.now() (4 instances)
+- [utils/astral_time_service.py](custom_components/ev_smart_charger/utils/astral_time_service.py): datetime.now() → dt_util.now() (8 instances)
+- [solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py): datetime.now() → dt_util.now() (15+ instances)
+- [night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py): datetime.now() → dt_util.now() + control loss state fix
+- [sensor.py](custom_components/ev_smart_charger/sensor.py): datetime.now() → dt_util.now() (1 instance)
+- [log_manager.py](custom_components/ev_smart_charger/log_manager.py): datetime.now() → dt_util.now() (2 instances)
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.5.11"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.5.11"
+
+**Upgrade Priority**: 🔴 CRITICAL - Fixes Night Smart Charge complete failure, ownership loop, and datetime error spam
+
+---
+
 ### v1.4.16 (2025-12-29)
 **CRITICAL FIX: Charger Starts at 6A Instead of Configured Amperage**
 

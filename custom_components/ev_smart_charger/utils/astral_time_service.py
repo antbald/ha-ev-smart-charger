@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.sun import get_astral_event_date
+from homeassistant.util import dt as dt_util
 
 
 class AstralTimeService:
@@ -38,7 +39,7 @@ class AstralTimeService:
             >>> sunset = service.get_sunset(datetime(2024, 10, 30))  # Specific date
         """
         if reference_date is None:
-            reference_date = datetime.now()
+            reference_date = dt_util.now()
 
         return get_astral_event_date(self.hass, "sunset", reference_date)
 
@@ -58,26 +59,26 @@ class AstralTimeService:
             >>> sunrise = service.get_sunrise(datetime(2024, 10, 31))  # Tomorrow
         """
         if reference_date is None:
-            reference_date = datetime.now()
+            reference_date = dt_util.now()
 
         return get_astral_event_date(self.hass, "sunrise", reference_date)
 
     def get_today_sunset(self) -> datetime | None:
         """Get today's sunset time."""
-        return self.get_sunset(datetime.now())
+        return self.get_sunset(dt_util.now())
 
     def get_today_sunrise(self) -> datetime | None:
         """Get today's sunrise time."""
-        return self.get_sunrise(datetime.now())
+        return self.get_sunrise(dt_util.now())
 
     def get_tomorrow_sunrise(self) -> datetime | None:
         """Get tomorrow's sunrise time."""
-        tomorrow = datetime.now() + timedelta(days=1)
+        tomorrow = dt_util.now() + timedelta(days=1)
         return self.get_sunrise(tomorrow)
 
     def get_yesterday_sunset(self) -> datetime | None:
         """Get yesterday's sunset time."""
-        yesterday = datetime.now() - timedelta(days=1)
+        yesterday = dt_util.now() - timedelta(days=1)
         return self.get_sunset(yesterday)
 
     def is_after_sunset(self, now: datetime = None) -> bool:
@@ -91,7 +92,7 @@ class AstralTimeService:
             True if after sunset, False otherwise
         """
         if now is None:
-            now = datetime.now()
+            now = dt_util.now()
 
         sunset = self.get_sunset(now)
         if sunset is None:
@@ -110,7 +111,7 @@ class AstralTimeService:
             True if before sunrise, False otherwise
         """
         if now is None:
-            now = datetime.now()
+            now = dt_util.now()
 
         sunrise = self.get_sunrise(now)
         if sunrise is None:
@@ -138,7 +139,7 @@ class AstralTimeService:
             >>> service.is_nighttime()  # Returns: False
         """
         if now is None:
-            now = datetime.now()
+            now = dt_util.now()
 
         # Check if after today's sunset OR before today's sunrise
         sunset_today = self.get_sunset(now)

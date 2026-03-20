@@ -12,6 +12,7 @@ from datetime import datetime
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change
+from homeassistant.util import dt as dt_util
 
 from .const import HELPER_ENABLE_FILE_LOGGING_SUFFIX
 from .runtime import EVSCRuntimeData
@@ -96,7 +97,7 @@ class LogManager:
         """
         if self._current_date is not None:
             return self._get_log_file_path_for_date(self._current_date)
-        return self._get_log_file_path_for_date(datetime.now())
+        return self._get_log_file_path_for_date(dt_util.now())
 
     def get_logs_directory(self) -> str:
         """
@@ -115,7 +116,7 @@ class LogManager:
             components: List of EVSCLogger instances from all components
         """
         self._components = components
-        self._current_date = datetime.now().date()
+        self._current_date = dt_util.now().date()
         _LOGGER.info(f"LogManager setup with {len(components)} component loggers")
 
         if self._runtime_data is not None:

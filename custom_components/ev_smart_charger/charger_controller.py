@@ -8,6 +8,7 @@ import re
 from typing import Optional
 
 import async_timeout
+from homeassistant.util import dt as dt_util
 from homeassistant.core import HomeAssistant
 
 from .const import (
@@ -115,7 +116,7 @@ class OperationResult:
     def __post_init__(self):
         """Set timestamp if not provided."""
         if self.timestamp is None:
-            self.timestamp = datetime.now()
+            self.timestamp = dt_util.now()
         self.queued = False
 
     def __str__(self) -> str:
@@ -555,7 +556,7 @@ class ChargerController:
         if self._last_operation_time is None:
             return
 
-        elapsed = (datetime.now() - self._last_operation_time).total_seconds()
+        elapsed = (dt_util.now() - self._last_operation_time).total_seconds()
         if elapsed >= CHARGER_MIN_OPERATION_INTERVAL:
             return
 
@@ -565,7 +566,7 @@ class ChargerController:
 
     def _record_operation_time(self) -> None:
         """Record the completion time of the last operation."""
-        self._last_operation_time = datetime.now()
+        self._last_operation_time = dt_util.now()
 
     def _normalize_target_amps(self, target_amps: int | float | None) -> int:
         """Normalize a target amperage to the nearest supported level."""
@@ -612,4 +613,4 @@ class ChargerController:
         """Get seconds since last operation."""
         if self._last_operation_time is None:
             return None
-        return (datetime.now() - self._last_operation_time).total_seconds()
+        return (dt_util.now() - self._last_operation_time).total_seconds()

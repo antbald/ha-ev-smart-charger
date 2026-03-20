@@ -186,6 +186,15 @@ class AutomationCoordinator:
                 return False, decision_reason
             else:
                 # Override allows turn_on from any automation
+                self._active_automation = {
+                    "name": automation_name,
+                    "priority": priority,
+                    "reason": reason,
+                    "action": action,
+                    "timestamp": dt_util.now(),
+                }
+                self._last_action = action
+                self._last_action_time = dt_util.now()
                 decision_reason = "Override active (Forza Ricarica ON) - allowing turn_on"
                 _LOGGER.info(f"✅ [Coordinator] {automation_name} allowed: {decision_reason}")
                 self._log_action_allowed(automation_name, action, reason, priority)

@@ -395,7 +395,7 @@ class SolarSurplusAutomation:
             )
             await self._update_diagnostic_sensor(
                 "SKIPPED: Forza Ricarica ON",
-                {"reason": "Override switch enabled", "last_check": datetime.now().isoformat()}
+                {"reason": "Override switch enabled", "last_check": dt_util.now().isoformat()}
             )
             self.logger.separator()
             return
@@ -415,7 +415,7 @@ class SolarSurplusAutomation:
             )
             await self._update_diagnostic_sensor(
                 "SKIPPED: Boost Charge Active",
-                {"reason": "Boost override enabled", "last_check": datetime.now().isoformat()}
+                {"reason": "Boost override enabled", "last_check": dt_util.now().isoformat()}
             )
             self.logger.separator()
             return
@@ -446,7 +446,7 @@ class SolarSurplusAutomation:
             )
             await self._update_diagnostic_sensor(
                 "SKIPPED: Night Smart Charge Active",
-                {"night_mode": night_mode, "last_check": datetime.now().isoformat()}
+                {"night_mode": night_mode, "last_check": dt_util.now().isoformat()}
             )
             self.logger.separator()
             return
@@ -464,7 +464,7 @@ class SolarSurplusAutomation:
                     "SKIPPED: Night Charge Cooldown",
                     {
                         "reason": f"Cooldown active ({time_since:.0f}s / {NIGHT_CHARGE_COOLDOWN_SECONDS}s)",
-                        "last_check": datetime.now().isoformat()
+                        "last_check": dt_util.now().isoformat()
                     }
                 )
                 self.logger.separator()
@@ -485,7 +485,7 @@ class SolarSurplusAutomation:
             )
             await self._update_diagnostic_sensor(
                 "SKIPPED: Wrong Profile",
-                {"profile": current_profile, "last_check": datetime.now().isoformat()}
+                {"profile": current_profile, "last_check": dt_util.now().isoformat()}
             )
             self.logger.separator()
             return
@@ -580,7 +580,7 @@ class SolarSurplusAutomation:
 
             await self._update_diagnostic_sensor(
                 "ERROR: Invalid sensor values",
-                {"errors": sensor_errors, "last_check": datetime.now().isoformat()}
+                {"errors": sensor_errors, "last_check": dt_util.now().isoformat()}
             )
             self.logger.separator()
             return
@@ -621,7 +621,7 @@ class SolarSurplusAutomation:
         await self._update_diagnostic_sensor(
             f"CHECKING: {surplus_watts}W surplus ({surplus_amps:.1f}A)",
             {
-                "last_check": datetime.now().isoformat(),
+                "last_check": dt_util.now().isoformat(),
                 "priority": priority if priority else "DISABLED",
                 "solar_production_w": fv_production,
                 "home_consumption_w": home_consumption,
@@ -668,7 +668,7 @@ class SolarSurplusAutomation:
             await self._update_diagnostic_sensor(
                 "GRID_IMPORT_PROTECTION",
                 {
-                    "last_check": datetime.now().isoformat(),
+                    "last_check": dt_util.now().isoformat(),
                     "priority": priority if priority else "DISABLED",
                     "decision": "grid_import_protection_active",
                     **debug_context,
@@ -696,7 +696,7 @@ class SolarSurplusAutomation:
         if priority == PRIORITY_EV_FREE and target_amps == 0 and charger_is_on:
             # Start delay countdown if not already waiting
             if not self._waiting_for_surplus_decrease:
-                self._surplus_decrease_start_time = datetime.now()
+                self._surplus_decrease_start_time = dt_util.now()
                 self._waiting_for_surplus_decrease = True
                 self.logger.warning(
                     f"EV_FREE mode: Insufficient surplus ({surplus_amps:.2f}A < {SURPLUS_STOP_THRESHOLD}A) - "
@@ -706,7 +706,7 @@ class SolarSurplusAutomation:
                 return
 
             # Check if delay elapsed
-            elapsed = (datetime.now() - self._surplus_decrease_start_time).total_seconds()
+            elapsed = (dt_util.now() - self._surplus_decrease_start_time).total_seconds()
             if elapsed < surplus_drop_delay:
                 self.logger.info(
                     f"EV_FREE mode: Waiting for surplus drop delay ({elapsed:.1f}s / {surplus_drop_delay}s)"
@@ -830,7 +830,7 @@ class SolarSurplusAutomation:
                         "context": context,
                         "ev_soc": ev_soc,
                         "ev_target": ev_target,
-                        "last_check": datetime.now().isoformat(),
+                        "last_check": dt_util.now().isoformat(),
                         **self._build_ev_soc_stale_attributes(stale_info),
                     },
                 )
@@ -846,7 +846,7 @@ class SolarSurplusAutomation:
                 "context": context,
                 "ev_soc": ev_soc,
                 "ev_target": ev_target,
-                "last_check": datetime.now().isoformat(),
+                "last_check": dt_util.now().isoformat(),
                 **self._build_ev_soc_stale_attributes(stale_info),
             },
         )
@@ -863,7 +863,7 @@ class SolarSurplusAutomation:
             self.logger.skip("Nighttime - Solar Surplus only operates during daytime (sunrise to sunset)")
             await self._update_diagnostic_sensor(
                 "SKIPPED: Nighttime",
-                {"reason": "Solar production unavailable at night", "last_check": datetime.now().isoformat()},
+                {"reason": "Solar production unavailable at night", "last_check": dt_util.now().isoformat()},
             )
             return
 
@@ -876,7 +876,7 @@ class SolarSurplusAutomation:
                 {
                     "reason": "Charger active but profile is not solar_surplus",
                     "profile": current_profile,
-                    "last_check": datetime.now().isoformat(),
+                    "last_check": dt_util.now().isoformat(),
                 },
             )
             return
@@ -916,7 +916,7 @@ class SolarSurplusAutomation:
                 {
                     "reason": "Sunset transition",
                     "handover": "accepted",
-                    "last_check": datetime.now().isoformat(),
+                    "last_check": dt_util.now().isoformat(),
                 },
             )
             return
@@ -934,7 +934,7 @@ class SolarSurplusAutomation:
                 {
                     "reason": stop_reason,
                     "handover": "rejected_or_failed",
-                    "last_check": datetime.now().isoformat(),
+                    "last_check": dt_util.now().isoformat(),
                 },
             )
 
@@ -1282,7 +1282,7 @@ class SolarSurplusAutomation:
         if current_amps == 0:
             # Start stability tracking if not already started
             if self._surplus_stable_since is None:
-                self._surplus_stable_since = datetime.now()
+                self._surplus_stable_since = dt_util.now()
                 self.logger.info(
                     f"Surplus sufficient ({target_amps}A available) - "
                     f"Waiting {SURPLUS_INCREASE_DELAY}s for stability before starting (cloud protection)"
@@ -1290,7 +1290,7 @@ class SolarSurplusAutomation:
                 return
 
             # Check stability duration
-            stable_duration = (datetime.now() - self._surplus_stable_since).total_seconds()
+            stable_duration = (dt_util.now() - self._surplus_stable_since).total_seconds()
             if stable_duration < SURPLUS_INCREASE_DELAY:
                 self.logger.debug(
                     f"Waiting for stable surplus: {stable_duration:.1f}s / {SURPLUS_INCREASE_DELAY}s"
@@ -1307,7 +1307,7 @@ class SolarSurplusAutomation:
         else:
             # Already charging, require stability for INCREASES (cloud protection)
             if self._surplus_stable_since is None:
-                self._surplus_stable_since = datetime.now()
+                self._surplus_stable_since = dt_util.now()
                 self.logger.info(
                     f"Surplus increase detected ({current_amps}A → {target_amps}A) - "
                     f"Waiting {SURPLUS_INCREASE_DELAY}s for stability (cloud protection)"
@@ -1315,7 +1315,7 @@ class SolarSurplusAutomation:
                 return
 
             # Check stability duration
-            stable_duration = (datetime.now() - self._surplus_stable_since).total_seconds()
+            stable_duration = (dt_util.now() - self._surplus_stable_since).total_seconds()
             if stable_duration < SURPLUS_INCREASE_DELAY:
                 self.logger.debug(
                     f"Waiting for stable increase: {stable_duration:.1f}s / {SURPLUS_INCREASE_DELAY}s"

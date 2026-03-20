@@ -6,6 +6,8 @@ used by both Solar Surplus and Night Smart Charge components.
 from datetime import datetime
 from typing import Optional, Tuple
 
+from homeassistant.util import dt as dt_util
+
 from ..const import (
     CHARGER_AMP_LEVELS,
     VOLTAGE_EU,
@@ -180,7 +182,7 @@ class GridImportProtection:
             return True  # First detection - start tracking
 
         # Check if delay elapsed
-        elapsed = (datetime.now() - last_trigger_time).total_seconds()
+        elapsed = (dt_util.now() - last_trigger_time).total_seconds()
         return elapsed >= delay_seconds
 
     @staticmethod
@@ -227,7 +229,7 @@ class StabilityTracker:
     def start_tracking(self):
         """Start stability tracking if not already started."""
         if self._stable_since is None:
-            self._stable_since = datetime.now()
+            self._stable_since = dt_util.now()
 
     def reset(self):
         """Reset stability tracking."""
@@ -255,7 +257,7 @@ class StabilityTracker:
         if self._stable_since is None:
             return False
 
-        elapsed = (datetime.now() - self._stable_since).total_seconds()
+        elapsed = (dt_util.now() - self._stable_since).total_seconds()
         return elapsed >= required_seconds
 
     def get_elapsed(self) -> float:
@@ -273,4 +275,4 @@ class StabilityTracker:
         """
         if self._stable_since is None:
             return 0
-        return (datetime.now() - self._stable_since).total_seconds()
+        return (dt_util.now() - self._stable_since).total_seconds()
