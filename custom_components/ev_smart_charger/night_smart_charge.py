@@ -995,7 +995,20 @@ class NightSmartCharge:
                 if self.is_active():
                     self.logger.info("Completing active night charge session")
                     await self._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
-    
+                # v1.6.2: If state machine is "active" but no charging session
+                # was started (target already reached at activation time),
+                # transition to "completed_today" to prevent infinite
+                # re-evaluation loop (hysteresis keeps _is_in_active_window
+                # returning True while _session_state == "active").
+                elif self._session_state == "active":
+                    self.logger.info(
+                        f"{self.logger.DECISION} Target already reached at "
+                        "activation - marking session as completed_today"
+                    )
+                    self._session_state = "completed_today"
+                    self._last_completion_date = dt_util.now().date()
+                    self._last_completion_time = dt_util.now()
+
                 self.logger.separator()
                 return
     
