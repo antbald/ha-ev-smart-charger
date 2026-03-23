@@ -1,5 +1,6 @@
 """Night Smart Charge automation for EV Smart Charger."""
 from __future__ import annotations
+import asyncio
 from datetime import datetime, timedelta
 
 from homeassistant.core import HomeAssistant, State, callback
@@ -43,6 +44,8 @@ from .const import (
     DEFAULT_EV_MIN_SOC_WEEKEND,
     PRIORITY_NIGHT_CHARGE,
     NIGHT_CHARGE_COOLDOWN_SECONDS,
+    NIGHT_CHARGE_START_MAX_RETRIES,
+    NIGHT_CHARGE_START_RETRY_DELAYS,
     ACTIVATION_GRACE_BEFORE_MINUTES,
     ACTIVATION_GRACE_AFTER_MINUTES,
 )
@@ -1206,7 +1209,7 @@ class NightSmartCharge:
             self.logger.separator()
             return
 
-        # Start charger with exception handling and state cleanup (v1.3.21)
+        # Start charger with exception handling and state cleanup (v1.3.21, v1.6.1 retry)
         try:
             # Set internal state BEFORE starting charger to prevent race condition with Smart Blocker
             # The Smart Blocker listens to the switch turn_on event, so we must be "active" before that happens.
@@ -1216,8 +1219,18 @@ class NightSmartCharge:
             # Calculate and save energy forecast (non-blocking) (v1.4.8+)
             await self._calculate_and_save_energy_forecast(NIGHT_CHARGE_MODE_BATTERY)
 
-            # Start charger with specified amperage
-            await self.charger_controller.start_charger(amperage, "Night charge - Battery mode")
+            # v1.6.1: Start charger with retry logic - check OperationResult
+            result = await self._start_charger_with_retry(
+                amperage, "Night charge - Battery mode"
+            )
+
+            if not result or not result.success:
+                raise RuntimeError(
+                    f"Failed to start charger after "
+                    f"{NIGHT_CHARGE_START_MAX_RETRIES} attempts: "
+                    f"{result.error_message if result else 'unknown error'}"
+                )
+
             await self._emit_diagnostic(
                 event="battery_charge_started",
                 result="started",
@@ -1231,7 +1244,7 @@ class NightSmartCharge:
                 },
             )
 
-            # Send mobile notification with safety logging (v1.3.20, v1.3.21 exception handling)
+            # v1.6.1: Send notification ONLY after confirmed charger start
             try:
                 current_time = dt_util.now()
                 scheduled_time = self._get_night_charge_time()
@@ -1475,7 +1488,7 @@ class NightSmartCharge:
             self.logger.separator()
             return
 
-        # Start charger with exception handling and state cleanup (v1.3.21)
+        # Start charger with exception handling and state cleanup (v1.3.21, v1.6.1 retry)
         try:
             # Set internal state BEFORE starting charger to prevent race condition with Smart Blocker
             # The Smart Blocker listens to the switch turn_on event, so we must be "active" before that happens.
@@ -1485,8 +1498,18 @@ class NightSmartCharge:
             # Calculate and save energy forecast (non-blocking) (v1.4.8+)
             await self._calculate_and_save_energy_forecast(NIGHT_CHARGE_MODE_GRID)
 
-            # Start charger with specified amperage
-            await self.charger_controller.start_charger(amperage, "Night charge - Grid mode")
+            # v1.6.1: Start charger with retry logic - check OperationResult
+            result = await self._start_charger_with_retry(
+                amperage, "Night charge - Grid mode"
+            )
+
+            if not result or not result.success:
+                raise RuntimeError(
+                    f"Failed to start charger after "
+                    f"{NIGHT_CHARGE_START_MAX_RETRIES} attempts: "
+                    f"{result.error_message if result else 'unknown error'}"
+                )
+
             await self._emit_diagnostic(
                 event="grid_charge_started",
                 result="started",
@@ -1500,7 +1523,7 @@ class NightSmartCharge:
                 },
             )
 
-            # Send mobile notification with safety logging (v1.3.20, v1.3.21 exception handling)
+            # v1.6.1: Send notification ONLY after confirmed charger start
             try:
                 current_time = dt_util.now()
                 scheduled_time = self._get_night_charge_time()
@@ -1874,6 +1897,51 @@ class NightSmartCharge:
 
     # ========== HELPER METHODS ==========
 
+    async def _start_charger_with_retry(self, amperage: int, reason: str):
+        """
+        Start charger with retry logic and exponential backoff (v1.6.1).
+
+        Attempts to start the charger up to NIGHT_CHARGE_START_MAX_RETRIES
+        times with increasing delays between attempts.
+
+        Args:
+            amperage: Target charging amperage
+            reason: Reason string for logging
+
+        Returns:
+            OperationResult from the last attempt
+        """
+        result = None
+        for attempt in range(NIGHT_CHARGE_START_MAX_RETRIES):
+            result = await self.charger_controller.start_charger(
+                amperage, reason
+            )
+            if result.success:
+                if attempt > 0:
+                    self.logger.success(
+                        f"Charger started on attempt "
+                        f"{attempt + 1}/{NIGHT_CHARGE_START_MAX_RETRIES}"
+                    )
+                return result
+
+            # Last attempt failed - don't sleep, just return
+            if attempt >= NIGHT_CHARGE_START_MAX_RETRIES - 1:
+                break
+
+            delay = NIGHT_CHARGE_START_RETRY_DELAYS[attempt]
+            self.logger.warning(
+                f"{self.logger.ALERT} Charger start attempt "
+                f"{attempt + 1}/{NIGHT_CHARGE_START_MAX_RETRIES} failed: "
+                f"{result.error_message} - Retrying in {delay}s"
+            )
+            await asyncio.sleep(delay)
+
+        self.logger.error(
+            f"All {NIGHT_CHARGE_START_MAX_RETRIES} charger start attempts "
+            f"failed. Last error: {result.error_message if result else 'N/A'}"
+        )
+        return result
+
     async def _get_pv_forecast(self) -> float:
         """Get PV forecast value from configured entity."""
         if not self._pv_forecast_entity:
@@ -2153,6 +2221,19 @@ class NightSmartCharge:
                     f"not found, unable to save forecast"
                 )
                 return
+
+            # v1.6.1: Clamp value to entity's min/max range to prevent
+            # "Invalid value" errors when entity has a narrow range
+            entity_min = target_state.attributes.get("min")
+            entity_max = target_state.attributes.get("max")
+            if entity_max is not None and energy_required > float(entity_max):
+                self.logger.warning(
+                    f"⚠️ Energy forecast {energy_required:.2f} kWh exceeds "
+                    f"entity max ({entity_max} kWh) - clamping to max"
+                )
+                energy_required = float(entity_max)
+            if entity_min is not None and energy_required < float(entity_min):
+                energy_required = float(entity_min)
 
             adapter = CurrentControlAdapter(self.hass, energy_target_entity)
             await adapter.async_validate()
