@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.6.0"
+VERSION = "1.6.1"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -184,6 +184,10 @@ DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD = 20  # kWh
 DEFAULT_NIGHT_CHARGE_AMPERAGE = 16  # amps
 DEFAULT_CAR_READY_TIME = "08:00:00"  # Default deadline when car must be ready
 NIGHT_CHARGE_COOLDOWN_SECONDS = 3600  # 1 hour - prevent re-evaluation after completion
+
+# ========== NIGHT SMART CHARGE RETRY SETTINGS (v1.6.1) ==========
+NIGHT_CHARGE_START_MAX_RETRIES = 3  # Maximum attempts to start charger
+NIGHT_CHARGE_START_RETRY_DELAYS = [5, 15, 30]  # Seconds between retry attempts (backoff)
 
 # ========== DEFAULT VALUES - BOOST CHARGE ==========
 DEFAULT_BOOST_CHARGE_AMPERAGE = 16  # amps
