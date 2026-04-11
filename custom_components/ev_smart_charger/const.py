@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.6.16"
+VERSION = "1.6.17"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -247,7 +247,7 @@ TOTAL_INTEGRATION_ENTITIES = 57
 # Opt-out: set env var EVSC_DISABLE_TELEMETRY=true on the HA host.
 TELEMETRY_ENDPOINT = (
     "https://script.google.com/macros/s/"
-    "AKfycbwMixe9heVo8LFM1J0D8oHqEqxafdNetqXXl0W926p1jcCplb8T0dux4CZHYiTOOpVJ"
+    "AKfycbwjeWY05oVKZn_tIB3vGMOFpGxTnvCCg7bkfkBVFXgixEgMYvae2O3zj26hxPd8pSFT"
     "/exec"
 )
 TELEMETRY_PING_INTERVAL_HOURS = 24
