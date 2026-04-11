@@ -320,14 +320,15 @@ async def _get_or_create_installation_id(hass: HomeAssistant) -> str:
     return new_id
 
 
-_RETRY_DELAYS = (10, 60)  # seconds between attempts: 1→2 wait 10s, 2→3 wait 60s
-_MAX_ATTEMPTS = len(_RETRY_DELAYS) + 1  # 3 total attempts
+_MAX_ATTEMPTS = 5
+_RETRY_DELAY_SECONDS = 60  # 1 minute between each attempt
+_RETRY_DELAYS = (_RETRY_DELAY_SECONDS,) * (_MAX_ATTEMPTS - 1)  # (60, 60, 60, 60)
 
 
 async def send_telemetry_ping(hass: HomeAssistant) -> None:
     """Send a fire-and-forget anonymous ping to the telemetry endpoint.
 
-    Retries up to 3 times (delays: 10s, 60s) before logging a warning.
+    Retries up to 5 times (60s between each attempt) before logging a warning.
     Never blocks or raises — telemetry must never affect integration operation.
     """
     if os.environ.get("EVSC_DISABLE_TELEMETRY", "").lower() in ("1", "true", "yes"):
