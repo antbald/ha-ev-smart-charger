@@ -240,7 +240,7 @@ SERVICE_CALL_TIMEOUT = 10  # seconds for service calls
 EV_SOC_MONITOR_INTERVAL = 5  # seconds - polling frequency for cloud sensor reliability
 
 # ========== ENTITY REGISTRATION ==========
-TOTAL_INTEGRATION_ENTITIES = 54
+TOTAL_INTEGRATION_ENTITIES = 57
 
 # ========== ANONYMOUS TELEMETRY ==========
 # Google Apps Script Web App endpoint (insert-only, no personal data).

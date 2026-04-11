@@ -175,9 +175,9 @@ The integration supports native reconfiguration for existing entries, so you can
 
 ## Created Entities
 
-After setup, the integration creates `54` entities per config entry:
+After setup, the integration creates `57` entities per config entry:
 
-- `19` switches
+- `20` switches
 - `25` numbers
 - `1` select
 - `2` time entities
