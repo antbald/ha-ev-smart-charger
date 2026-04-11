@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.6.3"
+VERSION = "1.6.4"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -105,6 +105,7 @@ HELPER_GRID_IMPORT_DELAY_SUFFIX = "evsc_grid_import_delay"
 HELPER_SURPLUS_DROP_DELAY_SUFFIX = "evsc_surplus_drop_delay"
 HELPER_HOME_BATTERY_MIN_SOC_SUFFIX = "evsc_home_battery_min_soc"
 HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX = "evsc_battery_support_amperage"
+HELPER_SOLAR_MAX_AMPERAGE_SUFFIX = "evsc_solar_max_amperage"
 
 # Numbers - Night Smart Charge
 HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX = "evsc_night_charge_amperage"
@@ -179,6 +180,7 @@ SURPLUS_DEADBAND_START_DELAY = 120  # seconds - persistent dead band surplus bef
 # ========== DEFAULT VALUES - HOME BATTERY SUPPORT ==========
 DEFAULT_HOME_BATTERY_MIN_SOC = 20  # percent
 DEFAULT_BATTERY_SUPPORT_AMPERAGE = 16  # amps (user configurable)
+DEFAULT_SOLAR_MAX_AMPERAGE = 32  # amps (user configurable, default = no cap)
 
 # ========== DEFAULT VALUES - PRIORITY BALANCER ==========
 DEFAULT_EV_MIN_SOC_WEEKDAY = 50  # percent (Monday-Friday)
@@ -238,4 +240,14 @@ SERVICE_CALL_TIMEOUT = 10  # seconds for service calls
 EV_SOC_MONITOR_INTERVAL = 5  # seconds - polling frequency for cloud sensor reliability
 
 # ========== ENTITY REGISTRATION ==========
-TOTAL_INTEGRATION_ENTITIES = 53
+TOTAL_INTEGRATION_ENTITIES = 54
+
+# ========== ANONYMOUS TELEMETRY ==========
+# Google Apps Script Web App endpoint (insert-only, no personal data).
+# Opt-out: set env var EVSC_DISABLE_TELEMETRY=true on the HA host.
+TELEMETRY_ENDPOINT = (
+    "https://script.google.com/macros/s/"
+    "AKfycbwMixe9heVo8LFM1J0D8oHqEqxafdNetqXXl0W926p1jcCplb8T0dux4CZHYiTOOpVJ"
+    "/exec"
+)
+TELEMETRY_PING_INTERVAL_HOURS = 24

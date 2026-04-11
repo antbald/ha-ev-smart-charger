@@ -16,6 +16,7 @@ from .const import (
     DEFAULT_SURPLUS_DROP_DELAY,
     DEFAULT_HOME_BATTERY_MIN_SOC,
     DEFAULT_BATTERY_SUPPORT_AMPERAGE,
+    DEFAULT_SOLAR_MAX_AMPERAGE,
     DEFAULT_EV_MIN_SOC_WEEKDAY,
     DEFAULT_EV_MIN_SOC_WEEKEND,
     DEFAULT_HOME_MIN_SOC,
@@ -47,6 +48,7 @@ async def async_setup_entry(
         ("evsc_grid_import_threshold", "EVSC Grid Import Threshold", "mdi:transmission-tower", 0, 1000, 10, DEFAULT_GRID_IMPORT_THRESHOLD, "W"),
         ("evsc_grid_import_delay", "EVSC Grid Import Delay", "mdi:timer-sand", 0, 120, 5, DEFAULT_GRID_IMPORT_DELAY, "s"),
         ("evsc_surplus_drop_delay", "EVSC Surplus Drop Delay", "mdi:timer-sand", 0, 120, 5, DEFAULT_SURPLUS_DROP_DELAY, "s"),
+        ("evsc_solar_max_amperage", "EVSC Solar Max Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_SOLAR_MAX_AMPERAGE, "A"),
         # Home battery
         ("evsc_home_battery_min_soc", "EVSC Home Battery Min SOC", "mdi:battery-50", 0, 100, 5, DEFAULT_HOME_BATTERY_MIN_SOC, "%"),
         ("evsc_battery_support_amperage", "EVSC Battery Support Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_BATTERY_SUPPORT_AMPERAGE, "A"),

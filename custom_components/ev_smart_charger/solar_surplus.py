@@ -24,6 +24,8 @@ from .const import (
     SOLAR_SURPLUS_MIN_CHECK_INTERVAL,
     SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE,
     HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX,
+    HELPER_SOLAR_MAX_AMPERAGE_SUFFIX,
+    DEFAULT_SOLAR_MAX_AMPERAGE,
     SURPLUS_START_THRESHOLD,
     SURPLUS_STOP_THRESHOLD,
     SURPLUS_DEADBAND_START_DELAY,
@@ -95,6 +97,7 @@ class SolarSurplusAutomation:
         self._use_home_battery_entity = None
         self._home_battery_min_soc_entity = None
         self._battery_support_amperage_entity = None
+        self._solar_max_amperage_entity = None
         self._solar_surplus_diagnostic_sensor_entity = None
         self._solar_surplus_diagnostic_sensor_obj = None
 
@@ -245,6 +248,7 @@ class SolarSurplusAutomation:
         self._use_home_battery_entity = self._find_entity_by_suffix("evsc_use_home_battery")
         self._home_battery_min_soc_entity = self._find_entity_by_suffix("evsc_home_battery_min_soc")
         self._battery_support_amperage_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
+        self._solar_max_amperage_entity = self._find_entity_by_suffix(HELPER_SOLAR_MAX_AMPERAGE_SUFFIX)
         self._solar_surplus_diagnostic_sensor_entity = self._find_entity_by_suffix("evsc_solar_surplus_diagnostic")
         if self._runtime_data is not None:
             self._solar_surplus_diagnostic_sensor_obj = self._runtime_data.get_entity(
@@ -614,6 +618,18 @@ class SolarSurplusAutomation:
 
         # === 12. Calculate Target Amperage (with hysteresis) ===
         target_amps = self._calculate_target_amperage(surplus_watts, current_amps)
+
+        # Apply user-configured maximum amperage cap (issue #11: wallboxes with <32A limit).
+        # Always cap to the highest valid CHARGER_AMP_LEVELS value that doesn't exceed max_amps
+        # to avoid sending non-standard amperages to the wallbox.
+        if target_amps > 0:
+            max_amps = int(get_float(self.hass, self._solar_max_amperage_entity, DEFAULT_SOLAR_MAX_AMPERAGE))
+            if target_amps > max_amps:
+                valid_below_max = [l for l in CHARGER_AMP_LEVELS if l <= max_amps]
+                capped = valid_below_max[-1] if valid_below_max else CHARGER_AMP_LEVELS[0]
+                self.logger.info(f"Target capped: {target_amps}A → {capped}A (solar max amperage: {max_amps}A)")
+                target_amps = capped
+
         self.logger.info(f"Target amperage: {target_amps}A")
 
         # === 12b. Opportunistic Dead Band Start ===
