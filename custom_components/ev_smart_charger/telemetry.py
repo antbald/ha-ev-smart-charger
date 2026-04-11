@@ -464,28 +464,37 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
                 if 200 <= resp.status < 300:
                     try:
                         body = json.loads(raw)
-                        status = body.get("status", "")
-                        version_changed = body.get("version_changed", False)
-                        if status == "created":
-                            msg = f"new installation registered (v{VERSION})"
-                        elif version_changed:
-                            msg = (
-                                f"version update tracked "
-                                f"({body.get('previous_version', '?')} → v{VERSION})"
-                            )
-                        else:
-                            msg = f"ping acknowledged (HTTP {resp.status})"
-                        tlog.success(f"📊 {msg} in {elapsed:.1f}s")
-                        _LOGGER.info("📊 Telemetry: %s", msg)
                     except json.JSONDecodeError:
-                        tlog.success(
-                            f"📊 Ping delivered (HTTP {resp.status}, "
-                            f"non-JSON body, {elapsed:.1f}s)"
+                        # v1.6.18: HTTP 2xx with non-JSON body almost
+                        # always means GAS caught an exception in
+                        # doPost() and is returning an HTML error page
+                        # (GAS does NOT use 5xx for script errors).
+                        # Treat as failure so the retry loop restarts
+                        # instead of reporting silent success.
+                        snippet = raw[:200].replace("\n", " ")
+                        hint = ""
+                        if "<title>Errore" in raw or "errorMessage" in raw:
+                            hint = " (looks like a GAS error page)"
+                        elif "<html" in raw.lower():
+                            hint = " (HTML body — unexpected)"
+                        raise RuntimeError(
+                            f"HTTP {resp.status} but body is not JSON"
+                            f"{hint}: {snippet}"
                         )
-                        _LOGGER.info(
-                            "📊 Telemetry: ping delivered (HTTP %s)",
-                            resp.status,
+
+                    status = body.get("status", "")
+                    version_changed = body.get("version_changed", False)
+                    if status == "created":
+                        msg = f"new installation registered (v{VERSION})"
+                    elif version_changed:
+                        msg = (
+                            f"version update tracked "
+                            f"({body.get('previous_version', '?')} → v{VERSION})"
                         )
+                    else:
+                        msg = f"ping acknowledged (HTTP {resp.status})"
+                    tlog.success(f"📊 {msg} in {elapsed:.1f}s")
+                    _LOGGER.info("📊 Telemetry: %s", msg)
                     tlog.separator()
                     return
 
