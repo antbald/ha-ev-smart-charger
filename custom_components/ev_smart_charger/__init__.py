@@ -10,7 +10,8 @@ try:
     from homeassistant.components.http import StaticPathConfig
 except ImportError:  # pragma: no cover - compatibility branch for older HA cores
     StaticPathConfig = None
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from homeassistant.core import CoreState, HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.event import async_track_time_interval
@@ -317,8 +318,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_reload_on_update))
 
     # ========== PHASE 9: ANONYMOUS TELEMETRY ==========
-    # Fire-and-forget on startup, then daily. Never blocks setup.
-    hass.async_create_task(send_telemetry_ping(hass))
+    # First ping is delayed until HA is fully started (network available).
+    # On reload (HACS update, config change) HA is already running → fire immediately.
+    # Daily ping uses async_track_time_interval regardless.
+
+    @callback
+    def _fire_startup_ping(_event=None) -> None:
+        hass.async_create_task(send_telemetry_ping(hass))
+
+    if hass.state == CoreState.running:
+        # HA already up (e.g. integration reload after HACS update)
+        hass.async_create_task(send_telemetry_ping(hass))
+    else:
+        # HA still booting — wait for network/integrations to be ready
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _fire_startup_ping)
 
     @callback
     def _schedule_daily_ping(_now=None) -> None:
