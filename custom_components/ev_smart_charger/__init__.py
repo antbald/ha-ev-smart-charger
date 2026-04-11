@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+from datetime import timedelta
 from pathlib import Path
 
 try:
@@ -9,15 +10,17 @@ try:
     from homeassistant.components.http import StaticPathConfig
 except ImportError:  # pragma: no cover - compatibility branch for older HA cores
     StaticPathConfig = None
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
     DOMAIN,
     FRONTEND_CARD_FILENAME,
     FRONTEND_URL_BASE,
     PLATFORMS,
+    TELEMETRY_PING_INTERVAL_HOURS,
     TOTAL_INTEGRATION_ENTITIES,
     VERSION,
 )
@@ -32,6 +35,7 @@ from .solar_surplus import SolarSurplusAutomation
 from .log_manager import LogManager
 from .diagnostic_manager import DiagnosticManager
 from .runtime import EVSCRuntimeData, get_runtime_data
+from .telemetry import send_telemetry_ping
 
 _LOGGER = logging.getLogger(__name__)
 FRONTEND_DIR = Path(__file__).parent / "frontend"
@@ -311,6 +315,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Register update listener
     entry.async_on_unload(entry.add_update_listener(_reload_on_update))
+
+    # ========== PHASE 9: ANONYMOUS TELEMETRY ==========
+    # Fire-and-forget on startup, then daily. Never blocks setup.
+    hass.async_create_task(send_telemetry_ping(hass))
+
+    @callback
+    def _schedule_daily_ping(_now=None) -> None:
+        hass.async_create_task(send_telemetry_ping(hass))
+
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass,
+            _schedule_daily_ping,
+            timedelta(hours=TELEMETRY_PING_INTERVAL_HOURS),
+        )
+    )
 
     _LOGGER.info("=" * 64)
     _LOGGER.info(f"✅ EV Smart Charger v{VERSION} - Setup completed successfully!")

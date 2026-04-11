@@ -8,7 +8,7 @@ Smart EV charging orchestration for Home Assistant.
 
 This custom integration helps you charge your EV with surplus solar energy, coordinate EV and home battery priorities, automate night charging, run temporary boost sessions, and block unwanted charging outside your preferred window.
 
-Current integration version: `1.6.1`
+Current integration version: `1.6.4`
 
 ## Table of Contents
 
@@ -175,10 +175,10 @@ The integration supports native reconfiguration for existing entries, so you can
 
 ## Created Entities
 
-After setup, the integration creates `53` entities per config entry:
+After setup, the integration creates `54` entities per config entry:
 
 - `19` switches
-- `24` numbers
+- `25` numbers
 - `1` select
 - `2` time entities
 - `7` sensors
@@ -390,6 +390,27 @@ Technical and maintenance:
 - [Architecture SSOT](docs/SSOT.md)
 - [Codebase map](docs/CODEBASE_MAP.md)
 - [Refactor plan / hardening record](docs/REFACTOR_PLAN.md)
+
+## Analytics & Privacy
+
+EV Smart Charger sends an anonymous ping once per day to help the maintainer understand how many active installations exist, which versions are in use, and which regions use the integration.
+
+**What is sent:**
+
+| Field | Example | Purpose |
+|-------|---------|---------|
+| `installation_id` | `a3f2...` (random UUID) | Count unique installs (never reused across uninstalls) |
+| `version` | `1.6.4` | Version adoption tracking |
+| `ha_version` | `2026.4.0` | HA compatibility insight |
+| `timezone` | `Europe/Rome` | Approximate region (country/continent) |
+| `country` | `IT` | Derived from timezone — no geolocation |
+| `continent` | `EU` | Aggregate geographic distribution |
+
+**What is NOT sent:** IP address, hostname, entity names, configuration, credentials, or any personally identifiable information.
+
+Data is stored in a private Google Sheet accessible only to the maintainer. Aggregated statistics may be published publicly.
+
+**Opt-out:** Set the environment variable `EVSC_DISABLE_TELEMETRY=true` on your Home Assistant host (e.g. in `/etc/environment` or your Docker compose file).
 
 ## License
 
