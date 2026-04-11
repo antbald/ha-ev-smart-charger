@@ -351,62 +351,64 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
         return
 
     # ── Step 2: load / create installation_id ─────────────────────────
+    # v1.6.14: fall back to "-" instead of aborting, so the row still gets
+    # sent even if HA storage is unreadable.
     tlog.info("📊 Loading installation_id from HA storage...")
     try:
         installation_id = await _get_or_create_installation_id(hass)
         tlog.info(f"📊 installation_id: {installation_id}")
-    except Exception as err:
-        tlog.info(f"📊 {tlog.ERROR} Failed to get installation_id: {type(err).__name__}: {err}")
+    except Exception as err:  # noqa: BLE001
+        tlog.info(
+            f"📊 {tlog.WARNING} Failed to get installation_id "
+            f"({type(err).__name__}: {err}) → fallback '-'"
+        )
         _LOGGER.warning("📊 Telemetry: failed to get installation_id: %s", err)
-        return
+        installation_id = "-"
 
     # ── Step 3: timezone / country / continent resolution ─────────────
-    # v1.6.13: wrapped in try/except because previous versions silently died
-    # here (hass.config.version does NOT exist — correct API is
-    # homeassistant.const.__version__). Any AttributeError now surfaces in
-    # the telemetry file log instead of killing the task silently.
-    try:
-        tlog.info("📊 Reading hass.config.time_zone...")
-        timezone = hass.config.time_zone or "Unknown"
-        tlog.info(f"📊 timezone: {timezone}")
+    # v1.6.14: every field is resolved independently with a "-" fallback,
+    # so the ping row is ALWAYS sent even if one value fails. Never
+    # raises, never returns early — just logs the fallback reason.
+    def _safe(label: str, fn) -> str:
+        try:
+            value = fn()
+            if value is None or value == "":
+                tlog.info(f"📊 {label}: (empty) → fallback '-'")
+                return "-"
+            return str(value)
+        except Exception as err:  # noqa: BLE001
+            tlog.info(
+                f"📊 {tlog.WARNING} {label} read failed "
+                f"({type(err).__name__}: {err}) → fallback '-'"
+            )
+            return "-"
 
-        country = _TIMEZONE_TO_COUNTRY.get(timezone, "XX")
-        continent = _COUNTRY_TO_CONTINENT.get(country, "XX")
-        tlog.info(f"📊 country: {country}  continent: {continent}")
+    timezone = _safe("timezone", lambda: hass.config.time_zone)
+    country = _safe("country", lambda: _TIMEZONE_TO_COUNTRY.get(timezone, "-"))
+    continent = _safe(
+        "continent", lambda: _COUNTRY_TO_CONTINENT.get(country, "-")
+    )
+    ha_version = _safe("ha_version", lambda: HA_VERSION)
+    integration_version = _safe("integration_version", lambda: VERSION)
 
-        ha_version = HA_VERSION
-        tlog.info(
-            f"📊 HA version: {ha_version}  integration version: {VERSION}"
-        )
-    except Exception as err:  # noqa: BLE001
-        tlog.info(
-            f"📊 {tlog.ERROR} Failed to resolve environment info: "
-            f"{type(err).__name__}: {err}"
-        )
-        _LOGGER.warning(
-            "📊 Telemetry: failed to resolve environment info: %s", err
-        )
-        return
+    tlog.info(f"📊 timezone: {timezone}")
+    tlog.info(f"📊 country: {country}  continent: {continent}")
+    tlog.info(
+        f"📊 HA version: {ha_version}  "
+        f"integration version: {integration_version}"
+    )
 
     # ── Step 4: build payload ──────────────────────────────────────────
-    try:
-        payload = {
-            "installation_id": installation_id,
-            "version": VERSION,
-            "ha_version": ha_version,
-            "timezone": timezone,
-            "country": country,
-            "continent": continent,
-        }
-        tlog.info(f"📊 Payload ready: {payload}")
-        tlog.info(f"📊 Endpoint: {TELEMETRY_ENDPOINT[:60]}...")
-    except Exception as err:  # noqa: BLE001
-        tlog.info(
-            f"📊 {tlog.ERROR} Failed to build payload: "
-            f"{type(err).__name__}: {err}"
-        )
-        _LOGGER.warning("📊 Telemetry: failed to build payload: %s", err)
-        return
+    payload = {
+        "installation_id": installation_id or "-",
+        "version": integration_version,
+        "ha_version": ha_version,
+        "timezone": timezone,
+        "country": country,
+        "continent": continent,
+    }
+    tlog.info(f"📊 Payload ready: {payload}")
+    tlog.info(f"📊 Endpoint: {TELEMETRY_ENDPOINT[:60]}...")
 
     # ── Step 5: HTTP POST with retry ───────────────────────────────────
     for attempt in range(1, _MAX_ATTEMPTS + 1):
