@@ -10,6 +10,7 @@ the Home Assistant host.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -319,60 +320,77 @@ async def _get_or_create_installation_id(hass: HomeAssistant) -> str:
     return new_id
 
 
+_RETRY_DELAYS = (10, 60)  # seconds between attempts: 1→2 wait 10s, 2→3 wait 60s
+_MAX_ATTEMPTS = len(_RETRY_DELAYS) + 1  # 3 total attempts
+
+
 async def send_telemetry_ping(hass: HomeAssistant) -> None:
     """Send a fire-and-forget anonymous ping to the telemetry endpoint.
 
-    Failures are logged as WARNING — the ping must never affect integration
-    startup or normal operation.
+    Retries up to 3 times (delays: 10s, 60s) before logging a warning.
+    Never blocks or raises — telemetry must never affect integration operation.
     """
     if os.environ.get("EVSC_DISABLE_TELEMETRY", "").lower() in ("1", "true", "yes"):
         _LOGGER.debug("📊 Telemetry disabled via EVSC_DISABLE_TELEMETRY")
         return
 
-    try:
-        installation_id = await _get_or_create_installation_id(hass)
-        timezone = hass.config.time_zone or "Unknown"
-        country = _TIMEZONE_TO_COUNTRY.get(timezone, "XX")
-        continent = _COUNTRY_TO_CONTINENT.get(country, "XX")
+    installation_id = await _get_or_create_installation_id(hass)
+    timezone = hass.config.time_zone or "Unknown"
+    country = _TIMEZONE_TO_COUNTRY.get(timezone, "XX")
+    continent = _COUNTRY_TO_CONTINENT.get(country, "XX")
 
-        payload = {
-            "installation_id": installation_id,
-            "version": VERSION,
-            "ha_version": str(hass.config.version),
-            "timezone": timezone,
-            "country": country,
-            "continent": continent,
-        }
+    payload = {
+        "installation_id": installation_id,
+        "version": VERSION,
+        "ha_version": str(hass.config.version),
+        "timezone": timezone,
+        "country": country,
+        "continent": continent,
+    }
 
-        session = async_get_clientsession(hass)
-        async with session.post(
-            TELEMETRY_ENDPOINT,
-            json=payload,
-            timeout=aiohttp.ClientTimeout(total=8),
-            allow_redirects=True,
-        ) as resp:
-            raw = await resp.text()
-            _LOGGER.debug("📊 Telemetry raw response (HTTP %s): %.200s", resp.status, raw)
-            try:
-                body = json.loads(raw)
-                status = body.get("status", "")
-                version_changed = body.get("version_changed", False)
-                if status == "created":
-                    _LOGGER.info("📊 Telemetry: new installation registered (v%s)", VERSION)
-                elif version_changed:
-                    _LOGGER.info(
-                        "📊 Telemetry: version update tracked (%s → v%s)",
-                        body.get("previous_version", "?"),
-                        VERSION,
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            session = async_get_clientsession(hass)
+            async with session.post(
+                TELEMETRY_ENDPOINT,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=10),
+                allow_redirects=True,
+            ) as resp:
+                raw = await resp.text()
+                _LOGGER.debug("📊 Telemetry raw response (HTTP %s): %.200s", resp.status, raw)
+                try:
+                    body = json.loads(raw)
+                    status = body.get("status", "")
+                    version_changed = body.get("version_changed", False)
+                    if status == "created":
+                        _LOGGER.info("📊 Telemetry: new installation registered (v%s)", VERSION)
+                    elif version_changed:
+                        _LOGGER.info(
+                            "📊 Telemetry: version update tracked (%s → v%s)",
+                            body.get("previous_version", "?"),
+                            VERSION,
+                        )
+                    else:
+                        _LOGGER.info("📊 Telemetry: ping sent (HTTP %s)", resp.status)
+                except json.JSONDecodeError:
+                    _LOGGER.warning(
+                        "📊 Telemetry: unexpected response (HTTP %s): %.200s",
+                        resp.status,
+                        raw,
                     )
-                else:
-                    _LOGGER.info("📊 Telemetry: ping sent (HTTP %s)", resp.status)
-            except json.JSONDecodeError:
-                _LOGGER.warning(
-                    "📊 Telemetry: unexpected response (HTTP %s): %.200s",
-                    resp.status,
-                    raw,
-                )
+                return  # success (or non-retryable response) — stop here
 
-    except Exception as err:  # noqa: BLE001
-        _LOGGER.warning("📊 Telemetry ping failed (%s: %s)", type(err).__name__, err)
+        except Exception as err:  # noqa: BLE001
+            if attempt < _MAX_ATTEMPTS:
+                delay = _RETRY_DELAYS[attempt - 1]
+                _LOGGER.debug(
+                    "📊 Telemetry attempt %d/%d failed (%s: %s) — retrying in %ds",
+                    attempt, _MAX_ATTEMPTS, type(err).__name__, err, delay,
+                )
+                await asyncio.sleep(delay)
+            else:
+                _LOGGER.warning(
+                    "📊 Telemetry ping failed after %d attempts (%s: %s)",
+                    _MAX_ATTEMPTS, type(err).__name__, err,
+                )
