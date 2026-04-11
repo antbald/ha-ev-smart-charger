@@ -13,8 +13,11 @@ except ImportError:  # pragma: no cover - compatibility branch for older HA core
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.start import async_at_start
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_time_interval,
+)
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -319,18 +322,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_reload_on_update))
 
     # ========== PHASE 9: ANONYMOUS TELEMETRY ==========
-    # async_at_start handles both scenarios correctly and is immune to the
-    # CoreState/listener race condition that would otherwise drop the first ping
-    # on integration reload / retry after ConfigEntryNotReady:
-    #   - HA already running  → callback invoked immediately
-    #   - HA still booting    → EVENT_HOMEASSISTANT_STARTED listener registered
+    # Previous attempts (v1.6.10/v1.6.11) tried to defer the first ping until HA
+    # reached CoreState.running via async_at_start(), but on some installations
+    # EVENT_HOMEASSISTANT_STARTED is never emitted during the integration's
+    # lifetime (log confirms hass.state=NOT_RUNNING at setup and the callback
+    # never fires even though the event loop is clearly active).
+    #
+    # New strategy — no state gating, just fire-and-forget with two layers:
+    #   1. Schedule the first ping ~30s after setup via async_call_later. This
+    #      gives HA time to finish bootstrapping network components without
+    #      depending on any core-state transition.
+    #   2. telemetry.py has 5 retries × 60s delay, so even if the network isn't
+    #      ready at t=30s the ping survives up to ~5 minutes.
+    #   3. Daily timer runs every TELEMETRY_PING_INTERVAL_HOURS regardless.
     _LOGGER.info("📊 Phase 9: Scheduling telemetry ping")
     telemetry_logger.info(f"📊 Phase 9 reached — hass.state={hass.state}")
 
     @callback
-    def _fire_startup_ping(_hass=None) -> None:
-        """Fire telemetry ping once HA is fully started."""
-        telemetry_logger.info("📊 _fire_startup_ping invoked — creating telemetry task")
+    def _fire_startup_ping(_now=None) -> None:
+        """Fire telemetry ping (called ~30s after setup by async_call_later)."""
+        telemetry_logger.info(
+            f"📊 Startup ping timer fired at {dt_util.now().isoformat()} — "
+            "creating telemetry task"
+        )
         try:
             hass.async_create_task(send_telemetry_ping(hass))
             telemetry_logger.info("📊 Telemetry task created successfully")
@@ -339,12 +353,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.exception("Failed to schedule telemetry ping")
 
     try:
-        cancel_start = async_at_start(hass, _fire_startup_ping)
-        entry.async_on_unload(cancel_start)
-        telemetry_logger.info("📊 async_at_start hook registered")
+        cancel_startup = async_call_later(hass, 30, _fire_startup_ping)
+        entry.async_on_unload(cancel_startup)
+        telemetry_logger.info(
+            "📊 Startup ping scheduled via async_call_later (30s delay)"
+        )
     except Exception as err:
-        telemetry_logger.info(f"📊 ❌ async_at_start failed: {err}")
-        _LOGGER.exception("Failed to register startup telemetry hook")
+        telemetry_logger.info(f"📊 ❌ async_call_later failed: {err}")
+        _LOGGER.exception("Failed to schedule startup telemetry ping")
 
     @callback
     def _schedule_daily_ping(_now=None) -> None:
