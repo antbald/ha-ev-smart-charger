@@ -8,7 +8,7 @@ Smart EV charging orchestration for Home Assistant.
 
 This custom integration helps you charge your EV with surplus solar energy, coordinate EV and home battery priorities, automate night charging, run temporary boost sessions, and block unwanted charging outside your preferred window.
 
-Current integration version: `1.6.5`
+Current integration version: `1.6.6`
 
 ## Table of Contents
 

@@ -351,7 +351,15 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
             timeout=aiohttp.ClientTimeout(total=8),
             allow_redirects=True,
         ) as resp:
-            _LOGGER.debug("📊 Telemetry ping sent (HTTP %s)", resp.status)
+            body = await resp.json(content_type=None)
+            status = body.get("status", "")
+            version_changed = body.get("version_changed", False)
+            if status == "created":
+                _LOGGER.info("📊 Telemetry: new installation registered (v%s)", VERSION)
+            elif version_changed:
+                _LOGGER.info("📊 Telemetry: version update tracked (%s → v%s)", body.get("previous_version", "?"), VERSION)
+            else:
+                _LOGGER.info("📊 Telemetry: ping sent (HTTP %s)", resp.status)
 
     except Exception:  # noqa: BLE001
-        _LOGGER.debug("📊 Telemetry ping skipped (network or server unavailable)")
+        _LOGGER.warning("📊 Telemetry ping failed (network or server unavailable)")
