@@ -8,7 +8,7 @@ Smart EV charging orchestration for Home Assistant.
 
 This custom integration helps you charge your EV with surplus solar energy, coordinate EV and home battery priorities, automate night charging, run temporary boost sessions, and block unwanted charging outside your preferred window.
 
-Current integration version: `1.6.18`
+Current integration version: `1.6.18` (solar max amperage cap added in this release)
 
 ## Table of Contents
 
@@ -26,7 +26,7 @@ Current integration version: `1.6.18`
 
 ## Highlights
 
-- Solar Surplus charging with dynamic amperage adjustment from `6A` to `32A`
+- Solar Surplus charging with dynamic amperage adjustment from `6A` to `32A`, with configurable per-wallbox maximum
 - Priority Balancer for EV vs home battery daily targets
 - Night Smart Charge driven by tomorrow's PV forecast
 - Boost Charge with automatic stop at a target EV SOC (manual or daily scheduled window)
@@ -62,6 +62,7 @@ Recent reliability improvements reflected in the current codebase:
 - `v1.6.0`: restored helper/select/time state is written back immediately after restart, avoiding long `unavailable` periods
 - `v1.6.1`: Night Smart Charge retries charger start with backoff before giving up
 - `v1.6.3`: Scheduled Boost Charge — daily automatic boost window with configurable start/end times
+- `v1.6.18`: Solar Surplus max amperage cap — new `evsc_solar_max_amperage` entity lets you limit Solar Surplus to the maximum your wallbox supports (fixes wallboxes that reject currents above 16A)
 
 ## Requirements
 
@@ -233,6 +234,7 @@ Important entities:
 - `switch.*_evsc_use_home_battery`
 - `number.*_evsc_home_battery_min_soc`
 - `number.*_evsc_battery_support_amperage`
+- `number.*_evsc_solar_max_amperage` — hard ceiling on Solar Surplus amperage (default 32A, lower this if your wallbox only accepts up to e.g. 16A)
 
 ### Priority Balancer
 
