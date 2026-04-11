@@ -36,7 +36,7 @@ from .solar_surplus import SolarSurplusAutomation
 from .log_manager import LogManager
 from .diagnostic_manager import DiagnosticManager
 from .runtime import EVSCRuntimeData, get_runtime_data
-from .telemetry import send_telemetry_ping
+from .telemetry import send_telemetry_ping, telemetry_logger
 
 _LOGGER = logging.getLogger(__name__)
 FRONTEND_DIR = Path(__file__).parent / "frontend"
@@ -288,6 +288,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             evsc_loggers.append(solar_surplus.logger)
         if boost_charge:
             evsc_loggers.append(boost_charge.logger)
+        evsc_loggers.append(telemetry_logger)
 
         # Setup log manager with toggle listener
         log_manager = LogManager(hass, entry.entry_id, runtime_data=runtime_data)

@@ -23,8 +23,13 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 
 from .const import TELEMETRY_ENDPOINT, VERSION
+from .utils.logging_helper import EVSCLogger
 
 _LOGGER = logging.getLogger(__name__)
+
+# EVSCLogger instance — registered with LogManager in __init__.py so its
+# output also goes to the daily file log in custom_components/ev_smart_charger/logs/
+telemetry_logger = EVSCLogger("TELEMETRY")
 
 _STORAGE_KEY = "ev_smart_charger.telemetry"
 _STORAGE_VERSION = 1
@@ -331,67 +336,114 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
     Retries up to 5 times (60s between each attempt) before logging a warning.
     Never blocks or raises — telemetry must never affect integration operation.
     """
-    if os.environ.get("EVSC_DISABLE_TELEMETRY", "").lower() in ("1", "true", "yes"):
+    tlog = telemetry_logger
+    tlog.separator()
+    tlog.start("Telemetry ping — starting")
+    tlog.separator()
+
+    # ── Step 1: opt-out check ──────────────────────────────────────────
+    env_val = os.environ.get("EVSC_DISABLE_TELEMETRY", "")
+    tlog.info(f"📊 EVSC_DISABLE_TELEMETRY env var: '{env_val}' (empty = not set)")
+    if env_val.lower() in ("1", "true", "yes"):
+        tlog.info("📊 Telemetry disabled via EVSC_DISABLE_TELEMETRY — skipping")
         _LOGGER.debug("📊 Telemetry disabled via EVSC_DISABLE_TELEMETRY")
         return
 
-    installation_id = await _get_or_create_installation_id(hass)
+    # ── Step 2: load / create installation_id ─────────────────────────
+    tlog.info("📊 Loading installation_id from HA storage...")
+    try:
+        installation_id = await _get_or_create_installation_id(hass)
+        tlog.info(f"📊 installation_id: {installation_id}")
+    except Exception as err:
+        tlog.info(f"📊 {tlog.ERROR} Failed to get installation_id: {type(err).__name__}: {err}")
+        _LOGGER.warning("📊 Telemetry: failed to get installation_id: %s", err)
+        return
+
+    # ── Step 3: timezone / country / continent resolution ─────────────
     timezone = hass.config.time_zone or "Unknown"
     country = _TIMEZONE_TO_COUNTRY.get(timezone, "XX")
     continent = _COUNTRY_TO_CONTINENT.get(country, "XX")
+    ha_version = str(hass.config.version)
+    tlog.info(f"📊 timezone: {timezone}")
+    tlog.info(f"📊 country: {country}  continent: {continent}")
+    tlog.info(f"📊 HA version: {ha_version}  integration version: {VERSION}")
 
+    # ── Step 4: build payload ──────────────────────────────────────────
     payload = {
         "installation_id": installation_id,
         "version": VERSION,
-        "ha_version": str(hass.config.version),
+        "ha_version": ha_version,
         "timezone": timezone,
         "country": country,
         "continent": continent,
     }
+    tlog.info(f"📊 Payload ready: {payload}")
+    tlog.info(f"📊 Endpoint: {TELEMETRY_ENDPOINT[:60]}...")
 
+    # ── Step 5: HTTP POST with retry ───────────────────────────────────
     for attempt in range(1, _MAX_ATTEMPTS + 1):
+        tlog.info(f"📊 Attempt {attempt}/{_MAX_ATTEMPTS} — sending POST request...")
         try:
             session = async_get_clientsession(hass)
             async with session.post(
                 TELEMETRY_ENDPOINT,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=10),
+                timeout=aiohttp.ClientTimeout(total=15),
                 allow_redirects=True,
             ) as resp:
                 raw = await resp.text()
+                tlog.info(f"📊 HTTP {resp.status} — raw response (first 300 chars): {raw[:300]}")
                 _LOGGER.debug("📊 Telemetry raw response (HTTP %s): %.200s", resp.status, raw)
                 try:
                     body = json.loads(raw)
                     status = body.get("status", "")
                     version_changed = body.get("version_changed", False)
                     if status == "created":
-                        _LOGGER.info("📊 Telemetry: new installation registered (v%s)", VERSION)
+                        msg = f"new installation registered (v{VERSION})"
+                        tlog.success(f"📊 {msg}")
+                        _LOGGER.info("📊 Telemetry: %s", msg)
                     elif version_changed:
-                        _LOGGER.info(
-                            "📊 Telemetry: version update tracked (%s → v%s)",
-                            body.get("previous_version", "?"),
-                            VERSION,
+                        msg = (
+                            f"version update tracked "
+                            f"({body.get('previous_version', '?')} → v{VERSION})"
                         )
+                        tlog.success(f"📊 {msg}")
+                        _LOGGER.info("📊 Telemetry: %s", msg)
                     else:
+                        tlog.success(f"📊 Ping acknowledged (HTTP {resp.status})")
                         _LOGGER.info("📊 Telemetry: ping sent (HTTP %s)", resp.status)
                 except json.JSONDecodeError:
+                    tlog.info(
+                        f"📊 {tlog.WARNING} Response is not JSON "
+                        f"(HTTP {resp.status}) — this may indicate GAS re-auth needed"
+                    )
                     _LOGGER.warning(
                         "📊 Telemetry: unexpected response (HTTP %s): %.200s",
                         resp.status,
                         raw,
                     )
+                tlog.separator()
                 return  # success (or non-retryable response) — stop here
 
         except Exception as err:  # noqa: BLE001
             if attempt < _MAX_ATTEMPTS:
                 delay = _RETRY_DELAYS[attempt - 1]
+                tlog.info(
+                    f"📊 {tlog.WARNING} Attempt {attempt}/{_MAX_ATTEMPTS} failed "
+                    f"({type(err).__name__}: {err}) — retrying in {delay}s"
+                )
                 _LOGGER.debug(
                     "📊 Telemetry attempt %d/%d failed (%s: %s) — retrying in %ds",
                     attempt, _MAX_ATTEMPTS, type(err).__name__, err, delay,
                 )
                 await asyncio.sleep(delay)
             else:
+                tlog.info(
+                    f"📊 {tlog.ERROR} All {_MAX_ATTEMPTS} attempts failed. "
+                    f"Last error: {type(err).__name__}: {err}"
+                )
                 _LOGGER.warning(
                     "📊 Telemetry ping failed after %d attempts (%s: %s)",
                     _MAX_ATTEMPTS, type(err).__name__, err,
                 )
+                tlog.separator()
