@@ -18,6 +18,7 @@ from uuid import uuid4
 
 import aiohttp
 
+from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
@@ -360,25 +361,52 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
         return
 
     # ── Step 3: timezone / country / continent resolution ─────────────
-    timezone = hass.config.time_zone or "Unknown"
-    country = _TIMEZONE_TO_COUNTRY.get(timezone, "XX")
-    continent = _COUNTRY_TO_CONTINENT.get(country, "XX")
-    ha_version = str(hass.config.version)
-    tlog.info(f"📊 timezone: {timezone}")
-    tlog.info(f"📊 country: {country}  continent: {continent}")
-    tlog.info(f"📊 HA version: {ha_version}  integration version: {VERSION}")
+    # v1.6.13: wrapped in try/except because previous versions silently died
+    # here (hass.config.version does NOT exist — correct API is
+    # homeassistant.const.__version__). Any AttributeError now surfaces in
+    # the telemetry file log instead of killing the task silently.
+    try:
+        tlog.info("📊 Reading hass.config.time_zone...")
+        timezone = hass.config.time_zone or "Unknown"
+        tlog.info(f"📊 timezone: {timezone}")
+
+        country = _TIMEZONE_TO_COUNTRY.get(timezone, "XX")
+        continent = _COUNTRY_TO_CONTINENT.get(country, "XX")
+        tlog.info(f"📊 country: {country}  continent: {continent}")
+
+        ha_version = HA_VERSION
+        tlog.info(
+            f"📊 HA version: {ha_version}  integration version: {VERSION}"
+        )
+    except Exception as err:  # noqa: BLE001
+        tlog.info(
+            f"📊 {tlog.ERROR} Failed to resolve environment info: "
+            f"{type(err).__name__}: {err}"
+        )
+        _LOGGER.warning(
+            "📊 Telemetry: failed to resolve environment info: %s", err
+        )
+        return
 
     # ── Step 4: build payload ──────────────────────────────────────────
-    payload = {
-        "installation_id": installation_id,
-        "version": VERSION,
-        "ha_version": ha_version,
-        "timezone": timezone,
-        "country": country,
-        "continent": continent,
-    }
-    tlog.info(f"📊 Payload ready: {payload}")
-    tlog.info(f"📊 Endpoint: {TELEMETRY_ENDPOINT[:60]}...")
+    try:
+        payload = {
+            "installation_id": installation_id,
+            "version": VERSION,
+            "ha_version": ha_version,
+            "timezone": timezone,
+            "country": country,
+            "continent": continent,
+        }
+        tlog.info(f"📊 Payload ready: {payload}")
+        tlog.info(f"📊 Endpoint: {TELEMETRY_ENDPOINT[:60]}...")
+    except Exception as err:  # noqa: BLE001
+        tlog.info(
+            f"📊 {tlog.ERROR} Failed to build payload: "
+            f"{type(err).__name__}: {err}"
+        )
+        _LOGGER.warning("📊 Telemetry: failed to build payload: %s", err)
+        return
 
     # ── Step 5: HTTP POST with retry ───────────────────────────────────
     for attempt in range(1, _MAX_ATTEMPTS + 1):
