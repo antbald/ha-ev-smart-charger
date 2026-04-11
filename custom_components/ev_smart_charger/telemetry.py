@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from uuid import uuid4
 
 import aiohttp
@@ -411,18 +412,30 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
     tlog.info(f"📊 Endpoint: {TELEMETRY_ENDPOINT[:60]}...")
 
     # ── Step 5: HTTP POST with retry ───────────────────────────────────
+    # v1.6.15: total timeout raised from 15s to 45s. GAS endpoints have
+    # cold-start latency + a 302 redirect to googleusercontent.com, and
+    # 15s was not enough on first-of-day invocations. Connect timeout
+    # kept tight (10s) to fail fast on real network issues.
     for attempt in range(1, _MAX_ATTEMPTS + 1):
-        tlog.info(f"📊 Attempt {attempt}/{_MAX_ATTEMPTS} — sending POST request...")
+        started = time.monotonic()
+        tlog.info(
+            f"📊 Attempt {attempt}/{_MAX_ATTEMPTS} — sending POST request "
+            f"(timeout 45s)..."
+        )
         try:
             session = async_get_clientsession(hass)
             async with session.post(
                 TELEMETRY_ENDPOINT,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=15),
+                timeout=aiohttp.ClientTimeout(total=45, connect=10),
                 allow_redirects=True,
             ) as resp:
                 raw = await resp.text()
-                tlog.info(f"📊 HTTP {resp.status} — raw response (first 300 chars): {raw[:300]}")
+                elapsed = time.monotonic() - started
+                tlog.info(
+                    f"📊 HTTP {resp.status} in {elapsed:.1f}s — "
+                    f"raw response (first 300 chars): {raw[:300]}"
+                )
                 _LOGGER.debug("📊 Telemetry raw response (HTTP %s): %.200s", resp.status, raw)
                 try:
                     body = json.loads(raw)
@@ -456,10 +469,12 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
                 return  # success (or non-retryable response) — stop here
 
         except Exception as err:  # noqa: BLE001
+            elapsed = time.monotonic() - started
             if attempt < _MAX_ATTEMPTS:
                 delay = _RETRY_DELAYS[attempt - 1]
                 tlog.info(
                     f"📊 {tlog.WARNING} Attempt {attempt}/{_MAX_ATTEMPTS} failed "
+                    f"after {elapsed:.1f}s "
                     f"({type(err).__name__}: {err}) — retrying in {delay}s"
                 )
                 _LOGGER.debug(
