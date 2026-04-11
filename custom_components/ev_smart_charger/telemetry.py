@@ -412,23 +412,29 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
     tlog.info(f"📊 Endpoint: {TELEMETRY_ENDPOINT[:60]}...")
 
     # ── Step 5: HTTP POST with retry ───────────────────────────────────
-    # v1.6.15: total timeout raised from 15s to 45s. GAS endpoints have
-    # cold-start latency + a 302 redirect to googleusercontent.com, and
-    # 15s was not enough on first-of-day invocations. Connect timeout
-    # kept tight (10s) to fail fast on real network issues.
+    # v1.6.16: direct curl tests against the GAS endpoint proved:
+    #   1. POST /exec → 302 Location: script.googleusercontent.com/macros/echo...
+    #      (~4.5s, doPost() already executed on GAS side — row written)
+    #   2. Following the redirect while keeping Content-Type: application/json
+    #      puts GAS into a redirect loop that only ends when the client
+    #      timeout fires — which is exactly what we saw in v1.6.14/15.
+    # Fix: do NOT follow redirects. The 302 from /exec is the success
+    # signal; the payload has already been processed by doPost() by the
+    # time that 302 arrives. total timeout can go back to 20s (real
+    # latency is ~5s, 20s leaves ample headroom).
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         started = time.monotonic()
         tlog.info(
             f"📊 Attempt {attempt}/{_MAX_ATTEMPTS} — sending POST request "
-            f"(timeout 45s)..."
+            f"(no-redirect, timeout 20s)..."
         )
         try:
             session = async_get_clientsession(hass)
             async with session.post(
                 TELEMETRY_ENDPOINT,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=45, connect=10),
-                allow_redirects=True,
+                timeout=aiohttp.ClientTimeout(total=20, connect=10),
+                allow_redirects=False,
             ) as resp:
                 raw = await resp.text()
                 elapsed = time.monotonic() - started
@@ -436,37 +442,58 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
                     f"📊 HTTP {resp.status} in {elapsed:.1f}s — "
                     f"raw response (first 300 chars): {raw[:300]}"
                 )
-                _LOGGER.debug("📊 Telemetry raw response (HTTP %s): %.200s", resp.status, raw)
-                try:
-                    body = json.loads(raw)
-                    status = body.get("status", "")
-                    version_changed = body.get("version_changed", False)
-                    if status == "created":
-                        msg = f"new installation registered (v{VERSION})"
-                        tlog.success(f"📊 {msg}")
+                # GAS returns 302 on success (points to the
+                # googleusercontent.com "echo" page). Treat 302 AND 2xx
+                # as successful delivery — doPost() has already run by
+                # the time we receive 302, so the row is already in the
+                # sheet. For direct-2xx responses we still try to parse
+                # the JSON body so we can surface "created" vs "updated"
+                # in the log, but it's purely informational.
+                if resp.status == 302:
+                    tlog.success(
+                        f"📊 Ping delivered (HTTP 302 → sheet updated, "
+                        f"{elapsed:.1f}s)"
+                    )
+                    _LOGGER.info(
+                        "📊 Telemetry: ping delivered (HTTP 302, %.1fs)",
+                        elapsed,
+                    )
+                    tlog.separator()
+                    return
+
+                if 200 <= resp.status < 300:
+                    try:
+                        body = json.loads(raw)
+                        status = body.get("status", "")
+                        version_changed = body.get("version_changed", False)
+                        if status == "created":
+                            msg = f"new installation registered (v{VERSION})"
+                        elif version_changed:
+                            msg = (
+                                f"version update tracked "
+                                f"({body.get('previous_version', '?')} → v{VERSION})"
+                            )
+                        else:
+                            msg = f"ping acknowledged (HTTP {resp.status})"
+                        tlog.success(f"📊 {msg} in {elapsed:.1f}s")
                         _LOGGER.info("📊 Telemetry: %s", msg)
-                    elif version_changed:
-                        msg = (
-                            f"version update tracked "
-                            f"({body.get('previous_version', '?')} → v{VERSION})"
+                    except json.JSONDecodeError:
+                        tlog.success(
+                            f"📊 Ping delivered (HTTP {resp.status}, "
+                            f"non-JSON body, {elapsed:.1f}s)"
                         )
-                        tlog.success(f"📊 {msg}")
-                        _LOGGER.info("📊 Telemetry: %s", msg)
-                    else:
-                        tlog.success(f"📊 Ping acknowledged (HTTP {resp.status})")
-                        _LOGGER.info("📊 Telemetry: ping sent (HTTP %s)", resp.status)
-                except json.JSONDecodeError:
-                    tlog.info(
-                        f"📊 {tlog.WARNING} Response is not JSON "
-                        f"(HTTP {resp.status}) — this may indicate GAS re-auth needed"
-                    )
-                    _LOGGER.warning(
-                        "📊 Telemetry: unexpected response (HTTP %s): %.200s",
-                        resp.status,
-                        raw,
-                    )
-                tlog.separator()
-                return  # success (or non-retryable response) — stop here
+                        _LOGGER.info(
+                            "📊 Telemetry: ping delivered (HTTP %s)",
+                            resp.status,
+                        )
+                    tlog.separator()
+                    return
+
+                # Anything else (4xx, 5xx) → treat as failure, fall
+                # through to the retry/except block.
+                raise RuntimeError(
+                    f"Unexpected HTTP {resp.status}: {raw[:200]}"
+                )
 
         except Exception as err:  # noqa: BLE001
             elapsed = time.monotonic() - started
