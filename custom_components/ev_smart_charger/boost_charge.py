@@ -3,16 +3,27 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from datetime import time as dt_time
+
 from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant, State, callback
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_change,
+    async_track_time_interval,
+)
 
 from .const import (
+    CHARGER_STATUS_FREE,
+    CONF_EV_CHARGER_STATUS,
     CONF_CAR_OWNER,
     CONF_NOTIFY_SERVICES,
     HELPER_BOOST_CHARGE_ENABLED_SUFFIX,
     HELPER_BOOST_CHARGE_AMPERAGE_SUFFIX,
     HELPER_BOOST_TARGET_SOC_SUFFIX,
+    HELPER_BOOST_SCHEDULE_ENABLED_SUFFIX,
+    HELPER_BOOST_SCHEDULE_START_TIME_SUFFIX,
+    HELPER_BOOST_SCHEDULE_END_TIME_SUFFIX,
     PRIORITY_BOOST_CHARGE,
 )
 from .localization import translate_runtime
@@ -71,6 +82,17 @@ class BoostCharge:
         self._monitor_unsub = None
         self._boost_switch_unsub = None
         self._soc_read_failures = 0
+
+        # Schedule Boost Charge
+        self._boost_schedule_enabled_entity = None
+        self._boost_schedule_start_time_entity = None
+        self._boost_schedule_end_time_entity = None
+        self._scheduled_session_active = False
+        self._schedule_start_unsub = None
+        self._schedule_end_unsub = None
+        self._schedule_switch_unsub = None
+        self._schedule_time_change_unsub_start = None
+        self._schedule_time_change_unsub_end = None
 
     async def _emit_diagnostic(
         self,
@@ -133,6 +155,33 @@ class BoostCharge:
             self.logger.warning("Boost switch restored ON after restart - resetting to OFF")
             await self._set_boost_switch(False)
 
+        # --- Schedule Boost Charge setup ---
+        self._boost_schedule_enabled_entity = self._resolve_entity(HELPER_BOOST_SCHEDULE_ENABLED_SUFFIX)
+        self._boost_schedule_start_time_entity = self._resolve_entity(HELPER_BOOST_SCHEDULE_START_TIME_SUFFIX)
+        self._boost_schedule_end_time_entity = self._resolve_entity(HELPER_BOOST_SCHEDULE_END_TIME_SUFFIX)
+
+        if self._boost_schedule_enabled_entity:
+            self._schedule_switch_unsub = async_track_state_change_event(
+                self.hass,
+                self._boost_schedule_enabled_entity,
+                self._async_schedule_switch_changed,
+            )
+
+        if self._boost_schedule_start_time_entity:
+            self._schedule_time_change_unsub_start = async_track_state_change_event(
+                self.hass,
+                self._boost_schedule_start_time_entity,
+                self._async_schedule_time_changed,
+            )
+        if self._boost_schedule_end_time_entity:
+            self._schedule_time_change_unsub_end = async_track_state_change_event(
+                self.hass,
+                self._boost_schedule_end_time_entity,
+                self._async_schedule_time_changed,
+            )
+
+        await self._setup_schedule_triggers()
+
         self.logger.success("Boost Charge setup completed")
 
     def _resolve_entity(self, key: str) -> str | None:
@@ -151,7 +200,24 @@ class BoostCharge:
             self._monitor_unsub()
             self._monitor_unsub = None
 
+        if self._schedule_start_unsub:
+            self._schedule_start_unsub()
+            self._schedule_start_unsub = None
+        if self._schedule_end_unsub:
+            self._schedule_end_unsub()
+            self._schedule_end_unsub = None
+        if self._schedule_switch_unsub:
+            self._schedule_switch_unsub()
+            self._schedule_switch_unsub = None
+        if self._schedule_time_change_unsub_start:
+            self._schedule_time_change_unsub_start()
+            self._schedule_time_change_unsub_start = None
+        if self._schedule_time_change_unsub_end:
+            self._schedule_time_change_unsub_end()
+            self._schedule_time_change_unsub_end = None
+
         self._boost_active = False
+        self._scheduled_session_active = False
         self.logger.info("Boost Charge removed")
 
     def set_related_automations(self, night_smart_charge=None, solar_surplus=None) -> None:
@@ -376,6 +442,7 @@ class BoostCharge:
             self._monitor_unsub = None
 
         self._boost_active = False
+        self._scheduled_session_active = False
         self._soc_read_failures = 0
 
         if stop_charger and was_active:
@@ -522,3 +589,130 @@ class BoostCharge:
         if hasattr(result, "success"):
             return result.success
         return bool(result)
+
+    # =========================================================================
+    # Schedule Boost Charge
+    # =========================================================================
+
+    async def _setup_schedule_triggers(self) -> None:
+        """Register daily time triggers for the scheduled boost window."""
+        if self._schedule_start_unsub:
+            self._schedule_start_unsub()
+            self._schedule_start_unsub = None
+        if self._schedule_end_unsub:
+            self._schedule_end_unsub()
+            self._schedule_end_unsub = None
+
+        start_time = self._get_schedule_time(self._boost_schedule_start_time_entity)
+        end_time = self._get_schedule_time(self._boost_schedule_end_time_entity)
+        if not start_time or not end_time:
+            self.logger.debug("Schedule times not available — triggers not registered")
+            return
+
+        self._schedule_start_unsub = async_track_time_change(
+            self.hass,
+            self._async_schedule_start_trigger,
+            hour=start_time.hour,
+            minute=start_time.minute,
+            second=0,
+        )
+        self._schedule_end_unsub = async_track_time_change(
+            self.hass,
+            self._async_schedule_end_trigger,
+            hour=end_time.hour,
+            minute=end_time.minute,
+            second=0,
+        )
+        self.logger.info(
+            f"Schedule Boost triggers registered: start={start_time.strftime('%H:%M')}, "
+            f"end={end_time.strftime('%H:%M')}"
+        )
+
+    @callback
+    async def _async_schedule_start_trigger(self, now) -> None:
+        """Fire at the configured start time to initiate a scheduled boost session."""
+        if not self._is_schedule_enabled():
+            return
+
+        if self._boost_active:
+            self.logger.debug("Schedule start trigger: boost already active, skipping")
+            return
+
+        # Check charger status — skip silently if car is not plugged in
+        charger_status_entity = self.config.get(CONF_EV_CHARGER_STATUS)
+        if charger_status_entity:
+            charger_status = state_helper.get_state(self.hass, charger_status_entity)
+            if charger_status == CHARGER_STATUS_FREE:
+                self.logger.debug("Schedule start trigger: car not plugged in, skipping")
+                return
+
+        # Check if SOC target is already met — skip silently
+        target_soc = self.get_target_soc()
+        if target_soc is not None:
+            current_soc = await self._read_ev_soc()
+            if current_soc is not None and current_soc >= target_soc:
+                self.logger.debug(
+                    f"Schedule start trigger: SOC target already met "
+                    f"({current_soc}% >= {target_soc}%), skipping"
+                )
+                return
+
+        self.logger.info("Schedule Boost Charge: starting scheduled session")
+        self._scheduled_session_active = True
+        await self._set_boost_switch(True)
+
+    @callback
+    async def _async_schedule_end_trigger(self, now) -> None:
+        """Fire at the configured end time to terminate the scheduled boost session."""
+        if not (self._boost_active and self._scheduled_session_active):
+            return
+
+        self.logger.info("Schedule Boost Charge: end time reached, stopping session")
+        await self._complete_boost(
+            translate_runtime(self.hass, "boost.reason.schedule_end_time"),
+            stop_charger=True,
+            notify=True,
+            success=False,
+        )
+
+    @callback
+    async def _async_schedule_switch_changed(self, event) -> None:
+        """Handle changes to the 'Schedule Boost Charge' toggle."""
+        new_state: State = event.data.get("new_state")
+        if not new_state:
+            return
+
+        if new_state.state != STATE_ON and self._boost_active and self._scheduled_session_active:
+            self.logger.info("Schedule Boost Charge: toggle disabled mid-session, stopping")
+            await self._complete_boost(
+                translate_runtime(self.hass, "boost.reason.schedule_disabled"),
+                stop_charger=True,
+                notify=True,
+                success=False,
+            )
+
+    @callback
+    async def _async_schedule_time_changed(self, event) -> None:
+        """Re-register time triggers when start or end time entities change."""
+        await self._setup_schedule_triggers()
+
+    def _is_schedule_enabled(self) -> bool:
+        """Return True when the Schedule Boost Charge toggle is ON."""
+        return state_helper.get_bool(self.hass, self._boost_schedule_enabled_entity, default=False)
+
+    def _get_schedule_time(self, entity_id: str | None) -> dt_time | None:
+        """Parse the time entity state ('HH:MM:SS') into a datetime.time object."""
+        if not entity_id:
+            return None
+        raw = state_helper.get_state(self.hass, entity_id)
+        if raw in (None, "unknown", "unavailable"):
+            return None
+        try:
+            parts = raw.split(":")
+            hour = int(parts[0])
+            minute = int(parts[1])
+            second = int(parts[2]) if len(parts) > 2 else 0
+            return dt_time(hour, minute, second)
+        except (ValueError, IndexError):
+            self.logger.warning(f"Could not parse schedule time from entity {entity_id}: '{raw}'")
+            return None

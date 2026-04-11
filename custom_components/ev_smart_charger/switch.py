@@ -38,6 +38,7 @@ async def async_setup_entry(
         # Core automation controls
         ("evsc_forza_ricarica", "Forza Ricarica", "mdi:power", False),
         ("evsc_boost_charge_enabled", "Boost Charge", "mdi:flash", False),
+        ("evsc_boost_schedule_enabled", "Schedule Boost Charge", "mdi:calendar-clock", False),
         ("evsc_smart_charger_blocker_enabled", "Smart Charger Blocker", "mdi:solar-power", False),
         ("evsc_use_home_battery", "Use Home Battery", "mdi:home-battery", False),
         ("evsc_priority_balancer_enabled", "Priority Balancer", "mdi:scale-balance", False),

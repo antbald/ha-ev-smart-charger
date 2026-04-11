@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.6.2"
+VERSION = "1.6.3"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -114,6 +114,13 @@ HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX = "evsc_min_solar_forecast_threshold"
 HELPER_BOOST_CHARGE_AMPERAGE_SUFFIX = "evsc_boost_charge_amperage"
 HELPER_BOOST_TARGET_SOC_SUFFIX = "evsc_boost_target_soc"
 
+# Switches - Schedule Boost Charge
+HELPER_BOOST_SCHEDULE_ENABLED_SUFFIX = "evsc_boost_schedule_enabled"
+
+# Times - Schedule Boost Charge
+HELPER_BOOST_SCHEDULE_START_TIME_SUFFIX = "evsc_boost_schedule_start_time"
+HELPER_BOOST_SCHEDULE_END_TIME_SUFFIX = "evsc_boost_schedule_end_time"
+
 # Numbers - Daily SOC targets (EV)
 HELPER_EV_MIN_SOC_MONDAY_SUFFIX = "evsc_ev_min_soc_monday"
 HELPER_EV_MIN_SOC_TUESDAY_SUFFIX = "evsc_ev_min_soc_tuesday"
@@ -192,6 +199,8 @@ NIGHT_CHARGE_START_RETRY_DELAYS = [5, 15, 30]  # Seconds between retry attempts 
 # ========== DEFAULT VALUES - BOOST CHARGE ==========
 DEFAULT_BOOST_CHARGE_AMPERAGE = 16  # amps
 DEFAULT_BOOST_TARGET_SOC = 80  # percent
+DEFAULT_BOOST_SCHEDULE_START_TIME = "07:00:00"
+DEFAULT_BOOST_SCHEDULE_END_TIME = "08:00:00"
 
 # ========== NIGHT SMART CHARGE WINDOW ACTIVATION SETTINGS (v1.4.4) ==========
 ACTIVATION_GRACE_BEFORE_MINUTES = 2  # Activate 2 minutes before scheduled time (handles clock drift)

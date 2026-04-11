@@ -64,6 +64,8 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "Returning to automatic mode."
         ),
         "boost.reason.manual_stop": "Boost manually disabled",
+        "boost.reason.schedule_end_time": "Scheduled end time reached",
+        "boost.reason.schedule_disabled": "Schedule Boost Charge disabled mid-session",
         "boost.reason.missing_configuration": "Unable to start Boost Charge: incomplete configuration.",
         "boost.reason.missing_soc": "Unable to start Boost Charge: EV SOC unavailable.",
         "boost.reason.not_started_target_reached": (
@@ -169,6 +171,8 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "Ritorno alla modalita' automatica in corso."
         ),
         "boost.reason.manual_stop": "Boost disattivato manualmente",
+        "boost.reason.schedule_end_time": "Orario di fine schedulato raggiunto",
+        "boost.reason.schedule_disabled": "Schedule Boost Charge disabilitato a sessione in corso",
         "boost.reason.missing_configuration": (
             "Impossibile avviare Boost Charge: configurazione incompleta."
         ),
@@ -276,6 +280,8 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "Terugkeer naar automatische modus."
         ),
         "boost.reason.manual_stop": "Boost handmatig uitgeschakeld",
+        "boost.reason.schedule_end_time": "Gepland eindtijdstip bereikt",
+        "boost.reason.schedule_disabled": "Schedule Boost Charge uitgeschakeld tijdens sessie",
         "boost.reason.missing_configuration": (
             "Boost Charge kan niet worden gestart: onvolledige configuratie."
         ),

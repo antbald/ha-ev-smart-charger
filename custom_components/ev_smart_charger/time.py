@@ -14,6 +14,8 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .const import (
     DEFAULT_NIGHT_CHARGE_TIME,
     DEFAULT_CAR_READY_TIME,
+    DEFAULT_BOOST_SCHEDULE_START_TIME,
+    DEFAULT_BOOST_SCHEDULE_END_TIME,
 )
 from .entity_base import EVSCEntityMixin
 from .runtime import get_runtime_data
@@ -51,6 +53,28 @@ async def async_setup_entry(
             "Car Ready Time",
             "mdi:clock-check",
             DEFAULT_CAR_READY_TIME,
+        )
+    )
+
+    # Boost Schedule Start/End Times
+    entities.append(
+        EVSCTime(
+            runtime_data,
+            entry.entry_id,
+            "evsc_boost_schedule_start_time",
+            "Boost Schedule Start Time",
+            "mdi:clock-start",
+            DEFAULT_BOOST_SCHEDULE_START_TIME,
+        )
+    )
+    entities.append(
+        EVSCTime(
+            runtime_data,
+            entry.entry_id,
+            "evsc_boost_schedule_end_time",
+            "Boost Schedule End Time",
+            "mdi:clock-end",
+            DEFAULT_BOOST_SCHEDULE_END_TIME,
         )
     )
 
