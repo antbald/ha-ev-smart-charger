@@ -10,6 +10,7 @@ the Home Assistant host.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 from uuid import uuid4
@@ -184,7 +185,6 @@ _TIMEZONE_TO_COUNTRY: dict[str, str] = {
     "Asia/Novosibirsk": "RU", "Asia/Omsk": "RU", "Asia/Krasnoyarsk": "RU",
     "Asia/Irkutsk": "RU", "Asia/Chita": "RU",
     "Asia/Yekaterinburg": "RU",
-    "Asia/Colombo": "LK",
     "Asia/Thimphu": "BT", "Asia/Thimbu": "BT",
     "Asia/Brunei": "BN",
     "Asia/Dili": "TL",
@@ -322,7 +322,7 @@ async def _get_or_create_installation_id(hass: HomeAssistant) -> str:
 async def send_telemetry_ping(hass: HomeAssistant) -> None:
     """Send a fire-and-forget anonymous ping to the telemetry endpoint.
 
-    Failures are silently swallowed — the ping must never affect integration
+    Failures are logged as WARNING — the ping must never affect integration
     startup or normal operation.
     """
     if os.environ.get("EVSC_DISABLE_TELEMETRY", "").lower() in ("1", "true", "yes"):
@@ -351,15 +351,28 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
             timeout=aiohttp.ClientTimeout(total=8),
             allow_redirects=True,
         ) as resp:
-            body = await resp.json(content_type=None)
-            status = body.get("status", "")
-            version_changed = body.get("version_changed", False)
-            if status == "created":
-                _LOGGER.info("📊 Telemetry: new installation registered (v%s)", VERSION)
-            elif version_changed:
-                _LOGGER.info("📊 Telemetry: version update tracked (%s → v%s)", body.get("previous_version", "?"), VERSION)
-            else:
-                _LOGGER.info("📊 Telemetry: ping sent (HTTP %s)", resp.status)
+            raw = await resp.text()
+            _LOGGER.debug("📊 Telemetry raw response (HTTP %s): %.200s", resp.status, raw)
+            try:
+                body = json.loads(raw)
+                status = body.get("status", "")
+                version_changed = body.get("version_changed", False)
+                if status == "created":
+                    _LOGGER.info("📊 Telemetry: new installation registered (v%s)", VERSION)
+                elif version_changed:
+                    _LOGGER.info(
+                        "📊 Telemetry: version update tracked (%s → v%s)",
+                        body.get("previous_version", "?"),
+                        VERSION,
+                    )
+                else:
+                    _LOGGER.info("📊 Telemetry: ping sent (HTTP %s)", resp.status)
+            except json.JSONDecodeError:
+                _LOGGER.warning(
+                    "📊 Telemetry: unexpected response (HTTP %s): %.200s",
+                    resp.status,
+                    raw,
+                )
 
-    except Exception:  # noqa: BLE001
-        _LOGGER.warning("📊 Telemetry ping failed (network or server unavailable)")
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("📊 Telemetry ping failed (%s: %s)", type(err).__name__, err)
