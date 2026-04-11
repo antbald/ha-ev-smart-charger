@@ -53,7 +53,7 @@ Makefile
 | `custom_components/ev_smart_charger/charger_controller.py` | Serialized charger start, stop, and current changes | Owns current-control adapter for `number`, `input_number`, `select`, `input_select` |
 | `custom_components/ev_smart_charger/automation_coordinator.py` | Ownership arbitration across charger-driving automations | Single control plane for Boost, Blocker, Night, and Solar |
 | `custom_components/ev_smart_charger/priority_balancer.py` | EV vs home battery decision logic | Decision-only, not a charger actuator |
-| `custom_components/ev_smart_charger/boost_charge.py` | Fixed-current override with SOC auto-stop | High-priority automation |
+| `custom_components/ev_smart_charger/boost_charge.py` | Fixed-current override with SOC auto-stop; supports manual trigger and daily scheduled window | High-priority automation |
 | `custom_components/ev_smart_charger/automations.py` | Smart Charger Blocker | Can preempt lower-priority charging |
 | `custom_components/ev_smart_charger/night_smart_charge.py` | Overnight charging workflow with battery or grid mode | Owns night-session logic and handoff paths |
 | `custom_components/ev_smart_charger/solar_surplus.py` | Daytime solar-surplus charging and dynamic current control | Owns daytime adaptive loop |
@@ -86,7 +86,7 @@ Removed from active architecture:
 | `custom_components/ev_smart_charger/number.py` | `number` | Thresholds, amperage settings, SOC targets |
 | `custom_components/ev_smart_charger/select.py` | `select` | Charging profile selector restricted to supported profiles |
 | `custom_components/ev_smart_charger/sensor.py` | `sensor` | Diagnostics, cached EV SOC, target summaries, log path |
-| `custom_components/ev_smart_charger/time.py` | `time` | Night-charge and car-ready schedule helpers |
+| `custom_components/ev_smart_charger/time.py` | `time` | Night-charge, car-ready, and boost-schedule time helpers |
 
 ## 6. Frontend
 

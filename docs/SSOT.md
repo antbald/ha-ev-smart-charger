@@ -1,6 +1,6 @@
 # EV Smart Charger SSOT
 
-This file is the single source of truth for the current architecture as of 2026-03-11.
+This file is the single source of truth for the current architecture as of 2026-04-11.
 
 If it conflicts with historical notes, release files, or old session summaries, this file wins for maintainer-facing architecture. `README.md` remains the user-facing guide.
 

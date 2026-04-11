@@ -8,7 +8,7 @@ Smart EV charging orchestration for Home Assistant.
 
 This custom integration helps you charge your EV with surplus solar energy, coordinate EV and home battery priorities, automate night charging, run temporary boost sessions, and block unwanted charging outside your preferred window.
 
-Current integration version: `1.6.8`
+Current integration version: `1.6.18`
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ Current integration version: `1.6.8`
 - Solar Surplus charging with dynamic amperage adjustment from `6A` to `32A`
 - Priority Balancer for EV vs home battery daily targets
 - Night Smart Charge driven by tomorrow's PV forecast
-- Boost Charge with automatic stop at a target EV SOC
+- Boost Charge with automatic stop at a target EV SOC (manual or daily scheduled window)
 - Smart Charger Blocker to prevent unwanted charging at night
 - Cached EV SOC sensor for unreliable cloud-based car integrations
 - Built-in diagnostic entities, file logging, and trace logging
@@ -61,6 +61,7 @@ Recent reliability improvements reflected in the current codebase:
 
 - `v1.6.0`: restored helper/select/time state is written back immediately after restart, avoiding long `unavailable` periods
 - `v1.6.1`: Night Smart Charge retries charger start with backoff before giving up
+- `v1.6.3`: Scheduled Boost Charge — daily automatic boost window with configurable start/end times
 
 ## Requirements
 
@@ -175,24 +176,27 @@ The integration supports native reconfiguration for existing entries, so you can
 
 ## Created Entities
 
-After setup, the integration creates `57` entities per config entry:
+After setup, the integration creates `60` entities per config entry:
 
-- `20` switches
+- `21` switches
 - `25` numbers
 - `1` select
-- `2` time entities
+- `4` time entities
 - `7` sensors
 
 Main examples:
 
 - `select.<prefix>_evsc_charging_profile`
 - `switch.<prefix>_evsc_boost_charge_enabled`
+- `switch.<prefix>_evsc_boost_schedule_enabled`
 - `switch.<prefix>_evsc_night_smart_charge_enabled`
 - `switch.<prefix>_evsc_smart_charger_blocker_enabled`
 - `number.<prefix>_evsc_grid_import_threshold`
 - `number.<prefix>_evsc_home_battery_min_soc`
 - `time.<prefix>_evsc_night_charge_time`
 - `time.<prefix>_evsc_car_ready_time`
+- `time.<prefix>_evsc_boost_schedule_start_time`
+- `time.<prefix>_evsc_boost_schedule_end_time`
 - `sensor.<prefix>_evsc_priority_daily_state`
 - `sensor.<prefix>_evsc_cached_ev_soc`
 - `sensor.<prefix>_evsc_log_file_path`
@@ -272,18 +276,26 @@ Key helpers:
 
 ### Boost Charge
 
-Boost Charge is a temporary manual override that:
+Boost Charge is a high-priority charging override that:
 
-- starts charging immediately
+- starts charging immediately (manual trigger) or at a scheduled daily time
 - uses a fixed amperage
 - stops automatically at the configured EV SOC target
+- stops at the configured end time if the target has not been reached yet
 - returns control to the normal automation flow after completion
+
+**Manual mode:** enable `switch.*_evsc_boost_charge_enabled` at any time.
+
+**Scheduled mode:** enable `switch.*_evsc_boost_schedule_enabled` and configure the start and end times. The session runs daily, silently skipping if the car is not plugged in or the SOC target is already met. Disabling the schedule toggle mid-session stops the charger immediately.
 
 Key helpers:
 
 - `switch.*_evsc_boost_charge_enabled`
+- `switch.*_evsc_boost_schedule_enabled`
 - `number.*_evsc_boost_charge_amperage`
 - `number.*_evsc_boost_target_soc`
+- `time.*_evsc_boost_schedule_start_time`
+- `time.*_evsc_boost_schedule_end_time`
 
 ### Smart Charger Blocker
 
