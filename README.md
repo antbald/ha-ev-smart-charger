@@ -75,6 +75,45 @@ EV Smart Charger sits between your hardware (charger, inverter, home battery) an
 
 Only two charging profiles are selectable by the user: **`manual`** (no automation) and **`solar_surplus`** (automatic). All other features — Night Smart Charge, Boost Charge, Smart Charger Blocker, Priority Balancer — are independent modules that activate on top of the selected profile according to a fixed priority hierarchy.
 
+```mermaid
+graph TD
+    subgraph inputs["Your Home Assistant Entities (you map these)"]
+        S1[☀️ Solar Production]
+        S2[🏠 Home Consumption]
+        S3[⚡ Grid Import]
+        S4[🔋 Home Battery SOC]
+        S5[🚗 EV Battery SOC]
+    end
+
+    subgraph integration["EV Smart Charger Integration"]
+        direction TB
+        PB["⚖️ Priority Balancer\n(EV vs Home targets)"]
+        NSC["🌙 Night Smart Charge\n(forecast-driven)"]
+        BC["⚡ Boost Charge\n(manual / scheduled)"]
+        SCB["🛡️ Smart Charger Blocker\n(time window guard)"]
+        SS["☀️ Solar Surplus\n(dynamic amperage)"]
+        FC["🔴 Force Charge\n(override)"]
+        CC["🎛️ Charger Controller\n(rate-limited, queued)"]
+
+        FC -->|priority 1| CC
+        BC -->|priority 2| CC
+        SCB -->|priority 3| CC
+        NSC -->|priority 4| CC
+        PB -.->|informs| NSC
+        PB -.->|informs| SS
+        SS -->|priority 6| CC
+    end
+
+    subgraph charger["Your Wallbox"]
+        SW["switch: on/off"]
+        AMP["number/select: amperage"]
+    end
+
+    inputs --> integration
+    CC --> SW
+    CC --> AMP
+```
+
 ### Automation Priority System
 
 When multiple automations could act on the charger simultaneously, the integration resolves conflicts using this execution order:
@@ -89,6 +128,31 @@ When multiple automations could act on the charger simultaneously, the integrati
 | **6** | Solar Surplus | Profile = `solar_surplus`, daytime hours |
 
 Lower-priority automations only act when none of the higher-priority ones hold ownership of the charger.
+
+```mermaid
+flowchart TD
+    START([Charger event / periodic tick]) --> P1{Force Charge ON?}
+    P1 -->|Yes| ACT1[Keep charger ON\nat configured amps]
+    P1 -->|No| P2{Boost Charge\nactive?}
+    P2 -->|Yes| ACT2[Charge at boost amperage\nStop at target SOC]
+    P2 -->|No| P3{Smart Charger\nBlocker triggered?}
+    P3 -->|Yes| ACT3[Stop charger\nSend notification]
+    P3 -->|No| P4{Night Smart\nCharge window?}
+    P4 -->|Yes| ACT4[Battery or Grid mode\nat night amperage]
+    P4 -->|No| P5{Profile =\nsolar_surplus?}
+    P5 -->|No| ACT5[No action\nmanual mode]
+    P5 -->|Yes| P6{Priority\nBalancer state?}
+    P6 -->|Home| ACT6[Pause charger\nHome battery charges itself]
+    P6 -->|EV or EV_Free| ACT7[Solar Surplus\ndynamic amperage control]
+
+    style ACT1 fill:#e74c3c,color:#fff
+    style ACT2 fill:#e67e22,color:#fff
+    style ACT3 fill:#8e44ad,color:#fff
+    style ACT4 fill:#2980b9,color:#fff
+    style ACT5 fill:#7f8c8d,color:#fff
+    style ACT6 fill:#27ae60,color:#fff
+    style ACT7 fill:#f39c12,color:#fff
+```
 
 ---
 
@@ -389,6 +453,60 @@ Solar Surplus runs every `evsc_check_interval` minutes during **daytime hours on
 - Charger stops only if surplus drops below 5.5 A for `evsc_surplus_drop_delay` seconds
 - Amperage increases require 60 s of stable surplus; decreases require only `evsc_surplus_drop_delay`
 
+The diagram below shows how the surplus (in amps) maps to charging decisions. Thresholds are fixed; only the dead-band start delay is configurable via `SURPLUS_DEADBAND_START_DELAY`.
+
+```
+Surplus (A)
+  │
+  32 ┤━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ← max level (capped by evsc_solar_max_amperage)
+  24 ┤
+  20 ┤
+  16 ┤────────────────────────────── ← amperage steps [6,8,10,13,16,20,24,32]
+  13 ┤
+  10 ┤
+   8 ┤
+   6 ┤
+     │
+ 6.5 ┤╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  ← START threshold (needs 60s stable)
+ 5.5 ┤╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  ← STOP threshold / dead-band floor
+     │    ↕ dead band (no action    ← dead-band start after 120s
+     │      unless timer expires)
+   0 ┤─────────────────────────────→ time
+```
+
+```mermaid
+flowchart TD
+    CHECK([Periodic check every N minutes]) --> NIGHT{Daytime?}
+    NIGHT -->|No| SKIP([Skip — nighttime])
+    NIGHT -->|Yes| CALC[Calculate surplus\nsolar − consumption]
+
+    CALC --> PB{Priority\nBalancer state?}
+    PB -->|Home| STOP_H([Stop charger\nHome battery needs energy])
+    PB -->|EV_Free| STOP_F([Stop charger\nBoth targets met])
+    PB -->|EV or disabled| SURPLUS{Surplus ≥ 6.5 A\n~1495 W?}
+
+    SURPLUS -->|Yes| INC[Start or increase\namperage 60s stability]
+    SURPLUS -->|No| DEAD{Surplus ≥ 5.5 A\nfor 120s?}
+    DEAD -->|Yes| START6[Start at 6 A\ndead-band opportunistic]
+    DEAD -->|No| BATT{Battery support\nactive?}
+    BATT -->|Yes| FIXED[Charge at\nevsc_battery_support_amperage]
+    BATT -->|No| DROP{Below 5.5 A\nfor drop delay?}
+    DROP -->|Yes| STOP([Stop charger])
+    DROP -->|No| HOLD([Hold current amperage])
+
+    GRID{Grid import\n> threshold?} -->|Yes, after delay| REDUCE[Reduce amperage\none step]
+    INC --> GRID
+    START6 --> GRID
+    FIXED --> GRID
+
+    style STOP_H fill:#27ae60,color:#fff
+    style STOP_F fill:#27ae60,color:#fff
+    style STOP fill:#e74c3c,color:#fff
+    style START6 fill:#f39c12,color:#fff
+    style INC fill:#2980b9,color:#fff
+    style FIXED fill:#8e44ad,color:#fff
+```
+
 **Grid import protection:**
 
 If grid import exceeds `evsc_grid_import_threshold` for more than `evsc_grid_import_delay` seconds, amperage is reduced by one step. Recovery requires surplus to drop below 50 % of the threshold and remain there for 60 s before amperage is restored one step at a time.
@@ -413,6 +531,38 @@ The Priority Balancer reads today's EV and home battery SOC targets (from the da
 | `Home` | EV target met, home battery below target | Solar Surplus pauses; home battery charges itself |
 | `EV_Free` | Both targets met | Solar Surplus stops immediately; opportunistic charging only if profile allows |
 
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> EV : Day starts\nEV SOC below target
+
+    EV --> Home : EV target ✅\nHome SOC below target
+    EV --> EV_Free : Both targets ✅
+
+    Home --> EV_Free : Home target ✅
+    Home --> EV : New day\n(targets reset)
+
+    EV_Free --> EV : New day\n(EV below new target)
+
+    state EV {
+        ev1 : 🚗 Charge EV first
+        ev2 : Home battery support\nmay supplement solar
+        ev1 --> ev2
+    }
+
+    state Home {
+        h1 : 🔋 Protect home battery
+        h2 : Solar Surplus paused\nHome charges itself
+        h1 --> h2
+    }
+
+    state EV_Free {
+        f1 : ✅ Both targets met
+        f2 : Opportunistic solar only\nNo battery support
+        f1 --> f2
+    }
+```
+
 When the balancer is **disabled**, Solar Surplus treats the charger as always having `EV` priority.
 
 **Key entities:** `evsc_priority_balancer_enabled`, `evsc_ev_min_soc_<day>`, `evsc_home_min_soc_<day>`, `sensor.evsc_priority_daily_state`
@@ -429,6 +579,40 @@ Night Smart Charge activates at `evsc_night_charge_time` (default `01:00`) and r
 |---|---|
 | PV forecast ≥ `evsc_min_solar_forecast_threshold` AND `evsc_use_home_battery` ON AND `evsc_preserve_home_battery` OFF | **Battery mode** — charges from home battery |
 | Any other condition | **Grid mode** — charges from grid |
+
+```mermaid
+flowchart TD
+    T([evsc_night_charge_time reached]) --> EN{Night Smart Charge\nenabled?}
+    EN -->|No| SKIP([Skip — no action])
+    EN -->|Yes| EV{EV SOC ≥\ndaily target?}
+    EV -->|Yes| SKIP
+    EV -->|No| F1{PV forecast ≥\nthreshold?}
+
+    F1 -->|No| GRID
+    F1 -->|Yes| F2{use_home_battery\nON?}
+    F2 -->|No| GRID
+    F2 -->|Yes| F3{preserve_home_battery\nOFF?}
+    F3 -->|No| GRID
+    F3 -->|Yes| F4{Home battery SOC\n> min threshold?}
+
+    F4 -->|Yes| BAT([🔋 Battery Mode\nCharge from home battery])
+    F4 -->|No| F5{car_ready\ntoday?}
+    F5 -->|Yes| GRID([⚡ Grid Mode\nCharge from grid])
+    F5 -->|No| SKIP
+
+    GRID --> MONITOR{Monitor every 15s\nEV target reached\nor sunrise?}
+    BAT --> MONITOR
+    MONITOR -->|EV target ✅| DONE([Session complete\nHandoff to Solar Surplus])
+    MONITOR -->|Sunrise + car_ready OFF| DONE
+    MONITOR -->|Sunrise + car_ready ON| EXT{car_ready_time\nreached?}
+    EXT -->|No| MONITOR
+    EXT -->|Yes| DONE
+
+    style BAT fill:#2980b9,color:#fff
+    style GRID fill:#e67e22,color:#fff
+    style DONE fill:#27ae60,color:#fff
+    style SKIP fill:#7f8c8d,color:#fff
+```
 
 **Battery mode pre-check:** Before starting, the home battery SOC is validated. If it is already ≤ `evsc_home_battery_min_soc`, the session checks the day's `evsc_car_ready_<day>` flag:
 - Flag **ON** → falls back to grid mode to ensure car is ready
