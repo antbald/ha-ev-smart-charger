@@ -639,6 +639,8 @@ Boost Charge is a high-priority override that guarantees the EV reaches `evsc_bo
 - EV SOC already ≥ target? If so, the session is silently skipped.
 - Otherwise, charging starts at `evsc_boost_charge_amperage`.
 
+If the car is plugged in *after* the start time but while still within the scheduled window, the session starts immediately on plug-in — no manual intervention needed.
+
 The session ends at the configured end time even if the SOC target has not been reached. Disabling the schedule toggle mid-session stops the charger immediately.
 
 **Key entities:** `evsc_boost_charge_enabled`, `evsc_boost_schedule_enabled`, `evsc_boost_charge_amperage`, `evsc_boost_target_soc`, `evsc_boost_schedule_start_time`, `evsc_boost_schedule_end_time`

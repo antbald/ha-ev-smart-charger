@@ -7,6 +7,7 @@ from datetime import time as dt_time
 
 from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
@@ -93,6 +94,7 @@ class BoostCharge:
         self._schedule_switch_unsub = None
         self._schedule_time_change_unsub_start = None
         self._schedule_time_change_unsub_end = None
+        self._charger_status_unsub = None  # listener for late plug-in during scheduled window
 
     async def _emit_diagnostic(
         self,
@@ -182,6 +184,15 @@ class BoostCharge:
 
         await self._setup_schedule_triggers()
 
+        # Register charger-status listener for late plug-in during scheduled window
+        charger_status_entity = self.config.get(CONF_EV_CHARGER_STATUS)
+        if charger_status_entity:
+            self._charger_status_unsub = async_track_state_change_event(
+                self.hass,
+                charger_status_entity,
+                self._async_charger_plugged_in,
+            )
+
         self.logger.success("Boost Charge setup completed")
 
     def _resolve_entity(self, key: str) -> str | None:
@@ -215,6 +226,10 @@ class BoostCharge:
         if self._schedule_time_change_unsub_end:
             self._schedule_time_change_unsub_end()
             self._schedule_time_change_unsub_end = None
+
+        if self._charger_status_unsub:
+            self._charger_status_unsub()
+            self._charger_status_unsub = None
 
         self._boost_active = False
         self._scheduled_session_active = False
@@ -716,3 +731,61 @@ class BoostCharge:
         except (ValueError, IndexError):
             self.logger.warning(f"Could not parse schedule time from entity {entity_id}: '{raw}'")
             return None
+
+    @callback
+    async def _async_charger_plugged_in(self, event) -> None:
+        """Handle car plug-in during an active scheduled boost window."""
+        new_state: State = event.data.get("new_state")
+        old_state: State = event.data.get("old_state")
+
+        if not new_state or not old_state:
+            return
+
+        # Only act on transitions FROM charger_free (car just plugged in)
+        if old_state.state != CHARGER_STATUS_FREE:
+            return
+        if new_state.state == CHARGER_STATUS_FREE:
+            return
+
+        # Guard: boost already running, or schedule not enabled
+        if self._boost_active:
+            return
+        if not self._is_schedule_enabled():
+            return
+
+        # Guard: SOC target already met
+        target_soc = self.get_target_soc()
+        if target_soc is not None:
+            current_soc = await self._read_ev_soc()
+            if current_soc is not None and current_soc >= target_soc:
+                self.logger.debug(
+                    f"Plug-in detected but SOC target already met "
+                    f"({current_soc}% >= {target_soc}%), skipping"
+                )
+                return
+
+        # Guard: current time must be within the scheduled window
+        if not self._is_within_schedule_window():
+            return
+
+        self.logger.info(
+            "Car plugged in during scheduled boost window — starting session"
+        )
+        self._scheduled_session_active = True
+        await self._set_boost_switch(True)
+
+    def _is_within_schedule_window(self) -> bool:
+        """Return True if the current time falls within the scheduled boost window."""
+        start = self._get_schedule_time(self._boost_schedule_start_time_entity)
+        end = self._get_schedule_time(self._boost_schedule_end_time_entity)
+        if not start or not end:
+            return False
+
+        now = dt_util.now().time().replace(second=0, microsecond=0)
+
+        if start <= end:
+            # Normal same-day window (e.g., 07:00–08:00)
+            return start <= now < end
+        else:
+            # Cross-midnight window (e.g., 23:00–01:00)
+            return now >= start or now < end
