@@ -120,6 +120,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         await asyncio.wait_for(runtime_data.registration_event.wait(), timeout=10)
     except TimeoutError as err:
+        await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
         entry.runtime_data = None
         raise ConfigEntryNotReady(
             "Timed out while waiting for EV Smart Charger helper entities registration"

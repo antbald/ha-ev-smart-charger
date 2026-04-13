@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.6.19"
+VERSION = "1.6.20"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -240,7 +240,7 @@ SERVICE_CALL_TIMEOUT = 10  # seconds for service calls
 EV_SOC_MONITOR_INTERVAL = 5  # seconds - polling frequency for cloud sensor reliability
 
 # ========== ENTITY REGISTRATION ==========
-TOTAL_INTEGRATION_ENTITIES = 60
+TOTAL_INTEGRATION_ENTITIES = 57
 
 # ========== ANONYMOUS TELEMETRY ==========
 # Google Apps Script Web App endpoint (insert-only, no personal data).
