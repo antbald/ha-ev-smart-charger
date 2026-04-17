@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.6.0
+**Current Version:** 1.6.21
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -752,6 +752,48 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.6.21 (2026-04-17)
+**CRITICAL FIX: Night Smart Charge continues charging past sunrise when car_ready=OFF**
+
+**Problem Fixed**:
+Night Smart Charge (BATTERY mode) failed to stop at sunrise when `car_ready` was set to OFF for the current day. The charger continued running indefinitely into the afternoon, completely bypassing the Solar Surplus profile.
+
+**Root Cause**:
+`_should_stop_for_deadline()` in `night_smart_charge.py` used `get_next_sunrise_after(current_time)` in the `car_ready=False` branch. This function returns the **next future** sunrise — once today's sunrise has passed (e.g. after 06:30), it returns **tomorrow's** sunrise.
+
+At 15:05 with `car_ready=False`:
+```
+sunrise = get_next_sunrise_after(15:05)
+        → today's sunrise (06:30) already passed
+        → returns tomorrow's sunrise (2026-04-17 06:30)
+check: 15:05 >= 2026-04-17 06:30 → FALSE → never stops ❌
+```
+
+**Fix**:
+Replaced `get_next_sunrise_after(current_time)` with `get_sunrise(current_time)`, which always returns the sunrise of the **current day** regardless of whether it has already passed:
+```python
+# Before (bug):
+sunrise = self._astral_service.get_next_sunrise_after(current_time)
+if current_time >= sunrise:
+
+# After (fix):
+sunrise = self._astral_service.get_sunrise(current_time)
+if sunrise and current_time >= sunrise:
+```
+Also added a `None` guard that was missing in the original code.
+
+**Why `_is_in_active_window` is NOT affected**:
+That function uses `get_next_sunrise_after(scheduled_time)` where `scheduled_time` is the night charge time (e.g. 01:00 AM). Since 01:00 is always before sunrise, `get_next_sunrise_after(01:00)` correctly returns today's sunrise. Different function, different context, no bug.
+
+**Files Modified**:
+- [night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py): Fixed `_should_stop_for_deadline()` — 2-line change
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.6.21"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.6.21"
+
+**Upgrade Priority**: 🔴 CRITICAL — Affects all users with `car_ready=OFF` (default for weekends)
+
+---
 
 ### v1.6.0 (2026-03-20) — Refactoring Release
 
