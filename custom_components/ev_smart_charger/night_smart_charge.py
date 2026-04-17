@@ -2163,8 +2163,10 @@ class NightSmartCharge:
             return False, ""
         else:
             # Car not needed - stop at sunrise
-            sunrise = self._astral_service.get_next_sunrise_after(current_time)
-            if current_time >= sunrise:
+            # Use get_sunrise() (today's sunrise) not get_next_sunrise_after()
+            # which would return tomorrow's sunrise if today's has already passed.
+            sunrise = self._astral_service.get_sunrise(current_time)
+            if sunrise and current_time >= sunrise:
                 return True, "Sunrise reached (car not needed urgently)"
 
             return False, ""
