@@ -35,7 +35,7 @@ class EVSCEntityMixin:
             self._attr_icon = icon
         if entity_category is not None:
             self._attr_entity_category = entity_category
-        self.entity_id = f"{entity_domain}.{DOMAIN}_{entry_id}_{key}"
+        self.entity_id = f"{entity_domain}.{DOMAIN}_{entry_id.lower()}_{key}"
 
     @property
     def device_info(self):

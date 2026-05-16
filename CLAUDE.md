@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.6.22
+**Current Version:** 1.6.23
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -755,6 +755,42 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.6.23 (2026-05-16)
+**FIX: Invalid entity IDs containing uppercase characters (Issue #19)**
+
+**Problem Fixed**:
+Home Assistant logged warnings for all integration entities:
+
+> Detected that custom integration 'ev_smart_charger' sets an invalid entity ID: `switch.ev_smart_charger_01KJSYBKA3ARM5XQ65D9B56TZK_evsc_car_ready_wednesday`. … This will stop working in Home Assistant 2027.2.0.
+
+**Root Cause**:
+HA `entity_id` must match `^[\da-z_]+\.[\da-z_]+$` (lowercase only). The integration built entity IDs embedding the raw `config_entry.entry_id`, which modern HA generates as a ULID in Crockford base32 (uppercase, e.g. `01KJSYBKA3ARM5XQ65D9B56TZK`). Older entries created before HA's switch to ULIDs were UUID lowercase, so the bug only surfaced for fresh installs.
+
+**Fix**:
+[entity_base.py:38](custom_components/ev_smart_charger/entity_base.py:38) — lowercase the `entry_id` when composing the entity ID:
+
+```python
+# Before
+self.entity_id = f"{entity_domain}.{DOMAIN}_{entry_id}_{key}"
+# After
+self.entity_id = f"{entity_domain}.{DOMAIN}_{entry_id.lower()}_{key}"
+```
+
+`_attr_unique_id` is left untouched — `unique_id` has no format constraint, and keeping it stable preserves entity registry continuity.
+
+**User Impact**:
+- **New installations**: lowercase entity IDs, warnings gone.
+- **Existing installations**: HA's entity registry stores `entity_id` per `unique_id`, so the previously-registered uppercase IDs persist after the update. The warnings will remain until HA 2027.2.0. To clear them immediately, remove and re-add the integration (entities are recreated with lowercase IDs; `RestoreEntity` preserves their values, but automations/dashboards referencing the old IDs must be updated by hand).
+
+**Files Modified**:
+- [entity_base.py](custom_components/ev_smart_charger/entity_base.py): 1-line fix on line 38
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION = "1.6.23"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.6.23"
+
+**Upgrade Priority**: 🟡 RECOMMENDED — Fixes deprecation warnings that will break the integration in HA 2027.2.0
+
+---
 
 ### v1.6.22 (2026-05-16)
 **FEATURE: Sunset buffer guard for Solar Surplus battery support**
