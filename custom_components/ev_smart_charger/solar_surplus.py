@@ -24,7 +24,9 @@ from .const import (
     SOLAR_SURPLUS_MIN_CHECK_INTERVAL,
     SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE,
     HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX,
+    HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX,
     HELPER_SOLAR_MAX_AMPERAGE_SUFFIX,
+    DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
     DEFAULT_SOLAR_MAX_AMPERAGE,
     SURPLUS_START_THRESHOLD,
     SURPLUS_STOP_THRESHOLD,
@@ -97,6 +99,7 @@ class SolarSurplusAutomation:
         self._use_home_battery_entity = None
         self._home_battery_min_soc_entity = None
         self._battery_support_amperage_entity = None
+        self._battery_support_sunset_buffer_entity = None
         self._solar_max_amperage_entity = None
         self._solar_surplus_diagnostic_sensor_entity = None
         self._solar_surplus_diagnostic_sensor_obj = None
@@ -248,6 +251,7 @@ class SolarSurplusAutomation:
         self._use_home_battery_entity = self._find_entity_by_suffix("evsc_use_home_battery")
         self._home_battery_min_soc_entity = self._find_entity_by_suffix("evsc_home_battery_min_soc")
         self._battery_support_amperage_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
+        self._battery_support_sunset_buffer_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX)
         self._solar_max_amperage_entity = self._find_entity_by_suffix(HELPER_SOLAR_MAX_AMPERAGE_SUFFIX)
         self._solar_surplus_diagnostic_sensor_entity = self._find_entity_by_suffix("evsc_solar_surplus_diagnostic")
         if self._runtime_data is not None:
@@ -275,6 +279,8 @@ class SolarSurplusAutomation:
             missing_entities.append("evsc_home_battery_min_soc")
         if not self._battery_support_amperage_entity:
             missing_entities.append(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
+        if not self._battery_support_sunset_buffer_entity:
+            missing_entities.append(HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX)
 
         if missing_entities:
             self.logger.warning(
@@ -1006,6 +1012,32 @@ class SolarSurplusAutomation:
         if not use_battery:
             self._battery_support_active = False
             return
+
+        # v1.6.22: Sunset buffer guard
+        # Block battery support when sunset is imminent — avoid draining home battery
+        # for the few remaining minutes of fading solar. Charging continues on solar
+        # surplus only; when surplus drops below threshold, normal stop logic applies.
+        # Guard the get_float call: on upgrade the entity may not exist yet until the
+        # next HA restart registers it — avoid log spam from state_helper.
+        if self._battery_support_sunset_buffer_entity:
+            buffer_min = get_float(
+                self.hass,
+                self._battery_support_sunset_buffer_entity,
+                DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
+            )
+        else:
+            buffer_min = DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN
+        if buffer_min > 0:
+            now = dt_util.now()
+            sunset = self._astral_service.get_sunset(now)
+            if sunset and now + timedelta(minutes=buffer_min) >= sunset:
+                if self._battery_support_active:
+                    self.logger.info(
+                        f"Battery support DEACTIVATING — sunset in <{int(buffer_min)} min "
+                        f"(sunset={sunset.strftime('%H:%M')})"
+                    )
+                self._battery_support_active = False
+                return
 
         # Check if priority allows battery support
         # ONLY allow when Priority = EV (EV below target, home can help)

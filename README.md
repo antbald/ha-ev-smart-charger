@@ -360,6 +360,7 @@ When a day's flag is **ON** and the EV target is not yet reached at sunrise, Nig
 | `evsc_solar_max_amperage` | `32` | `6–32` | A | Hard ceiling on Solar Surplus amperage. Lower this if your wallbox rejects currents above a certain value (e.g. set to `16` for wallboxes limited to 16 A). |
 | `evsc_home_battery_min_soc` | `20` | `0–100` | % | Home battery must be above this SOC before battery support activates. |
 | `evsc_battery_support_amperage` | `16` | `6–32` | A | Amperage used when the home battery supplements solar charging. |
+| `evsc_battery_support_sunset_buffer` | `60` | `0–240` | min | Block home battery support when sunset is closer than this. Prevents draining the home battery in the last minutes of fading solar (e.g. plug-in at 18:00 with sunset at 19:15). Set to `0` to disable the guard. |
 
 ---
 
@@ -514,6 +515,8 @@ If grid import exceeds `evsc_grid_import_threshold` for more than `evsc_grid_imp
 **Home battery support** (optional):
 
 When `evsc_use_home_battery` is ON, home battery SOC ≥ `evsc_home_battery_min_soc`, and Priority Balancer state = `EV`, the home battery supplements solar. If surplus < 6 A but battery support is active, the charger runs at `evsc_battery_support_amperage` instead of stopping.
+
+Battery support is also blocked when sunset is within `evsc_battery_support_sunset_buffer` minutes (default 60 min). This prevents draining the home battery for the last minutes of fading solar — e.g. when the car is plugged in at 18:00 with sunset at 19:15. Charging continues on solar surplus only; when surplus drops below threshold the charger stops normally. Set the buffer to `0` to disable this guard.
 
 **Solar max amperage cap:**
 

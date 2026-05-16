@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.6.21
+**Current Version:** 1.6.22
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -109,6 +109,7 @@ The integration creates helper entities automatically via platform files:
 - `evsc_surplus_drop_delay` - Delay before stopping charger on surplus drop (seconds, default 30)
 - `evsc_home_battery_min_soc` - Minimum home battery SOC for battery support (%, default 20)
 - `evsc_battery_support_amperage` - Amperage to use when battery support active (A, default 16)
+- `evsc_battery_support_sunset_buffer` - Block battery support when sunset is within this many minutes (min, default 60, range 0-240, 0 disables guard)
 - `evsc_night_charge_amperage` - Amperage for night charging (A, default 16)
 - `evsc_min_solar_forecast_threshold` - Min PV forecast to skip night charge (kWh, default 20)
 - Daily SOC targets (EV): `evsc_ev_min_soc_[monday-sunday]` (%, defaults 50 weekday, 80 weekend)
@@ -288,12 +289,14 @@ Updates `evsc_priority_daily_state` sensor with:
 9. Handle home battery support (if enabled and priority == `PRIORITY_EV`)
 10. Adjust charging amperage
 
-**Home Battery Support Logic (v1.0.2):**
+**Home Battery Support Logic (v1.0.2, sunset guard added in v1.6.22):**
 - **Activation Conditions:**
   - `evsc_use_home_battery` is ON
+  - Sunset is more than `evsc_battery_support_sunset_buffer` minutes away (default 60; set 0 to disable guard)
   - Home battery SOC >= `evsc_home_battery_min_soc`
   - Priority Balancer priority == `PRIORITY_EV` (EV below target, home can help)
 - **Deactivation Conditions:**
+  - Sunset is within the configured buffer (e.g. plug-in at 18:00 with sunset at 19:15)
   - Priority != `PRIORITY_EV` (including `PRIORITY_EV_FREE` when both targets met)
   - Home battery SOC < min threshold
   - Switch disabled
@@ -752,6 +755,35 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v1.6.22 (2026-05-16)
+**FEATURE: Sunset buffer guard for Solar Surplus battery support**
+
+**Problem Fixed**:
+When the user plugged the car in the late afternoon (e.g. 18:00) with fading solar, Solar Surplus would activate home battery support and drain the home battery for the remaining minutes before sunset. Priority Balancer correctly returned `PRIORITY_EV` (EV below daily target), home battery was above its minimum SOC, so `_handle_home_battery_usage()` activated battery support and `_calculate_target_amperage()` fell back to the configured battery support amperage (default 16A). No time-based or sun-based guard prevented this.
+
+**Fix**:
+Added a sunset-proximity guard in `_handle_home_battery_usage()` ([solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py)). When `dt_util.now() + buffer >= today's sunset`, the battery support is forced inactive and the function returns. The buffer is configurable via a new number entity, default 60 minutes. Setting the buffer to 0 disables the guard (opt-out).
+
+When the guard is active:
+- `_battery_support_active = False`
+- `_calculate_target_amperage()` (unchanged) returns surplus-based amperage only
+- If surplus < `SURPLUS_STOP_THRESHOLD`, the existing "battery support not active → stop charger" branch handles the stop with the normal drop delay
+
+No changes to `_calculate_target_amperage()`, Night Smart Charge, or Priority Balancer.
+
+**New Entity**:
+- `number.evsc_battery_support_sunset_buffer` — minutes before sunset to block battery support. Range 0-240, step 5, default 60. EntityCategory.CONFIG.
+
+**Files Modified**:
+- [const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.6.22"`, `HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX`, `DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN = 60`, `TOTAL_INTEGRATION_ENTITIES = 58`
+- [number.py](custom_components/ev_smart_charger/number.py): new entry in `_NUMBER_DEFS`
+- [solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py): import, attribute init, entity discovery, missing-entity warning, sunset-proximity guard in `_handle_home_battery_usage()`
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): `version = "1.6.22"`
+
+**Upgrade Priority**: 🟢 RECOMMENDED — Prevents unnecessary home battery drain when plugging in close to sunset.
+
+---
 
 ### v1.6.21 (2026-04-17)
 **CRITICAL FIX: Night Smart Charge continues charging past sunrise when car_ready=OFF**

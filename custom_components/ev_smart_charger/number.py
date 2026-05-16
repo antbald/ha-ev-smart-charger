@@ -16,6 +16,7 @@ from .const import (
     DEFAULT_SURPLUS_DROP_DELAY,
     DEFAULT_HOME_BATTERY_MIN_SOC,
     DEFAULT_BATTERY_SUPPORT_AMPERAGE,
+    DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
     DEFAULT_SOLAR_MAX_AMPERAGE,
     DEFAULT_EV_MIN_SOC_WEEKDAY,
     DEFAULT_EV_MIN_SOC_WEEKEND,
@@ -52,6 +53,7 @@ async def async_setup_entry(
         # Home battery
         ("evsc_home_battery_min_soc", "EVSC Home Battery Min SOC", "mdi:battery-50", 0, 100, 5, DEFAULT_HOME_BATTERY_MIN_SOC, "%"),
         ("evsc_battery_support_amperage", "EVSC Battery Support Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_BATTERY_SUPPORT_AMPERAGE, "A"),
+        ("evsc_battery_support_sunset_buffer", "EVSC Battery Support Sunset Buffer", "mdi:weather-sunset-down", 0, 240, 5, DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN, "min"),
         # Night Smart Charge
         ("evsc_min_solar_forecast_threshold", "EVSC Min Solar Forecast Threshold", "mdi:solar-power-variant", 0, 100, 1, DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD, "kWh"),
         ("evsc_night_charge_amperage", "EVSC Night Charge Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_NIGHT_CHARGE_AMPERAGE, "A"),
