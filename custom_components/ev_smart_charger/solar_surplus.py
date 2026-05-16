@@ -33,6 +33,7 @@ from .const import (
     SURPLUS_DEADBAND_START_DELAY,
     SURPLUS_INCREASE_DELAY,
     NIGHT_CHARGE_COOLDOWN_SECONDS,
+    has_home_battery,
 )
 from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
@@ -88,6 +89,8 @@ class SolarSurplusAutomation:
         self._home_consumption = config.get(CONF_HOME_CONSUMPTION)
         self._grid_import = config.get(CONF_GRID_IMPORT)
         self._soc_home = config.get(CONF_SOC_HOME)
+        # v1.7.0: PV-only mode (no home battery configured)
+        self._has_home_battery = has_home_battery(config)
 
         # Helper entities (discovered during setup)
         self._forza_ricarica_entity = None
@@ -248,10 +251,12 @@ class SolarSurplusAutomation:
         self._grid_import_threshold_entity = self._find_entity_by_suffix("evsc_grid_import_threshold")
         self._grid_import_delay_entity = self._find_entity_by_suffix("evsc_grid_import_delay")
         self._surplus_drop_delay_entity = self._find_entity_by_suffix("evsc_surplus_drop_delay")
-        self._use_home_battery_entity = self._find_entity_by_suffix("evsc_use_home_battery")
-        self._home_battery_min_soc_entity = self._find_entity_by_suffix("evsc_home_battery_min_soc")
-        self._battery_support_amperage_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
-        self._battery_support_sunset_buffer_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX)
+        # v1.7.0: skip battery helper discovery in PV-only mode
+        if self._has_home_battery:
+            self._use_home_battery_entity = self._find_entity_by_suffix("evsc_use_home_battery")
+            self._home_battery_min_soc_entity = self._find_entity_by_suffix("evsc_home_battery_min_soc")
+            self._battery_support_amperage_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
+            self._battery_support_sunset_buffer_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX)
         self._solar_max_amperage_entity = self._find_entity_by_suffix(HELPER_SOLAR_MAX_AMPERAGE_SUFFIX)
         self._solar_surplus_diagnostic_sensor_entity = self._find_entity_by_suffix("evsc_solar_surplus_diagnostic")
         if self._runtime_data is not None:
@@ -273,14 +278,16 @@ class SolarSurplusAutomation:
             missing_entities.append("evsc_grid_import_delay")
         if not self._surplus_drop_delay_entity:
             missing_entities.append("evsc_surplus_drop_delay")
-        if not self._use_home_battery_entity:
-            missing_entities.append("evsc_use_home_battery")
-        if not self._home_battery_min_soc_entity:
-            missing_entities.append("evsc_home_battery_min_soc")
-        if not self._battery_support_amperage_entity:
-            missing_entities.append(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
-        if not self._battery_support_sunset_buffer_entity:
-            missing_entities.append(HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX)
+        # v1.7.0: only flag battery helpers as missing when home battery is configured
+        if self._has_home_battery:
+            if not self._use_home_battery_entity:
+                missing_entities.append("evsc_use_home_battery")
+            if not self._home_battery_min_soc_entity:
+                missing_entities.append("evsc_home_battery_min_soc")
+            if not self._battery_support_amperage_entity:
+                missing_entities.append(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
+            if not self._battery_support_sunset_buffer_entity:
+                missing_entities.append(HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX)
 
         if missing_entities:
             self.logger.warning(
@@ -296,8 +303,11 @@ class SolarSurplusAutomation:
                 self._async_home_battery_soc_changed,
             )
             self.logger.info(f"Real-time SOC listener registered on {self._soc_home}")
-        else:
+        elif self._has_home_battery:
             self.logger.warning("Home battery SOC sensor not configured - real-time monitoring disabled")
+        else:
+            # v1.7.0: PV-only mode — no home battery configured, nothing to monitor
+            self.logger.info("PV-only mode: real-time home battery monitoring disabled (no battery configured)")
 
         self.logger.success("Solar Surplus automation initialized")
         await self._start_timer()
@@ -1008,6 +1018,11 @@ class SolarSurplusAutomation:
             surplus_watts: Current surplus in watts
             priority: Current priority (EV, HOME, EV_FREE, or None if balancer disabled)
         """
+        # v1.7.0: PV-only mode — battery support is permanently inactive.
+        if not self._has_home_battery:
+            self._battery_support_active = False
+            return
+
         use_battery = get_bool(self.hass, self._use_home_battery_entity)
         if not use_battery:
             self._battery_support_active = False

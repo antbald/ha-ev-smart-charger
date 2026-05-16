@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.6.23
+**Current Version:** 1.7.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -789,6 +789,43 @@ self.entity_id = f"{entity_domain}.{DOMAIN}_{entry_id.lower()}_{key}"
 - [manifest.json](custom_components/ev_smart_charger/manifest.json): version = "1.6.23"
 
 **Upgrade Priority**: 🟡 RECOMMENDED — Fixes deprecation warnings that will break the integration in HA 2027.2.0
+
+---
+
+### v1.7.0 (2026-05-16)
+**FEATURE: Support for installations without a home battery (issue #15)**
+
+The integration can now run in **PV-only mode** for users who do not have a home battery installed. The previously mandatory `soc_home` sensor is now optional in the config flow; when omitted, the integration automatically degrades to a PV + EV setup.
+
+**Behavior in PV-only mode**:
+
+| Component | Behavior |
+|---|---|
+| Config flow `soc_home` field | Optional (was Required) |
+| Priority Balancer | Only `PRIORITY_EV` / `PRIORITY_EV_FREE` — `PRIORITY_HOME` unreachable |
+| Solar Surplus battery support | Permanently inactive |
+| Night Smart Charge | Always GRID mode; BATTERY mode skipped |
+| Helpers created | 45 instead of 58 (skipped 2 switches, 10 numbers, 1 sensor) |
+| Diagnostic / telemetry schema | Unchanged — `home_soc=100` and `home_target=0` sentinels populate existing keys; downstream pipelines keep working |
+
+**Design choices**:
+- **Single source of truth**: presence of `CONF_SOC_HOME` in the config entry. No separate toggle. Helper `has_home_battery(config)` lives in `const.py`.
+- **Sentinel approach**: `PriorityBalancer.get_home_current_soc()` returns `100.0` and `get_home_target_for_today()` returns `0` when no battery, making `PRIORITY_HOME` naturally unreachable (`100 >= 0`). Minimizes blast radius — no `None` handling required across callers.
+- **Reconfigure protection**: once `soc_home` is configured, the field stays `Required` in reconfigure/options to prevent orphan helper entities in the Home Assistant entity registry. Users wanting to remove their home battery must delete and re-add the integration.
+- **Skipped helpers (13)**: switches `evsc_use_home_battery`, `evsc_preserve_home_battery`; numbers `evsc_home_battery_min_soc`, `evsc_battery_support_amperage`, `evsc_battery_support_sunset_buffer`, plus 7 daily `evsc_home_min_soc_<day>`; sensor `evsc_today_home_target`.
+
+**Files Modified**:
+- [const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.7.0"`, new `has_home_battery()` helper, new `TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 45`
+- [config_flow.py](custom_components/ev_smart_charger/config_flow.py): `soc_home` becomes `vol.Optional` for new entries, stays `vol.Required` in reconfigure when already configured
+- [strings.json](custom_components/ev_smart_charger/strings.json): updated `soc_home` label/description (optional + reconfigure restriction)
+- [switch.py](custom_components/ev_smart_charger/switch.py), [number.py](custom_components/ev_smart_charger/number.py), [sensor.py](custom_components/ev_smart_charger/sensor.py): conditional creation of battery-only helpers
+- [priority_balancer.py](custom_components/ev_smart_charger/priority_balancer.py): sentinel values in `get_home_current_soc()` / `get_home_target_for_today()` / `is_home_target_reached()`; added `has_home_battery` field to diagnostic payload
+- [solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py): skip battery helper discovery; `_handle_home_battery_usage()` early-returns
+- [night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py): skip battery helper discovery; force GRID MODE in mode selector and emergency charge path; `_is_preserve_home_battery_enabled()` returns `False` in PV-only mode
+- [__init__.py](custom_components/ev_smart_charger/__init__.py): pick `TOTAL_INTEGRATION_ENTITIES_NO_BATTERY` when no battery, log mode at startup
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): `version = "1.7.0"`
+
+**Upgrade Priority**: 🟢 RECOMMENDED — Enables PV-only deployments. Existing installations with `soc_home` configured see no behavior change (`has_home_battery(config)` is True, all current logic paths preserved).
 
 ---
 

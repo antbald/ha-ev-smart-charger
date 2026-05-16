@@ -13,7 +13,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import CONF_SOC_CAR
+from .const import CONF_SOC_CAR, has_home_battery
 from .entity_base import EVSCEntityMixin
 from .runtime import EVSCRuntimeData, get_runtime_data
 
@@ -27,6 +27,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up EVSC diagnostic sensor entities."""
     runtime_data = get_runtime_data(entry)
+    battery_configured = has_home_battery(entry.data)
 
     entities = [
         EVSCDiagnosticSensor(
@@ -66,14 +67,6 @@ async def async_setup_entry(
             "mdi:battery-charging-80",
             label="EV",
         ),
-        EVSCTodayTargetSensor(
-            runtime_data,
-            entry.entry_id,
-            "evsc_today_home_target",
-            "EVSC Today Home Target",
-            "mdi:home-battery",
-            label="Home",
-        ),
         EVSCCachedEVSOCSensor(
             runtime_data,
             entry.entry_id,
@@ -83,6 +76,19 @@ async def async_setup_entry(
             "mdi:car-battery",
         ),
     ]
+
+    # v1.7.0: skip Today Home Target sensor in PV-only mode
+    if battery_configured:
+        entities.append(
+            EVSCTodayTargetSensor(
+                runtime_data,
+                entry.entry_id,
+                "evsc_today_home_target",
+                "EVSC Today Home Target",
+                "mdi:home-battery",
+                label="Home",
+            )
+        )
 
     async_add_entities(entities)
     _LOGGER.info("✅ Created %s EVSC sensors", len(entities))

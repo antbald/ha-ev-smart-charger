@@ -30,14 +30,14 @@
         "description": "Map the sensors used by Solar Surplus, Priority Balancer, and Night Smart Charge.",
         "data": {
           "soc_car": "EV battery SOC",
-          "soc_home": "Home battery SOC",
+          "soc_home": "Home battery SOC (optional)",
           "fv_production": "Solar production",
           "home_consumption": "Home consumption",
           "grid_import": "Grid import"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
-          "soc_home": "Sensor with the home battery state of charge in percent.",
+          "soc_home": "Optional. Sensor with the home battery state of charge in percent. Leave empty if you do not have a home battery — the integration will run in PV-only mode. Once configured this field cannot be cleared (to prevent orphan helper entities); to remove a home battery, delete and re-add the integration.",
           "fv_production": "Sensor with current PV production in watts.",
           "home_consumption": "Sensor with current household consumption in watts, excluding EV charging when possible.",
           "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid."
@@ -96,14 +96,14 @@
         "description": "Update the energy and SOC sensors used by the integration.",
         "data": {
           "soc_car": "EV battery SOC",
-          "soc_home": "Home battery SOC",
+          "soc_home": "Home battery SOC (optional)",
           "fv_production": "Solar production",
           "home_consumption": "Home consumption",
           "grid_import": "Grid import"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
-          "soc_home": "Sensor with the home battery state of charge in percent.",
+          "soc_home": "Optional. Sensor with the home battery state of charge in percent. Leave empty if you do not have a home battery — the integration will run in PV-only mode. Once configured this field cannot be cleared (to prevent orphan helper entities); to remove a home battery, delete and re-add the integration.",
           "fv_production": "Sensor with current PV production in watts.",
           "home_consumption": "Sensor with current household consumption in watts, excluding EV charging when possible.",
           "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid."
@@ -177,14 +177,14 @@
         "description": "Update the energy and SOC sensors used by the integration.",
         "data": {
           "soc_car": "EV battery SOC",
-          "soc_home": "Home battery SOC",
+          "soc_home": "Home battery SOC (optional)",
           "fv_production": "Solar production",
           "home_consumption": "Home consumption",
           "grid_import": "Grid import"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
-          "soc_home": "Sensor with the home battery state of charge in percent.",
+          "soc_home": "Optional. Sensor with the home battery state of charge in percent. Leave empty if you do not have a home battery — the integration will run in PV-only mode. Once configured this field cannot be cleared (to prevent orphan helper entities); to remove a home battery, delete and re-add the integration.",
           "fv_production": "Sensor with current PV production in watts.",
           "home_consumption": "Sensor with current household consumption in watts, excluding EV charging when possible.",
           "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid."

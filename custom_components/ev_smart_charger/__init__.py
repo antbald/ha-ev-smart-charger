@@ -26,7 +26,9 @@ from .const import (
     PLATFORMS,
     TELEMETRY_PING_INTERVAL_HOURS,
     TOTAL_INTEGRATION_ENTITIES,
+    TOTAL_INTEGRATION_ENTITIES_NO_BATTERY,
     VERSION,
+    has_home_battery,
 )
 from .automation_coordinator import AutomationCoordinator
 from .charger_controller import ChargerController
@@ -101,14 +103,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up EV Smart Charger from a config entry."""
     hass.data.setdefault(DOMAIN, {})
     await _async_register_frontend(hass)
+    # v1.7.0: PV-only mode uses a smaller entity count (no home battery helpers).
+    battery_configured = has_home_battery(entry.data)
+    expected_entities = (
+        TOTAL_INTEGRATION_ENTITIES
+        if battery_configured
+        else TOTAL_INTEGRATION_ENTITIES_NO_BATTERY
+    )
     runtime_data = EVSCRuntimeData(
         config=dict(entry.data),
-        expected_entity_count=TOTAL_INTEGRATION_ENTITIES,
+        expected_entity_count=expected_entities,
     )
     entry.runtime_data = runtime_data
 
     _LOGGER.info("=" * 64)
     _LOGGER.info(f"🚗 EV Smart Charger v{VERSION} - Starting setup")
+    _LOGGER.info(
+        "🔋 Home battery: %s",
+        "configured" if battery_configured else "NOT configured (PV-only mode)",
+    )
     _LOGGER.info("=" * 64)
 
     # ========== PHASE 1: SETUP PLATFORMS (Helper Entities) ==========

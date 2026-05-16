@@ -18,6 +18,7 @@ from .const import (
     PRIORITY_EV,
     PRIORITY_HOME,
     PRIORITY_EV_FREE,
+    has_home_battery,
 )
 from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
@@ -50,6 +51,8 @@ class PriorityBalancer:
         self._soc_car_source = config.get(CONF_SOC_CAR)  # Cloud sensor (original)
         self._soc_car = None  # Cached sensor (discovered in async_setup) - v1.4.0
         self._soc_home = config.get(CONF_SOC_HOME)
+        # v1.7.0: PV-only mode (no home battery configured)
+        self._has_home_battery = has_home_battery(config)
 
         # Helper entities (discovered in async_setup)
         self._enabled_entity = None
@@ -77,6 +80,11 @@ class PriorityBalancer:
     async def async_setup(self):
         """Setup: discover helper entities."""
         self.logger.info("Setting up Priority Balancer")
+        if not self._has_home_battery:
+            self.logger.info(
+                "PV-only mode: home battery not configured — "
+                "Priority Balancer will only return PRIORITY_EV / PRIORITY_EV_FREE"
+            )
 
         def resolve_entity(key: str) -> str | None:
             if self._runtime_data is None:
@@ -194,6 +202,8 @@ class PriorityBalancer:
                 "home_soc": round(home_soc, 1),
                 "home_target": home_target,
                 "today": today,
+                # v1.7.0: surface PV-only mode downstream (additive, non-breaking)
+                "has_home_battery": self._has_home_battery,
             },
         )
 
@@ -238,6 +248,10 @@ class PriorityBalancer:
 
     async def is_home_target_reached(self) -> bool:
         """Check if Home battery has reached today's target."""
+        # v1.7.0: no home battery → home never blocks EV charging
+        if not self._has_home_battery:
+            return True
+
         home_soc = await self.get_home_current_soc()
         home_target = self.get_home_target_for_today()
         reached = home_soc >= home_target
@@ -306,6 +320,10 @@ class PriorityBalancer:
 
     def get_home_target_for_today(self) -> int:
         """Get Home battery target SOC for current day."""
+        # v1.7.0: no home battery → target sentinel = 0
+        # (calculate_priority: 100 >= 0 is always True → PRIORITY_HOME unreachable)
+        if not self._has_home_battery:
+            return 0
         return self._get_target_for_today(
             self._home_min_soc_entities,
             DEFAULT_HOME_MIN_SOC
@@ -350,7 +368,14 @@ class PriorityBalancer:
         return self._get_soc_with_validation(self._soc_car, "EV", 0.0)
 
     async def get_home_current_soc(self) -> float:
-        """Get current Home battery SOC with fallback."""
+        """Get current Home battery SOC with fallback.
+
+        v1.7.0: in PV-only mode (no home battery configured) returns the
+        explicit sentinel 100.0 → home is treated as 'always full', never
+        blocking EV charging. Logs nothing to keep PV-only mode silent.
+        """
+        if not self._has_home_battery:
+            return 100.0
         return self._get_soc_with_validation(self._soc_home, "Home", 100.0)
 
     async def _update_priority_sensor(

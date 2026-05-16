@@ -48,6 +48,7 @@ from .const import (
     NIGHT_CHARGE_START_RETRY_DELAYS,
     ACTIVATION_GRACE_BEFORE_MINUTES,
     ACTIVATION_GRACE_AFTER_MINUTES,
+    has_home_battery,
 )
 from .localization import translate_runtime
 from .runtime import EVSCRuntimeData
@@ -118,6 +119,8 @@ class NightSmartCharge:
         self._soc_home = config.get(CONF_SOC_HOME)
         self._pv_forecast_entity = config.get(CONF_PV_FORECAST)
         self._grid_import = config.get(CONF_GRID_IMPORT)  # v1.3.23: Grid import sensor
+        # v1.7.0: PV-only mode (no home battery configured)
+        self._has_home_battery = has_home_battery(config)
 
         # Helper entities (discovered in async_setup)
         self._night_charge_enabled_entity = None
@@ -312,9 +315,14 @@ class NightSmartCharge:
 
         # Discover helper entities (optional for backward compatibility)
         self._night_charge_enabled_entity = self._resolve_entity(HELPER_NIGHT_CHARGE_ENABLED_SUFFIX)
-        self._preserve_home_battery_entity = self._resolve_entity(
-            HELPER_PRESERVE_HOME_BATTERY_SUFFIX
-        )
+        # v1.7.0: skip battery-only helper discovery in PV-only mode
+        if self._has_home_battery:
+            self._preserve_home_battery_entity = self._resolve_entity(
+                HELPER_PRESERVE_HOME_BATTERY_SUFFIX
+            )
+            self._home_battery_min_soc_entity = self._resolve_entity(
+                HELPER_HOME_BATTERY_MIN_SOC_SUFFIX
+            )
         self._night_charge_time_entity = self._resolve_entity(HELPER_NIGHT_CHARGE_TIME_SUFFIX)
         self._car_ready_time_entity = self._resolve_entity(HELPER_CAR_READY_TIME_SUFFIX)
         self._solar_forecast_threshold_entity = self._resolve_entity(
@@ -322,9 +330,6 @@ class NightSmartCharge:
         )
         self._night_charge_amperage_entity = self._resolve_entity(
             HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX
-        )
-        self._home_battery_min_soc_entity = self._resolve_entity(
-            HELPER_HOME_BATTERY_MIN_SOC_SUFFIX
         )
         self._grid_import_threshold_entity = self._resolve_entity(
             HELPER_GRID_IMPORT_THRESHOLD_SUFFIX
@@ -356,7 +361,8 @@ class NightSmartCharge:
         missing_entities = []
         if not self._night_charge_enabled_entity:
             missing_entities.append(HELPER_NIGHT_CHARGE_ENABLED_SUFFIX)
-        if not self._preserve_home_battery_entity:
+        # v1.7.0: only flag battery helpers as missing when battery is configured
+        if self._has_home_battery and not self._preserve_home_battery_entity:
             missing_entities.append(HELPER_PRESERVE_HOME_BATTERY_SUFFIX)
         if not self._night_charge_time_entity:
             missing_entities.append(HELPER_NIGHT_CHARGE_TIME_SUFFIX)
@@ -364,7 +370,7 @@ class NightSmartCharge:
             missing_entities.append(HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX)
         if not self._night_charge_amperage_entity:
             missing_entities.append(HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX)
-        if not self._home_battery_min_soc_entity:
+        if self._has_home_battery and not self._home_battery_min_soc_entity:
             missing_entities.append(HELPER_HOME_BATTERY_MIN_SOC_SUFFIX)
 
         if missing_entities:
@@ -1025,6 +1031,30 @@ class NightSmartCharge:
     
             # Step 5: Decide charging mode
             self.logger.info(f"{self.logger.DECISION} Step 5: Decide charging mode")
+
+            # v1.7.0: PV-only mode → home battery not configured, force GRID MODE.
+            # BATTERY MODE relies on home battery SOC monitoring that is meaningless
+            # without a configured battery, so we always overnight-charge from grid.
+            if not self._has_home_battery:
+                await self._emit_diagnostic(
+                    event="night_charge_mode_selected",
+                    result="grid",
+                    reason_code="pv_only_mode",
+                    reason_detail="PV-only mode (no home battery configured) - forcing GRID MODE",
+                    raw_values={
+                        "car_ready": car_ready_today,
+                        "pv_forecast": pv_forecast,
+                        "threshold": threshold,
+                        "has_home_battery": False,
+                    },
+                )
+                self.logger.decision(
+                    "Charging mode",
+                    "GRID MODE",
+                    "PV-only mode (no home battery configured)",
+                )
+                await self._start_grid_charge(pv_forecast)
+                return
 
             if not car_ready_today and preserve_home_battery:
                 reason_detail = (
@@ -1873,7 +1903,13 @@ class NightSmartCharge:
             pv_forecast = await self._get_pv_forecast()
             solar_threshold = self._get_solar_threshold()
 
-            if pv_forecast and solar_threshold and pv_forecast >= solar_threshold:
+            # v1.7.0: BATTERY mode requires a configured home battery
+            if (
+                self._has_home_battery
+                and pv_forecast
+                and solar_threshold
+                and pv_forecast >= solar_threshold
+            ):
                 self.logger.info(
                     f"PV forecast sufficient ({pv_forecast} >= {solar_threshold} kWh) - "
                     f"attempting BATTERY mode"
@@ -2009,6 +2045,9 @@ class NightSmartCharge:
 
     def _is_preserve_home_battery_enabled(self) -> bool:
         """Return True when overnight charging should be skipped to protect the home battery."""
+        # v1.7.0: no home battery → preserve flag is meaningless, always False
+        if not self._has_home_battery:
+            return False
         return state_helper.get_bool(
             self.hass,
             self._preserve_home_battery_entity,
@@ -2017,6 +2056,11 @@ class NightSmartCharge:
 
     def _get_home_battery_min_soc(self) -> float:
         """Get home battery minimum SOC."""
+        # v1.7.0: in PV-only mode the helper entity does not exist; return 0.0
+        # so that the diagnostic snapshot reads cleanly and any residual
+        # `home_soc <= home_min_soc` check would still be False (sentinel 100 > 0).
+        if not self._has_home_battery:
+            return 0.0
         return state_helper.get_float(
             self.hass,
             self._home_battery_min_soc_entity,

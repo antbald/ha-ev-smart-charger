@@ -10,6 +10,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
+    has_home_battery,
     DEFAULT_CHECK_INTERVAL,
     DEFAULT_GRID_IMPORT_THRESHOLD,
     DEFAULT_GRID_IMPORT_DELAY,
@@ -40,6 +41,7 @@ async def async_setup_entry(
     """Set up EVSC number entities."""
 
     runtime_data = get_runtime_data(entry)
+    battery_configured = has_home_battery(entry.data)
 
     # ── Number definition table ──────────────────────────────────
     # (suffix, name, icon, min, max, step, default, unit)
@@ -50,7 +52,7 @@ async def async_setup_entry(
         ("evsc_grid_import_delay", "EVSC Grid Import Delay", "mdi:timer-sand", 0, 120, 5, DEFAULT_GRID_IMPORT_DELAY, "s"),
         ("evsc_surplus_drop_delay", "EVSC Surplus Drop Delay", "mdi:timer-sand", 0, 120, 5, DEFAULT_SURPLUS_DROP_DELAY, "s"),
         ("evsc_solar_max_amperage", "EVSC Solar Max Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_SOLAR_MAX_AMPERAGE, "A"),
-        # Home battery
+        # Home battery (skipped in PV-only mode)
         ("evsc_home_battery_min_soc", "EVSC Home Battery Min SOC", "mdi:battery-50", 0, 100, 5, DEFAULT_HOME_BATTERY_MIN_SOC, "%"),
         ("evsc_battery_support_amperage", "EVSC Battery Support Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_BATTERY_SUPPORT_AMPERAGE, "A"),
         ("evsc_battery_support_sunset_buffer", "EVSC Battery Support Sunset Buffer", "mdi:weather-sunset-down", 0, 240, 5, DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN, "min"),
@@ -61,6 +63,15 @@ async def async_setup_entry(
         ("evsc_boost_charge_amperage", "EVSC Boost Charge Amperage", "mdi:flash", 6, 32, 2, DEFAULT_BOOST_CHARGE_AMPERAGE, "A"),
         ("evsc_boost_target_soc", "EVSC Boost Target SOC", "mdi:battery-charging-90", 0, 100, 1, DEFAULT_BOOST_TARGET_SOC, "%"),
     ]
+
+    # v1.7.0: skip home-battery-specific numbers in PV-only mode
+    _BATTERY_ONLY_NUMBERS = {
+        "evsc_home_battery_min_soc",
+        "evsc_battery_support_amperage",
+        "evsc_battery_support_sunset_buffer",
+    }
+    if not battery_configured:
+        _NUMBER_DEFS = [d for d in _NUMBER_DEFS if d[0] not in _BATTERY_ONLY_NUMBERS]
 
     entities = [
         EVSCNumber(
@@ -95,17 +106,18 @@ async def async_setup_entry(
                 default_value=ev_default, unit="%",
             )
         )
-        # Home daily SOC target
-        entities.append(
-            EVSCNumber(
-                runtime_data, entry.entry_id,
-                f"evsc_home_min_soc_{day}",
-                f"EVSC Home Min SOC {cap}",
-                f"mdi:calendar-{day}",
-                min_value=0, max_value=100, step=5,
-                default_value=DEFAULT_HOME_MIN_SOC, unit="%",
+        # Home daily SOC target (v1.7.0: skipped in PV-only mode)
+        if battery_configured:
+            entities.append(
+                EVSCNumber(
+                    runtime_data, entry.entry_id,
+                    f"evsc_home_min_soc_{day}",
+                    f"EVSC Home Min SOC {cap}",
+                    f"mdi:calendar-{day}",
+                    min_value=0, max_value=100, step=5,
+                    default_value=DEFAULT_HOME_MIN_SOC, unit="%",
+                )
             )
-        )
 
     async_add_entities(entities)
     _LOGGER.info(f"✅ Created {len(entities)} EVSC number entities")

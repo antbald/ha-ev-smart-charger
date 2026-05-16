@@ -15,6 +15,8 @@ from .const import (
     DEFAULT_CAR_READY_WEEKEND,
     HELPER_PRESERVE_HOME_BATTERY_SUFFIX,
     HELPER_TRACE_LOGGING_ENABLED_SUFFIX,
+    HELPER_USE_HOME_BATTERY_SUFFIX,
+    has_home_battery,
 )
 from .entity_base import EVSCEntityMixin
 from .runtime import get_runtime_data
@@ -31,6 +33,7 @@ async def async_setup_entry(
     _LOGGER.info(f"🔄 switch.py async_setup_entry called for entry {entry.entry_id}")
 
     runtime_data = get_runtime_data(entry)
+    battery_configured = has_home_battery(entry.data)
 
     # ── Switch definition table ──────────────────────────────────
     # (suffix, name, icon, default_state)
@@ -40,7 +43,7 @@ async def async_setup_entry(
         ("evsc_boost_charge_enabled", "Boost Charge", "mdi:flash", False),
         ("evsc_boost_schedule_enabled", "Schedule Boost Charge", "mdi:calendar-clock", False),
         ("evsc_smart_charger_blocker_enabled", "Smart Charger Blocker", "mdi:solar-power", False),
-        ("evsc_use_home_battery", "Use Home Battery", "mdi:home-battery", False),
+        (HELPER_USE_HOME_BATTERY_SUFFIX, "Use Home Battery", "mdi:home-battery", False),
         ("evsc_priority_balancer_enabled", "Priority Balancer", "mdi:scale-balance", False),
         ("evsc_night_smart_charge_enabled", "Night Smart Charge", "mdi:moon-waning-crescent", False),
         (HELPER_PRESERVE_HOME_BATTERY_SUFFIX, "Preserve Home Battery", "mdi:battery-heart-variant", False),
@@ -52,6 +55,14 @@ async def async_setup_entry(
         ("evsc_enable_file_logging", "Enable File Logging", "mdi:file-document-outline", False),
         (HELPER_TRACE_LOGGING_ENABLED_SUFFIX, "Trace Logging", "mdi:timeline-text-outline", False),
     ]
+
+    # v1.7.0: skip home-battery-specific switches in PV-only mode
+    _BATTERY_ONLY_SWITCHES = {
+        HELPER_USE_HOME_BATTERY_SUFFIX,
+        HELPER_PRESERVE_HOME_BATTERY_SUFFIX,
+    }
+    if not battery_configured:
+        _SWITCH_DEFS = [d for d in _SWITCH_DEFS if d[0] not in _BATTERY_ONLY_SWITCHES]
 
     entities = [
         EVSCSwitch(runtime_data, entry.entry_id, *defn)

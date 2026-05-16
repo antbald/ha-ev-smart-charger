@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.6.23"
+VERSION = "1.7.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -242,7 +242,18 @@ SERVICE_CALL_TIMEOUT = 10  # seconds for service calls
 EV_SOC_MONITOR_INTERVAL = 5  # seconds - polling frequency for cloud sensor reliability
 
 # ========== ENTITY REGISTRATION ==========
+# Verified count (v1.7.0): 58 entities when home battery is configured.
 TOTAL_INTEGRATION_ENTITIES = 58
+# Verified count (v1.7.0): 45 entities when running in PV-only mode (no home battery).
+# Skipped helpers (13): 2 switches (use_home_battery, preserve_home_battery),
+# 3 numbers (home_battery_min_soc, battery_support_amperage, battery_support_sunset_buffer),
+# 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 45
+
+
+def has_home_battery(config: dict) -> bool:
+    """Return True if the user configured a home battery SOC sensor (v1.7.0)."""
+    return bool(config.get(CONF_SOC_HOME))
 
 # ========== ANONYMOUS TELEMETRY ==========
 # Google Apps Script Web App endpoint (insert-only, no personal data).

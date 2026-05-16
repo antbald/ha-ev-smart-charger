@@ -121,10 +121,18 @@ def _charger_schema(current_data: dict[str, Any] | None = None) -> vol.Schema:
 def _sensor_schema(current_data: dict[str, Any] | None = None) -> vol.Schema:
     """Build the sensor mapping schema."""
     current_data = current_data or {}
+
+    # v1.7.0: `soc_home` is optional. To prevent orphan helper entities, once a
+    # home battery sensor has been configured we keep the field Required so the
+    # user cannot silently drop it during reconfigure / options. New entries
+    # and entries that never had a home battery see it as Optional.
+    existing_soc_home = current_data.get(CONF_SOC_HOME)
+    soc_home_marker = vol.Required if existing_soc_home else vol.Optional
+
     return vol.Schema(
         {
             vol.Required(CONF_SOC_CAR, **_field_config(current_data.get(CONF_SOC_CAR))): _entity_selector("sensor"),
-            vol.Required(CONF_SOC_HOME, **_field_config(current_data.get(CONF_SOC_HOME))): _entity_selector("sensor"),
+            soc_home_marker(CONF_SOC_HOME, **_field_config(existing_soc_home)): _entity_selector("sensor"),
             vol.Required(CONF_FV_PRODUCTION, **_field_config(current_data.get(CONF_FV_PRODUCTION))): _entity_selector("sensor"),
             vol.Required(
                 CONF_HOME_CONSUMPTION,

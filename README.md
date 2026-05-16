@@ -174,10 +174,13 @@ flowchart TD
 **Mandatory — Energy Sensors:**
 
 - EV battery SOC (`%`)
-- Home battery SOC (`%`)
 - Solar production (`W`)
 - Home consumption (`W`)
 - Grid import (`W`, positive = importing, negative = exporting)
+
+**Optional energy sensors:**
+
+- Home battery SOC (`%`) — leave empty if you do not have a home battery. The integration will run in **PV-only mode** (see below).
 
 **Optional but recommended:**
 
@@ -185,6 +188,17 @@ flowchart TD
 - One or more `notify.mobile_app_*` services for push notifications
 - A `person` entity for presence-aware notification filtering
 - A `number` or `input_number` helper to receive the calculated nightly energy target
+
+### PV-only mode (no home battery) — v1.7.0+
+
+If you do not have a home battery installed, leave the **Home battery SOC** field empty during setup. The integration will automatically switch to **PV-only mode**:
+
+- 13 helper entities related to the home battery are not created (45 entities total instead of 58).
+- Priority Balancer only returns `EV` or `EV_Free` — never `Home`.
+- Solar Surplus charges the EV directly from solar surplus, without any home-battery support fallback.
+- Night Smart Charge always uses **GRID MODE** (BATTERY MODE is disabled).
+
+**Reconfigure restriction**: once a home battery sensor has been configured, the field stays required in the reconfigure / options flow. This prevents orphan helper entities from accumulating in the Home Assistant entity registry. To remove a home battery from an existing setup, delete the integration and add it again.
 
 ---
 
