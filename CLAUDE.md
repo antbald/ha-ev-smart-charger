@@ -937,6 +937,8 @@ When state ≠ IDLE, `is_relevant()` always returns True so `tick()` can handle 
 - [utils/mobile_notification_service.py](custom_components/ev_smart_charger/utils/mobile_notification_service.py): new `send_hybrid_mode_started_notification()` method
 - [localization.py](custom_components/ev_smart_charger/localization.py): new `mobile.hybrid_mode_started.message` translation key in EN, IT, NL
 - [README.md](README.md): new "Hybrid Inverter Mode (zero-export systems)" section with full user-facing documentation (problem, who needs it, how it works, tuning, troubleshooting)
+- [frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js): expanded from 5 to 11 module panels — added Hybrid Mode panel (5 controls + diagnostic), Boost Schedule, Car Ready weekly planner (7-day grid), Daily SOC Targets (14 day-cells in compact grid), Notifications, Logging. Also added previously-missing entities: `evsc_solar_max_amperage`, `evsc_battery_support_sunset_buffer`, `evsc_car_ready_time`, `evsc_cached_ev_soc`. New EN/IT/NL translations (~50 new keys). New CSS for `.weekly-grid`, `.day-soc-row`, `.info-card`.
+- [frontend/README.md](custom_components/ev_smart_charger/frontend/README.md): updated section-by-section entity inventory + note on lowercase `entity_prefix` for v1.6.23+ installs
 - [manifest.json](custom_components/ev_smart_charger/manifest.json): version 1.8.0
 
 **Upgrade priority**:

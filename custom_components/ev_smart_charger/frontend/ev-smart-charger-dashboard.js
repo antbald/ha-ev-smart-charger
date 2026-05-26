@@ -1,32 +1,83 @@
+// EV Smart Charger Dashboard — Lovelace custom card
+// Updated for integration v1.8.0 (Hybrid Inverter Mode + missing entities from
+// v1.3.13 through v1.7.0). Exposes all 64 helper entities (51 in PV-only mode).
 const DEFAULT_TITLE = "EV Smart Charger";
 const SUPPORTED_PROFILES = ["manual", "solar_surplus"];
+const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+const DAY_INITIALS_BY_LOCALE = {
+  en: ["M", "T", "W", "T", "F", "S", "S"],
+  it: ["L", "M", "M", "G", "V", "S", "D"],
+  nl: ["M", "D", "W", "D", "V", "Z", "Z"],
+};
 const DOMAIN_SUFFIXES = {
+  // ── Core controls
   forceCharge: ["switch", "evsc_forza_ricarica"],
+  chargingProfile: ["select", "evsc_charging_profile"],
+
+  // ── Boost Charge (manual + scheduled)
   boostEnabled: ["switch", "evsc_boost_charge_enabled"],
   boostAmperage: ["number", "evsc_boost_charge_amperage"],
   boostTargetSoc: ["number", "evsc_boost_target_soc"],
+  boostScheduleEnabled: ["switch", "evsc_boost_schedule_enabled"],
+  boostScheduleStartTime: ["time", "evsc_boost_schedule_start_time"],
+  boostScheduleEndTime: ["time", "evsc_boost_schedule_end_time"],
+
+  // ── Night Smart Charge
   nightEnabled: ["switch", "evsc_night_smart_charge_enabled"],
   preserveHomeBattery: ["switch", "evsc_preserve_home_battery"],
   nightTime: ["time", "evsc_night_charge_time"],
+  carReadyTime: ["time", "evsc_car_ready_time"],
   minSolarForecast: ["number", "evsc_min_solar_forecast_threshold"],
   nightAmperage: ["number", "evsc_night_charge_amperage"],
-  chargingProfile: ["select", "evsc_charging_profile"],
+
+  // ── Solar Surplus
   checkInterval: ["number", "evsc_check_interval"],
   gridImportThreshold: ["number", "evsc_grid_import_threshold"],
   gridImportDelay: ["number", "evsc_grid_import_delay"],
   surplusDropDelay: ["number", "evsc_surplus_drop_delay"],
+  solarMaxAmperage: ["number", "evsc_solar_max_amperage"],
   useHomeBattery: ["switch", "evsc_use_home_battery"],
   homeBatteryMinSoc: ["number", "evsc_home_battery_min_soc"],
   batterySupportAmperage: ["number", "evsc_battery_support_amperage"],
+  batterySupportSunsetBuffer: ["number", "evsc_battery_support_sunset_buffer"],
+
+  // ── Hybrid Inverter Mode (v1.8.0 — issue #20)
+  hybridMode: ["switch", "evsc_hybrid_inverter_mode"],
+  hybridBatteryFullThreshold: ["number", "evsc_hybrid_battery_full_threshold"],
+  hybridProbeDuration: ["number", "evsc_hybrid_probe_duration"],
+  hybridMaxImportDuration: ["number", "evsc_hybrid_max_import_duration"],
+  hybridMaxFailedProbes: ["number", "evsc_hybrid_max_failed_probes"],
+  hybridDiagnostic: ["sensor", "evsc_hybrid_inverter_diagnostic"],
+
+  // ── Safety / Protection
   priorityBalancer: ["switch", "evsc_priority_balancer_enabled"],
   smartBlocker: ["switch", "evsc_smart_charger_blocker_enabled"],
+
+  // ── Notifications (v1.3.20)
+  notifySmartBlocker: ["switch", "evsc_notify_smart_blocker_enabled"],
+  notifyPriorityBalancer: ["switch", "evsc_notify_priority_balancer_enabled"],
+  notifyNightCharge: ["switch", "evsc_notify_night_charge_enabled"],
+
+  // ── Logging (v1.3.25 / v1.4.15)
   traceLogging: ["switch", "evsc_trace_logging_enabled"],
+  enableFileLogging: ["switch", "evsc_enable_file_logging"],
+  logFilePath: ["sensor", "evsc_log_file_path"],
+
+  // ── Diagnostic sensors
   priorityState: ["sensor", "evsc_priority_daily_state"],
   todayEvTarget: ["sensor", "evsc_today_ev_target"],
   todayHomeTarget: ["sensor", "evsc_today_home_target"],
+  cachedEvSoc: ["sensor", "evsc_cached_ev_soc"],
   diagnostic: ["sensor", "evsc_diagnostic"],
   solarDiagnostic: ["sensor", "evsc_solar_surplus_diagnostic"],
 };
+
+// Daily helper entities — generated programmatically (saves ~50 lines of boilerplate).
+for (const day of DAYS) {
+  DOMAIN_SUFFIXES[`carReady_${day}`] = ["switch", `evsc_car_ready_${day}`];
+  DOMAIN_SUFFIXES[`evMinSoc_${day}`] = ["number", `evsc_ev_min_soc_${day}`];
+  DOMAIN_SUFFIXES[`homeMinSoc_${day}`] = ["number", `evsc_home_min_soc_${day}`];
+}
 const DEFAULT_LOCALE = "en";
 const FRONTEND_LOCALES = {
   "en": {
@@ -109,13 +160,61 @@ const FRONTEND_LOCALES = {
     "control.nighttime_lockout": "Nighttime Lockout",
     "control.trace_logging": "Trace Logging",
     "control.deep_diagnostics": "Deep Diagnostics",
+    "control.solar_max_amperage": "Solar Max Amperage",
+    "control.wallbox_ceiling": "Wallbox Ceiling",
+    "control.battery_support_sunset_buffer": "Sunset Buffer",
+    "control.protect_evening_battery": "Protect evening battery",
+    "module.boost_schedule": "Boost Schedule",
+    "module.daily_window": "Daily Window",
+    "control.schedule_boost": "Schedule Boost",
+    "control.daily_schedule": "Daily schedule",
+    "control.schedule_start": "Schedule Start",
+    "control.schedule_end": "Schedule End",
+    "module.car_ready": "Car Ready",
+    "module.weekly_planner": "Weekly Planner",
+    "control.car_ready_time": "Car Ready Time",
+    "control.morning_deadline": "Morning deadline",
+    "control.car_ready_grid_hint": "Tap a day to toggle whether the car must be ready by deadline",
+    "module.daily_targets": "Daily SOC Targets",
+    "module.target_planner": "Target Planner",
+    "control.ev_targets_label": "EV daily target",
+    "control.home_targets_label": "Home battery daily target",
+    "module.hybrid_inverter": "Hybrid Inverter Mode",
+    "module.curtailment_discovery": "Curtailment Discovery (issue #20)",
+    "control.hybrid_enabled": "Enable Hybrid Mode",
+    "control.opt_in_probing": "Opt-in PV probing",
+    "control.hybrid_battery_full_threshold": "Battery Full Threshold",
+    "control.curtailment_trigger": "Curtailment trigger",
+    "control.hybrid_probe_duration": "Probe Duration",
+    "control.test_window": "Test window",
+    "control.hybrid_max_import_duration": "Max Import Duration",
+    "control.backoff_window": "Backoff window",
+    "control.hybrid_max_failed_probes": "Max Failed Probes",
+    "control.sliding_window": "Sliding window (30 min)",
+    "module.notifications": "Notifications",
+    "module.mobile_alerts": "Mobile Alerts",
+    "control.notify_smart_blocker": "Notify Smart Blocker",
+    "control.notify_priority_balancer": "Notify Priority Balancer",
+    "control.notify_night_charge": "Notify Night Charge",
+    "control.alert_channel": "Alert channel",
+    "module.logging": "Logging",
+    "module.observability": "Observability",
+    "control.enable_file_logging": "Enable File Logging",
+    "control.daily_log_files": "Daily log files",
+    "log.file_path_label": "Today's log file",
     "diagnostic.automation": "Automation Diagnostic",
     "diagnostic.solar_surplus": "Solar Surplus Diagnostic",
+    "diagnostic.hybrid_inverter": "Hybrid Inverter Diagnostic",
+    "diagnostic.cached_ev_soc": "Cached EV SOC",
+    "diagnostic.cached_ev_soc_hint": "Last valid value preserved when source becomes unavailable",
     "diagnostic.active_owner": "Active Owner",
     "diagnostic.last_reason": "Last Reason",
     "diagnostic.external_cause": "External Cause",
     "diagnostic.last_denial": "Last Denial",
     "diagnostic.trace_mode": "Trace Mode",
+    "diagnostic.hybrid_state": "State",
+    "diagnostic.hybrid_failed_probes": "Failed Probes (30 min)",
+    "diagnostic.hybrid_long_cooldowns": "Long Cooldowns Today",
     "profile.manual": "Manual",
     "profile.solar_surplus": "Solar Surplus"
   },
@@ -199,13 +298,61 @@ const FRONTEND_LOCALES = {
     "control.nighttime_lockout": "Blocco notturno",
     "control.trace_logging": "Trace logging",
     "control.deep_diagnostics": "Diagnostica profonda",
+    "control.solar_max_amperage": "Amperaggio max solare",
+    "control.wallbox_ceiling": "Limite wallbox",
+    "control.battery_support_sunset_buffer": "Buffer tramonto",
+    "control.protect_evening_battery": "Protezione batteria serale",
+    "module.boost_schedule": "Boost programmato",
+    "module.daily_window": "Finestra giornaliera",
+    "control.schedule_boost": "Programma boost",
+    "control.daily_schedule": "Programmazione giornaliera",
+    "control.schedule_start": "Inizio programmazione",
+    "control.schedule_end": "Fine programmazione",
+    "module.car_ready": "Auto pronta",
+    "module.weekly_planner": "Pianificatore settimanale",
+    "control.car_ready_time": "Ora auto pronta",
+    "control.morning_deadline": "Scadenza mattino",
+    "control.car_ready_grid_hint": "Tocca un giorno per attivare/disattivare se l'auto deve essere pronta entro la scadenza",
+    "module.daily_targets": "Target SOC giornalieri",
+    "module.target_planner": "Pianificatore target",
+    "control.ev_targets_label": "Target EV giornaliero",
+    "control.home_targets_label": "Target batteria di casa giornaliero",
+    "module.hybrid_inverter": "Hybrid Inverter Mode",
+    "module.curtailment_discovery": "Scoperta curtailment (issue #20)",
+    "control.hybrid_enabled": "Abilita Hybrid Mode",
+    "control.opt_in_probing": "Probing PV opt-in",
+    "control.hybrid_battery_full_threshold": "Soglia batteria piena",
+    "control.curtailment_trigger": "Trigger curtailment",
+    "control.hybrid_probe_duration": "Durata probe",
+    "control.test_window": "Finestra di test",
+    "control.hybrid_max_import_duration": "Durata max import",
+    "control.backoff_window": "Finestra di backoff",
+    "control.hybrid_max_failed_probes": "Probe falliti max",
+    "control.sliding_window": "Finestra mobile (30 min)",
+    "module.notifications": "Notifiche",
+    "module.mobile_alerts": "Avvisi mobile",
+    "control.notify_smart_blocker": "Notifica Smart Blocker",
+    "control.notify_priority_balancer": "Notifica Priority Balancer",
+    "control.notify_night_charge": "Notifica Night Charge",
+    "control.alert_channel": "Canale avvisi",
+    "module.logging": "Logging",
+    "module.observability": "Osservabilita",
+    "control.enable_file_logging": "Abilita logging su file",
+    "control.daily_log_files": "Log giornalieri",
+    "log.file_path_label": "File di log di oggi",
     "diagnostic.automation": "Diagnostica automazione",
     "diagnostic.solar_surplus": "Diagnostica surplus solare",
+    "diagnostic.hybrid_inverter": "Diagnostica Hybrid Inverter",
+    "diagnostic.cached_ev_soc": "SOC EV cached",
+    "diagnostic.cached_ev_soc_hint": "Ultimo valore valido mantenuto quando la sorgente non e' disponibile",
     "diagnostic.active_owner": "Owner attivo",
     "diagnostic.last_reason": "Ultimo motivo",
     "diagnostic.external_cause": "Causa esterna",
     "diagnostic.last_denial": "Ultimo denial",
     "diagnostic.trace_mode": "Modalita trace",
+    "diagnostic.hybrid_state": "Stato",
+    "diagnostic.hybrid_failed_probes": "Probe falliti (30 min)",
+    "diagnostic.hybrid_long_cooldowns": "Cooldown lunghi oggi",
     "profile.manual": "Manuale",
     "profile.solar_surplus": "Surplus solare"
   },
@@ -289,13 +436,61 @@ const FRONTEND_LOCALES = {
     "control.nighttime_lockout": "Nachtblokkering",
     "control.trace_logging": "Trace-logging",
     "control.deep_diagnostics": "Diepe diagnostiek",
+    "control.solar_max_amperage": "Max zonne-stroom",
+    "control.wallbox_ceiling": "Wallbox-plafond",
+    "control.battery_support_sunset_buffer": "Zonsondergangbuffer",
+    "control.protect_evening_battery": "Beschermt avondbatterij",
+    "module.boost_schedule": "Boost-planning",
+    "module.daily_window": "Dagvenster",
+    "control.schedule_boost": "Boost plannen",
+    "control.daily_schedule": "Dagelijkse planning",
+    "control.schedule_start": "Begintijd",
+    "control.schedule_end": "Eindtijd",
+    "module.car_ready": "Auto Klaar",
+    "module.weekly_planner": "Weekplanner",
+    "control.car_ready_time": "Auto klaar om",
+    "control.morning_deadline": "Ochtenddeadline",
+    "control.car_ready_grid_hint": "Tik op een dag om in te stellen of de auto klaar moet zijn voor de deadline",
+    "module.daily_targets": "Dagelijkse SOC-doelen",
+    "module.target_planner": "Doelplanner",
+    "control.ev_targets_label": "EV-doel per dag",
+    "control.home_targets_label": "Thuisbatterijdoel per dag",
+    "module.hybrid_inverter": "Hybride omvormermodus",
+    "module.curtailment_discovery": "Curtailment-detectie (issue #20)",
+    "control.hybrid_enabled": "Hybride modus inschakelen",
+    "control.opt_in_probing": "Opt-in PV-probing",
+    "control.hybrid_battery_full_threshold": "Drempel volle batterij",
+    "control.curtailment_trigger": "Curtailment-trigger",
+    "control.hybrid_probe_duration": "Probeduur",
+    "control.test_window": "Testvenster",
+    "control.hybrid_max_import_duration": "Max importduur",
+    "control.backoff_window": "Backoff-venster",
+    "control.hybrid_max_failed_probes": "Max mislukte probes",
+    "control.sliding_window": "Schuifvenster (30 min)",
+    "module.notifications": "Meldingen",
+    "module.mobile_alerts": "Mobiele meldingen",
+    "control.notify_smart_blocker": "Melding Smart Blocker",
+    "control.notify_priority_balancer": "Melding Priority Balancer",
+    "control.notify_night_charge": "Melding Night Charge",
+    "control.alert_channel": "Meldingskanaal",
+    "module.logging": "Logging",
+    "module.observability": "Waarneembaarheid",
+    "control.enable_file_logging": "Logbestand inschakelen",
+    "control.daily_log_files": "Dagelijkse logbestanden",
+    "log.file_path_label": "Logbestand van vandaag",
     "diagnostic.automation": "Automatiseringsdiagnose",
     "diagnostic.solar_surplus": "Diagnose zonne-overschot",
+    "diagnostic.hybrid_inverter": "Diagnose hybride omvormer",
+    "diagnostic.cached_ev_soc": "Cached EV SOC",
+    "diagnostic.cached_ev_soc_hint": "Laatste geldige waarde bewaard wanneer de bron onbeschikbaar is",
     "diagnostic.active_owner": "Actieve eigenaar",
     "diagnostic.last_reason": "Laatste reden",
     "diagnostic.external_cause": "Externe oorzaak",
     "diagnostic.last_denial": "Laatste weigering",
     "diagnostic.trace_mode": "Trace-modus",
+    "diagnostic.hybrid_state": "Status",
+    "diagnostic.hybrid_failed_probes": "Mislukte probes (30 min)",
+    "diagnostic.hybrid_long_cooldowns": "Lange cooldowns vandaag",
     "profile.manual": "Handmatig",
     "profile.solar_surplus": "Zonne-overschot"
   }
@@ -565,6 +760,73 @@ class EvSmartChargerDashboard extends HTMLElement {
     `;
   }
 
+  _renderInfoCard(label, value, hint, tone = "cyan") {
+    return `
+      <div class="control-card info-card tone-${tone}">
+        <div class="control-copy">
+          <span class="eyebrow">${hint}</span>
+          <span class="control-label">${label}</span>
+        </div>
+        <div class="info-value">${value}</div>
+      </div>
+    `;
+  }
+
+  _renderDayToggleGrid(label, hint, keyPrefix, tone = "violet") {
+    const locale = this._language();
+    const initials = DAY_INITIALS_BY_LOCALE[locale] || DAY_INITIALS_BY_LOCALE[DEFAULT_LOCALE];
+    const cells = DAYS.map((day, index) => {
+      const entityId = this._entityId(`${keyPrefix}_${day}`);
+      const enabled = this._isOn(entityId);
+      return `
+        <button class="day-cell ${enabled ? "is-on" : ""}" data-toggle="${entityId}" title="${day}">
+          <span class="day-initial">${initials[index]}</span>
+          <span class="day-dot ${enabled ? "is-on" : ""}"></span>
+        </button>
+      `;
+    }).join("");
+
+    return `
+      <div class="control-card weekly-grid tone-${tone}">
+        <div class="control-copy">
+          <span class="eyebrow">${hint}</span>
+          <span class="control-label">${label}</span>
+        </div>
+        <div class="day-row">${cells}</div>
+      </div>
+    `;
+  }
+
+  _renderDaySocGrid(label, hint, keyPrefix, tone = "cyan") {
+    const locale = this._language();
+    const initials = DAY_INITIALS_BY_LOCALE[locale] || DAY_INITIALS_BY_LOCALE[DEFAULT_LOCALE];
+    const cells = DAYS.map((day, index) => {
+      const entityId = this._entityId(`${keyPrefix}_${day}`);
+      const stateObj = this._stateObj(entityId);
+      const value = stateObj?.state ?? "--";
+      return `
+        <div class="day-soc-cell">
+          <span class="day-initial-sm">${initials[index]}</span>
+          <div class="day-soc-controls">
+            <button class="micro-stepper" data-number="${entityId}" data-direction="-1">−</button>
+            <span class="day-soc-value">${value}%</span>
+            <button class="micro-stepper" data-number="${entityId}" data-direction="1">+</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    return `
+      <div class="control-card daily-soc tone-${tone}">
+        <div class="control-copy">
+          <span class="eyebrow">${hint}</span>
+          <span class="control-label">${label}</span>
+        </div>
+        <div class="day-soc-row">${cells}</div>
+      </div>
+    `;
+  }
+
   _diagnosticValue(value) {
     return value === undefined || value === null || value === ""
       ? this._t("common.unavailable")
@@ -580,9 +842,11 @@ class EvSmartChargerDashboard extends HTMLElement {
     `;
   }
 
-  _renderDiagnostics(primary, secondary) {
+  _renderDiagnostics(primary, secondary, hybrid, cachedEvSoc) {
     const primaryAttrs = primary?.attributes || {};
     const secondaryAttrs = secondary?.attributes || {};
+    const hybridAttrs = hybrid?.attributes || {};
+    const cachedAttrs = cachedEvSoc?.attributes || {};
     const lastDenial = primaryAttrs.last_denial?.denial_reason || primaryAttrs.last_denial?.reason;
     const activeOwner = primaryAttrs.active_owner;
     const lastReason = primaryAttrs.last_reason_detail || primaryAttrs.last_reason_code;
@@ -593,6 +857,14 @@ class EvSmartChargerDashboard extends HTMLElement {
       secondaryAttrs.reason ||
       secondaryAttrs.night_mode ||
       secondaryAttrs.profile;
+    const hybridState = hybrid?.state || this._t("common.unavailable");
+    const hybridFailed = hybridAttrs.failed_probes_in_window;
+    const hybridLongCooldowns = hybridAttrs.long_cooldowns_today;
+    const cachedSocLabel =
+      cachedEvSoc && cachedEvSoc.state && cachedEvSoc.state !== "unknown" && cachedEvSoc.state !== "unavailable"
+        ? `${cachedEvSoc.state}%`
+        : this._t("common.unavailable");
+    const cachedFlag = cachedAttrs.is_cached ? "yes" : "no";
 
     return `
       <section class="diagnostic-panel">
@@ -613,6 +885,22 @@ class EvSmartChargerDashboard extends HTMLElement {
           <div class="diag-grid">
             ${this._renderDiagnosticDetail(this._t("diagnostic.last_reason"), solarReason)}
           </div>
+        </div>
+        <div class="diag-card">
+          <span class="eyebrow">${this._t("diagnostic.hybrid_inverter")}</span>
+          <p>${hybridState}</p>
+          <div class="diag-grid">
+            ${this._renderDiagnosticDetail(this._t("diagnostic.hybrid_failed_probes"), hybridFailed)}
+            ${this._renderDiagnosticDetail(this._t("diagnostic.hybrid_long_cooldowns"), hybridLongCooldowns)}
+          </div>
+        </div>
+        <div class="diag-card">
+          <span class="eyebrow">${this._t("diagnostic.cached_ev_soc")}</span>
+          <p>${cachedSocLabel}</p>
+          <div class="diag-grid">
+            ${this._renderDiagnosticDetail("is_cached", cachedFlag)}
+          </div>
+          <span class="metric-sub">${this._t("diagnostic.cached_ev_soc_hint")}</span>
         </div>
       </section>
     `;
@@ -636,9 +924,13 @@ class EvSmartChargerDashboard extends HTMLElement {
     const boostEnabledId = this._entityId("boostEnabled");
     const boostAmperageId = this._entityId("boostAmperage");
     const boostTargetSocId = this._entityId("boostTargetSoc");
+    const boostScheduleEnabledId = this._entityId("boostScheduleEnabled");
+    const boostScheduleStartId = this._entityId("boostScheduleStartTime");
+    const boostScheduleEndId = this._entityId("boostScheduleEndTime");
     const nightEnabledId = this._entityId("nightEnabled");
     const preserveHomeBatteryId = this._entityId("preserveHomeBattery");
     const nightTimeId = this._entityId("nightTime");
+    const carReadyTimeId = this._entityId("carReadyTime");
     const minSolarForecastId = this._entityId("minSolarForecast");
     const nightAmperageId = this._entityId("nightAmperage");
     const chargingProfileId = this._entityId("chargingProfile");
@@ -646,18 +938,32 @@ class EvSmartChargerDashboard extends HTMLElement {
     const gridImportThresholdId = this._entityId("gridImportThreshold");
     const gridImportDelayId = this._entityId("gridImportDelay");
     const surplusDropDelayId = this._entityId("surplusDropDelay");
+    const solarMaxAmperageId = this._entityId("solarMaxAmperage");
     const useHomeBatteryId = this._entityId("useHomeBattery");
     const homeBatteryMinSocId = this._entityId("homeBatteryMinSoc");
     const batterySupportAmperageId = this._entityId("batterySupportAmperage");
+    const batterySupportSunsetBufferId = this._entityId("batterySupportSunsetBuffer");
+    const hybridModeId = this._entityId("hybridMode");
+    const hybridBatteryFullThresholdId = this._entityId("hybridBatteryFullThreshold");
+    const hybridProbeDurationId = this._entityId("hybridProbeDuration");
+    const hybridMaxImportDurationId = this._entityId("hybridMaxImportDuration");
+    const hybridMaxFailedProbesId = this._entityId("hybridMaxFailedProbes");
     const priorityBalancerId = this._entityId("priorityBalancer");
     const smartBlockerId = this._entityId("smartBlocker");
+    const notifySmartBlockerId = this._entityId("notifySmartBlocker");
+    const notifyPriorityBalancerId = this._entityId("notifyPriorityBalancer");
+    const notifyNightChargeId = this._entityId("notifyNightCharge");
     const traceLoggingId = this._entityId("traceLogging");
+    const enableFileLoggingId = this._entityId("enableFileLogging");
 
     const priorityState = this._integrationState("priorityState");
     const todayEvTarget = this._integrationState("todayEvTarget");
     const todayHomeTarget = this._integrationState("todayHomeTarget");
     const diagnostic = this._integrationState("diagnostic");
     const solarDiagnostic = this._integrationState("solarDiagnostic");
+    const hybridDiagnostic = this._integrationState("hybridDiagnostic");
+    const cachedEvSoc = this._integrationState("cachedEvSoc");
+    const logFilePath = this._integrationState("logFilePath");
 
     const chargingPower = this._displayValue(this._config.charging_power_entity, this._t("fallback.live_feed_optional"));
     const evSoc = this._displayValue(this._config.ev_soc_entity, this._t("fallback.ev_soc_entity"));
@@ -732,14 +1038,42 @@ class EvSmartChargerDashboard extends HTMLElement {
 
             <section class="module-panel">
               <div class="module-header">
+                <span class="kicker">${this._t("module.daily_window")}</span>
+                <h2>${this._t("module.boost_schedule")}</h2>
+              </div>
+              ${this._renderToggle(boostScheduleEnabledId, this._t("control.schedule_boost"), this._t("control.daily_schedule"), "amber")}
+              ${this._renderTimeControl(boostScheduleStartId, this._t("control.schedule_start"), this._t("control.schedule"))}
+              ${this._renderTimeControl(boostScheduleEndId, this._t("control.schedule_end"), this._t("control.schedule"))}
+            </section>
+
+            <section class="module-panel">
+              <div class="module-header">
                 <span class="kicker">${this._t("module.forecast_driven")}</span>
                 <h2>${this._t("module.night_smart_charge")}</h2>
               </div>
               ${this._renderToggle(nightEnabledId, this._t("control.enable_night_smart_charge"), this._t("control.night_window"), "violet")}
               ${this._renderToggle(preserveHomeBatteryId, this._t("control.preserve_home_battery"), this._t("control.skip_when_not_required"), "lime")}
               ${this._renderTimeControl(nightTimeId, this._t("control.start_time"), this._t("control.schedule"))}
+              ${this._renderTimeControl(carReadyTimeId, this._t("control.car_ready_time"), this._t("control.morning_deadline"))}
               ${this._renderStepper(minSolarForecastId, this._t("control.min_solar_forecast"), this._t("control.tomorrow_threshold"), "cyan")}
               ${this._renderStepper(nightAmperageId, this._t("control.night_charge_amperage"), this._t("control.overnight_current"), "teal")}
+            </section>
+
+            <section class="module-panel">
+              <div class="module-header">
+                <span class="kicker">${this._t("module.weekly_planner")}</span>
+                <h2>${this._t("module.car_ready")}</h2>
+              </div>
+              ${this._renderDayToggleGrid(this._t("module.car_ready"), this._t("control.car_ready_grid_hint"), "carReady", "violet")}
+            </section>
+
+            <section class="module-panel">
+              <div class="module-header">
+                <span class="kicker">${this._t("module.target_planner")}</span>
+                <h2>${this._t("module.daily_targets")}</h2>
+              </div>
+              ${this._renderDaySocGrid(this._t("control.ev_targets_label"), this._t("spotlight.today_ev_target"), "evMinSoc", "cyan")}
+              ${this._renderDaySocGrid(this._t("control.home_targets_label"), this._t("spotlight.today_home_target"), "homeMinSoc", "lime")}
             </section>
 
             <section class="module-panel">
@@ -751,9 +1085,23 @@ class EvSmartChargerDashboard extends HTMLElement {
               ${this._renderStepper(gridImportThresholdId, this._t("control.grid_import_threshold"), this._t("control.clamp"), "rose")}
               ${this._renderStepper(gridImportDelayId, this._t("control.grid_import_delay"), this._t("control.debounce"), "violet")}
               ${this._renderStepper(surplusDropDelayId, this._t("control.surplus_drop_delay"), this._t("control.cloud_filter"), "amber")}
+              ${this._renderStepper(solarMaxAmperageId, this._t("control.solar_max_amperage"), this._t("control.wallbox_ceiling"), "teal")}
               ${this._renderToggle(useHomeBatteryId, this._t("control.use_home_battery"), this._t("control.fallback_reserve"), "lime")}
               ${this._renderStepper(homeBatteryMinSocId, this._t("control.home_battery_min_soc"), this._t("control.reserve_floor"), "lime")}
               ${this._renderStepper(batterySupportAmperageId, this._t("control.battery_support_amperage"), this._t("control.assist_output"), "teal")}
+              ${this._renderStepper(batterySupportSunsetBufferId, this._t("control.battery_support_sunset_buffer"), this._t("control.protect_evening_battery"), "rose")}
+            </section>
+
+            <section class="module-panel">
+              <div class="module-header">
+                <span class="kicker">${this._t("module.curtailment_discovery")}</span>
+                <h2>${this._t("module.hybrid_inverter")}</h2>
+              </div>
+              ${this._renderToggle(hybridModeId, this._t("control.hybrid_enabled"), this._t("control.opt_in_probing"), "teal")}
+              ${this._renderStepper(hybridBatteryFullThresholdId, this._t("control.hybrid_battery_full_threshold"), this._t("control.curtailment_trigger"), "lime")}
+              ${this._renderStepper(hybridProbeDurationId, this._t("control.hybrid_probe_duration"), this._t("control.test_window"), "cyan")}
+              ${this._renderStepper(hybridMaxImportDurationId, this._t("control.hybrid_max_import_duration"), this._t("control.backoff_window"), "amber")}
+              ${this._renderStepper(hybridMaxFailedProbesId, this._t("control.hybrid_max_failed_probes"), this._t("control.sliding_window"), "rose")}
             </section>
 
             <section class="module-panel">
@@ -763,11 +1111,30 @@ class EvSmartChargerDashboard extends HTMLElement {
               </div>
               ${this._renderToggle(priorityBalancerId, this._t("control.priority_balancer"), this._t("control.target_arbitration"), "cyan")}
               ${this._renderToggle(smartBlockerId, this._t("control.smart_charger_blocker"), this._t("control.nighttime_lockout"), "rose")}
+            </section>
+
+            <section class="module-panel">
+              <div class="module-header">
+                <span class="kicker">${this._t("module.mobile_alerts")}</span>
+                <h2>${this._t("module.notifications")}</h2>
+              </div>
+              ${this._renderToggle(notifySmartBlockerId, this._t("control.notify_smart_blocker"), this._t("control.alert_channel"), "rose")}
+              ${this._renderToggle(notifyPriorityBalancerId, this._t("control.notify_priority_balancer"), this._t("control.alert_channel"), "cyan")}
+              ${this._renderToggle(notifyNightChargeId, this._t("control.notify_night_charge"), this._t("control.alert_channel"), "violet")}
+            </section>
+
+            <section class="module-panel">
+              <div class="module-header">
+                <span class="kicker">${this._t("module.observability")}</span>
+                <h2>${this._t("module.logging")}</h2>
+              </div>
               ${this._renderToggle(traceLoggingId, this._t("control.trace_logging"), this._t("control.deep_diagnostics"), "amber")}
+              ${this._renderToggle(enableFileLoggingId, this._t("control.enable_file_logging"), this._t("control.daily_log_files"), "teal")}
+              ${this._renderInfoCard(this._t("log.file_path_label"), logFilePath?.state || this._t("common.unavailable"), this._t("control.daily_log_files"), "teal")}
             </section>
           </section>
 
-          ${this._renderDiagnostics(diagnostic, solarDiagnostic)}
+          ${this._renderDiagnostics(diagnostic, solarDiagnostic, hybridDiagnostic, cachedEvSoc)}
         </div>
       </ha-card>
       <style>
@@ -1145,6 +1512,139 @@ class EvSmartChargerDashboard extends HTMLElement {
         .profile-chip.selected {
           background: linear-gradient(135deg, rgba(18, 203, 255, 0.35), rgba(130, 92, 255, 0.3));
           box-shadow: 0 10px 24px rgba(34, 132, 255, 0.18);
+        }
+
+        /* Weekly grid (Car Ready) */
+        .weekly-grid {
+          padding: 16px;
+          display: grid;
+          gap: 12px;
+        }
+
+        .day-row {
+          display: grid;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 6px;
+        }
+
+        .day-cell {
+          padding: 10px 4px;
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(8, 12, 24, 0.7);
+          color: rgba(225, 232, 255, 0.84);
+          cursor: pointer;
+          display: grid;
+          gap: 6px;
+          justify-items: center;
+          font: inherit;
+          transition: all 0.15s ease;
+        }
+
+        .day-cell:hover {
+          background: rgba(16, 22, 40, 0.95);
+          border-color: rgba(170, 200, 255, 0.32);
+        }
+
+        .day-cell.is-on {
+          background: linear-gradient(135deg, rgba(157, 92, 255, 0.34), rgba(122, 58, 255, 0.18));
+          border-color: rgba(157, 92, 255, 0.55);
+          color: #fff;
+        }
+
+        .day-initial,
+        .day-initial-sm {
+          font-weight: 600;
+          letter-spacing: 0.05em;
+        }
+
+        .day-initial { font-size: 0.95rem; }
+        .day-initial-sm { font-size: 0.78rem; opacity: 0.78; }
+
+        .day-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: rgba(120, 130, 150, 0.4);
+          transition: background 0.15s ease;
+        }
+
+        .day-dot.is-on {
+          background: #56ec86;
+          box-shadow: 0 0 10px rgba(86, 236, 134, 0.6);
+        }
+
+        /* Daily SOC grid */
+        .daily-soc {
+          padding: 16px;
+          display: grid;
+          gap: 12px;
+        }
+
+        .day-soc-row {
+          display: grid;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 6px;
+        }
+
+        .day-soc-cell {
+          padding: 8px 4px;
+          border-radius: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: rgba(8, 12, 24, 0.55);
+          display: grid;
+          gap: 6px;
+          justify-items: center;
+        }
+
+        .day-soc-controls {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .micro-stepper {
+          width: 22px;
+          height: 22px;
+          padding: 0;
+          border-radius: 50%;
+          border: 1px solid rgba(170, 200, 255, 0.18);
+          background: rgba(16, 22, 40, 0.85);
+          color: #fff;
+          cursor: pointer;
+          font-size: 0.8rem;
+          line-height: 1;
+        }
+
+        .micro-stepper:hover {
+          background: rgba(34, 132, 255, 0.18);
+          border-color: rgba(34, 132, 255, 0.42);
+        }
+
+        .day-soc-value {
+          min-width: 38px;
+          text-align: center;
+          font-size: 0.78rem;
+          font-variant-numeric: tabular-nums;
+          color: rgba(245, 247, 255, 0.92);
+        }
+
+        /* Info card (read-only display, e.g. log file path) */
+        .info-card {
+          padding: 16px;
+          display: grid;
+          gap: 10px;
+        }
+
+        .info-value {
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 0.78rem;
+          color: rgba(225, 232, 255, 0.88);
+          word-break: break-all;
+          padding: 8px 10px;
+          border-radius: 10px;
+          background: rgba(8, 12, 24, 0.65);
+          border: 1px solid rgba(255, 255, 255, 0.04);
         }
 
         .diagnostic-panel {
