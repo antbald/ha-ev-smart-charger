@@ -1078,8 +1078,49 @@ class EvSmartChargerDashboard extends HTMLElement {
     if (!this._hass || !entityId) {
       return;
     }
+    // v1.11.3: optimistic UI — flip the visual state immediately so the
+    // user gets sub-frame feedback instead of waiting for the HA service
+    // round-trip + state event. If the service call errors, the next
+    // live-update tick (which reads the real state) will revert it.
+    this._optimisticToggleVisual(entityId);
     const [domain] = entityId.split(".");
-    await this._hass.callService(domain, "toggle", { entity_id: entityId });
+    try {
+      await this._hass.callService(domain, "toggle", { entity_id: entityId });
+    } catch (e) {
+      // Revert: live-update will snap the visual back on the next render
+      // tick, but trigger one immediately to avoid a frame of wrongness.
+      this.render();
+      throw e;
+    }
+  }
+
+  /**
+   * v1.11.3: Flip the visual state of every DOM node bound to an
+   * entity toggle. Used for optimistic UI on click; the next render
+   * tick (driven by HA's state_changed event) will confirm via the
+   * live-update path.
+   */
+  _optimisticToggleVisual(entityId) {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const escapedId = (typeof CSS !== "undefined" && CSS.escape)
+      ? CSS.escape(entityId)
+      : entityId.replace(/"/g, '\\"');
+    root.querySelectorAll(`[data-toggle="${escapedId}"]`).forEach((node) => {
+      if (
+        node.classList.contains("control-toggle")
+        || node.classList.contains("day-cell")
+        || node.classList.contains("day-soc-cell")
+      ) {
+        const next = !node.classList.contains("is-on");
+        node.classList.toggle("is-on", next);
+        const shell = node.querySelector(".switch-shell");
+        if (shell) shell.classList.toggle("is-on", next);
+      } else {
+        const next = !node.classList.contains("on");
+        node.classList.toggle("on", next);
+      }
+    });
   }
 
   async _setNumber(entityId, value) {
@@ -1103,7 +1144,33 @@ class EvSmartChargerDashboard extends HTMLElement {
     const min = Number(stateObj.attributes?.min ?? current);
     const max = Number(stateObj.attributes?.max ?? current);
     const next = Math.min(max, Math.max(min, current + step * direction));
+    // v1.11.3: optimistic UI — update every span bound to this entity
+    // before the HA service call resolves. Live-update will confirm on
+    // the next render tick (or revert if the call errored).
+    this._optimisticNumberVisual(entityId, next);
     await this._setNumber(entityId, next);
+  }
+
+  /**
+   * v1.11.3: Update every DOM node bound to a number entity with the
+   * pending value. Mirrors _updateLiveValues() number handling so the
+   * visual stays consistent between optimistic + confirmed updates.
+   */
+  _optimisticNumberVisual(entityId, value) {
+    const root = this.shadowRoot;
+    if (!root) return;
+    const escapedId = (typeof CSS !== "undefined" && CSS.escape)
+      ? CSS.escape(entityId)
+      : entityId.replace(/"/g, '\\"');
+    const newText = String(value);
+    root.querySelectorAll(`[data-live-number="${escapedId}"]`).forEach((node) => {
+      const first = node.firstChild;
+      if (first && first.nodeType === 3) {
+        if (first.nodeValue !== newText) first.nodeValue = newText;
+      } else {
+        node.insertBefore(document.createTextNode(newText), node.firstChild);
+      }
+    });
   }
 
   async _setSelect(entityId, option) {
@@ -1344,7 +1411,7 @@ class EvSmartChargerDashboard extends HTMLElement {
         </div>
         <div class="stepper-shell">
           <button class="stepper-button" data-number="${entityId}" data-direction="-1">-</button>
-          <span class="stepper-value">${value}<small>${unit}</small></span>
+          <span class="stepper-value" data-live-number="${entityId}">${value}<small>${unit}</small></span>
           <button class="stepper-button" data-number="${entityId}" data-direction="1">+</button>
         </div>
       </div>
@@ -1361,7 +1428,7 @@ class EvSmartChargerDashboard extends HTMLElement {
         </div>
         <div class="time-shell">
           <button class="stepper-button" data-time="${entityId}" data-minutes="-15">-15m</button>
-          <span class="time-value">${value.slice(0, 5)}</span>
+          <span class="time-value" data-live-time="${entityId}">${value.slice(0, 5)}</span>
           <button class="stepper-button" data-time="${entityId}" data-minutes="15">+15m</button>
         </div>
       </div>
@@ -1457,7 +1524,7 @@ class EvSmartChargerDashboard extends HTMLElement {
           <span class="day-initial-sm">${initials[index]}</span>
           <div class="day-soc-controls">
             <button class="micro-stepper" data-number="${entityId}" data-direction="-1">−</button>
-            <span class="day-soc-value">${value}%</span>
+            <span class="day-soc-value" data-live-number="${entityId}">${value}<small>%</small></span>
             <button class="micro-stepper" data-number="${entityId}" data-direction="1">+</button>
           </div>
         </div>
@@ -1577,9 +1644,11 @@ class EvSmartChargerDashboard extends HTMLElement {
    */
   _renderNightCardV2() {
     const enabledId = this._entityId("nightEnabled");
+    const nightTimeId = this._entityId("nightTime");
+    const carReadyTimeId = this._entityId("carReadyTime");
     const enabled = this._isOn(enabledId);
-    const startTime = (this._stateObj(this._entityId("nightTime"))?.state || "01:00").slice(0, 5);
-    const carReadyTime = (this._stateObj(this._entityId("carReadyTime"))?.state || "08:00").slice(0, 5);
+    const startTime = (this._stateObj(nightTimeId)?.state || "01:00").slice(0, 5);
+    const carReadyTime = (this._stateObj(carReadyTimeId)?.state || "08:00").slice(0, 5);
     const forecast = this._displayValue(this._config.pv_forecast_entity, "");
 
     return `
@@ -1594,11 +1663,11 @@ class EvSmartChargerDashboard extends HTMLElement {
         <div class="evsc-night-times">
           <div class="evsc-night-time">
             <div class="lbl">${this._label("night_start")}</div>
-            <div class="vv">${startTime}</div>
+            <div class="vv" data-live-time="${nightTimeId}">${startTime}</div>
           </div>
           <div class="evsc-night-time">
             <div class="lbl">${this._label("night_car_ready")}</div>
-            <div class="vv">${carReadyTime}</div>
+            <div class="vv" data-live-time="${carReadyTimeId}">${carReadyTime}</div>
           </div>
         </div>
         <div class="evsc-night-enable">
@@ -1633,7 +1702,7 @@ class EvSmartChargerDashboard extends HTMLElement {
         <div class="evsc-wp-cell ${i === todayIdx ? "today" : ""}">
           <div class="evsc-wp-soc-row">
             <button class="evsc-wp-mini" data-number="${ent}" data-direction="-1">−</button>
-            <span class="evsc-wp-soc ev">${v}<small>%</small></span>
+            <span class="evsc-wp-soc ev" data-live-number="${ent}">${v}<small>%</small></span>
             <button class="evsc-wp-mini" data-number="${ent}" data-direction="1">+</button>
           </div>
         </div>
@@ -1647,7 +1716,7 @@ class EvSmartChargerDashboard extends HTMLElement {
         <div class="evsc-wp-cell ${i === todayIdx ? "today" : ""}">
           <div class="evsc-wp-soc-row">
             <button class="evsc-wp-mini" data-number="${ent}" data-direction="-1">−</button>
-            <span class="evsc-wp-soc home">${v}<small>%</small></span>
+            <span class="evsc-wp-soc home" data-live-number="${ent}">${v}<small>%</small></span>
             <button class="evsc-wp-mini" data-number="${ent}" data-direction="1">+</button>
           </div>
         </div>
@@ -1698,7 +1767,7 @@ class EvSmartChargerDashboard extends HTMLElement {
               <span class="evsc-wp-day-kind evsc-wp-kind-ev">${this._label("weekly_ev")}</span>
               <div class="evsc-wp-soc-row">
                 <button class="evsc-wp-mini" data-number="${evEnt}" data-direction="-1">−</button>
-                <span class="evsc-wp-soc ev">${evV}<small>%</small></span>
+                <span class="evsc-wp-soc ev" data-live-number="${evEnt}">${evV}<small>%</small></span>
                 <button class="evsc-wp-mini" data-number="${evEnt}" data-direction="1">+</button>
               </div>
             </div>
@@ -1706,7 +1775,7 @@ class EvSmartChargerDashboard extends HTMLElement {
               <span class="evsc-wp-day-kind evsc-wp-kind-home">${this._label("weekly_home")}</span>
               <div class="evsc-wp-soc-row">
                 <button class="evsc-wp-mini" data-number="${homeEnt}" data-direction="-1">−</button>
-                <span class="evsc-wp-soc home">${homeV}<small>%</small></span>
+                <span class="evsc-wp-soc home" data-live-number="${homeEnt}">${homeV}<small>%</small></span>
                 <button class="evsc-wp-mini" data-number="${homeEnt}" data-direction="1">+</button>
               </div>
             </div>
@@ -1776,7 +1845,7 @@ class EvSmartChargerDashboard extends HTMLElement {
       control = `
         <div class="evsc-set-stepper">
           <button class="evsc-set-step" data-number="${entityId}" data-direction="-1">−</button>
-          <span class="evsc-set-val">${value}<small>${unit}</small></span>
+          <span class="evsc-set-val" data-live-number="${entityId}">${value}<small>${unit}</small></span>
           <button class="evsc-set-step" data-number="${entityId}" data-direction="1">+</button>
         </div>
       `;
@@ -1785,7 +1854,7 @@ class EvSmartChargerDashboard extends HTMLElement {
       control = `
         <div class="evsc-set-stepper">
           <button class="evsc-set-step" data-time="${entityId}" data-minutes="-15">−</button>
-          <span class="evsc-set-val">${v}</span>
+          <span class="evsc-set-val" data-live-time="${entityId}">${v}</span>
           <button class="evsc-set-step" data-time="${entityId}" data-minutes="15">+</button>
         </div>
       `;
@@ -2010,8 +2079,11 @@ class EvSmartChargerDashboard extends HTMLElement {
       return;
     }
 
-    // Slow path: structure changed (view switch, toggle flip, accordion
-    // open, profile change, …) → full innerHTML replacement.
+    // Slow path: structure changed (view switch, accordion open/close,
+    // profile chip change, charger status transition, priority state
+    // change, language switch, prefix resolved) → full innerHTML
+    // replacement. v1.11.3 removed toggle / number / time changes from
+    // the structural key — those now use the fast path above.
     const viewHtml = this._view === "settings"
       ? this._renderSettingsView()
       : this._renderDashboardView(ids, displayValues, priorityState);
@@ -2041,29 +2113,26 @@ class EvSmartChargerDashboard extends HTMLElement {
   }
 
   /**
-   * v1.10.4: Compute a deterministic JSON key that hashes ONLY the
-   * structural state — view, accordions, toggles, selects, numbers, times,
-   * priority state, charger status. Sensor values that change every few
-   * seconds (kW, W, A, %) are EXCLUDED so they don't force re-renders.
+   * v1.10.4 / v1.11.3: structural key includes ONLY truly structural
+   * state — view tab, accordion open/close, profile select (which
+   * restructures the chip row), prefix, language, home-battery flag,
+   * charger status, priority state. Toggles, numbers and times were
+   * REMOVED from this key in v1.11.3 because their visual change is
+   * just a class flip or text node update — perfectly suited for the
+   * fast-path live-update. Keeping them in the structural key caused
+   * a full innerHTML rebuild on every toggle / + / − click, which
+   * scrolled the page to the top of the dashboard (the bug the user
+   * called out as "mi riporta on top della dashboard").
    */
   _computeStructuralKey() {
     const states = this._hass?.states || {};
-    const toggles = {};
-    const numbers = {};
-    const times = {};
     let select = "";
 
     for (const key of Object.keys(DOMAIN_SUFFIXES)) {
       const [domain] = DOMAIN_SUFFIXES[key];
       const entityId = this._entityId(key);
       const state = states[entityId]?.state;
-      if (domain === "switch") {
-        toggles[key] = state === "on" ? 1 : 0;
-      } else if (domain === "number") {
-        numbers[key] = state ?? "";
-      } else if (domain === "time") {
-        times[key] = (state || "").slice(0, 5);
-      } else if (domain === "select" && key === "chargingProfile") {
+      if (domain === "select" && key === "chargingProfile") {
         select = state || "";
       }
     }
@@ -2074,9 +2143,6 @@ class EvSmartChargerDashboard extends HTMLElement {
     return JSON.stringify({
       view: this._view,
       acc: [...(this._openAccordions || [])].sort(),
-      tg: toggles,
-      nm: numbers,
-      tm: times,
       sel: select,
       pfx: this._resolvedPrefix || "",
       lang: this._language(),
@@ -2136,6 +2202,26 @@ class EvSmartChargerDashboard extends HTMLElement {
       ? `${this._t("metric.home_battery")} ${Math.round(homePct)}%`
       : "";
 
+    // v1.11.3: collect toggle / number / time state for live-update so
+    // those interactions no longer trigger a full innerHTML rebuild.
+    // Avoids the scroll-to-top + perceived "click did nothing" bugs.
+    const toggleStates = {};
+    const numberValues = {};
+    const timeValues = {};
+    for (const key of Object.keys(DOMAIN_SUFFIXES)) {
+      const [domain] = DOMAIN_SUFFIXES[key];
+      const entityId = this._entityId(key);
+      const stateObj = this._stateObj(entityId);
+      if (domain === "switch") {
+        toggleStates[entityId] = stateObj?.state === "on";
+      } else if (domain === "number") {
+        numberValues[entityId] = stateObj?.state ?? "0";
+      } else if (domain === "time") {
+        const v = stateObj?.state || "--:--";
+        timeValues[entityId] = v.slice(0, 5);
+      }
+    }
+
     return {
       text: {
         "metric.solarPower": displayValues.solarPower,
@@ -2157,29 +2243,97 @@ class EvSmartChargerDashboard extends HTMLElement {
           value: String(cInner * (1 - homeFrac)),
         },
       },
+      toggles: toggleStates,
+      numbers: numberValues,
+      times: timeValues,
     };
   }
 
   /**
-   * v1.10.4: Apply live value updates via targeted DOM mutation. No
-   * innerHTML, no reflow on the parent tree — only the matched elements'
-   * textContent / attribute changes. Eliminates flicker on sensor ticks.
+   * v1.10.4 / v1.11.3: Apply live value updates via targeted DOM
+   * mutation. No innerHTML, no reflow on the parent tree — only the
+   * matched elements' textContent / attribute / class changes.
+   * Eliminates flicker on sensor ticks AND eliminates the scroll-to-top
+   * bug when the user clicks a toggle / stepper (those used to trigger
+   * a full DOM rebuild via the structural key).
    */
   _updateLiveValues(snapshot) {
     const root = this.shadowRoot;
     if (!root) return;
 
-    for (const [key, value] of Object.entries(snapshot.text)) {
+    // Text content updates (sensor values, ring headline, legends)
+    for (const [key, value] of Object.entries(snapshot.text || {})) {
       const el = root.querySelector(`[data-live="${key}"]`);
       if (el && el.textContent !== String(value)) {
         el.textContent = value;
       }
     }
-    for (const [key, { attr, value }] of Object.entries(snapshot.attrs)) {
+
+    // Attribute updates (SVG ring stroke-dashoffset)
+    for (const [key, { attr, value }] of Object.entries(snapshot.attrs || {})) {
       const el = root.querySelector(`[data-live-attr-id="${key}"]`);
       if (el && el.getAttribute(attr) !== value) {
         el.setAttribute(attr, value);
       }
+    }
+
+    // v1.11.3: Toggle class updates — find every [data-toggle="entityId"]
+    // and flip the correct "is-on" / "on" class based on the actual state.
+    // Different toggle widgets in the codebase use different class names:
+    //   .control-toggle / .day-cell / .day-soc-cell → "is-on"
+    //   .evsc-set-toggle / .evsc-wp-tog            → "on"
+    // The inner .switch-shell (child of .control-toggle) also mirrors the
+    // is-on state — toggle that too so the iOS-style switch animates.
+    for (const [entityId, enabled] of Object.entries(snapshot.toggles || {})) {
+      const escapedId = (typeof CSS !== "undefined" && CSS.escape)
+        ? CSS.escape(entityId)
+        : entityId.replace(/"/g, '\\"');
+      root.querySelectorAll(`[data-toggle="${escapedId}"]`).forEach((node) => {
+        if (
+          node.classList.contains("control-toggle")
+          || node.classList.contains("day-cell")
+          || node.classList.contains("day-soc-cell")
+        ) {
+          node.classList.toggle("is-on", enabled);
+          const shell = node.querySelector(".switch-shell");
+          if (shell) shell.classList.toggle("is-on", enabled);
+        } else {
+          // evsc-set-toggle, evsc-wp-tog
+          node.classList.toggle("on", enabled);
+        }
+      });
+    }
+
+    // v1.11.3: Number value updates — every stepper-value / wp-soc /
+    // day-soc-value span carries data-live-number="entityId". Replace
+    // ONLY the leading text node, preserving the trailing <small> unit.
+    for (const [entityId, value] of Object.entries(snapshot.numbers || {})) {
+      const escapedId = (typeof CSS !== "undefined" && CSS.escape)
+        ? CSS.escape(entityId)
+        : entityId.replace(/"/g, '\\"');
+      root.querySelectorAll(`[data-live-number="${escapedId}"]`).forEach((node) => {
+        const newText = String(value);
+        const first = node.firstChild;
+        if (first && first.nodeType === 3) {
+          // Text node — update in place, keeps <small> sibling intact
+          if (first.nodeValue !== newText) first.nodeValue = newText;
+        } else {
+          // No text node yet — prepend one
+          node.insertBefore(document.createTextNode(newText), node.firstChild);
+        }
+      });
+    }
+
+    // v1.11.3: Time value updates — every time-value span carries
+    // data-live-time="entityId". textContent replacement is safe here
+    // because the span has no children (just the "HH:MM" text).
+    for (const [entityId, value] of Object.entries(snapshot.times || {})) {
+      const escapedId = (typeof CSS !== "undefined" && CSS.escape)
+        ? CSS.escape(entityId)
+        : entityId.replace(/"/g, '\\"');
+      root.querySelectorAll(`[data-live-time="${escapedId}"]`).forEach((node) => {
+        if (node.textContent !== value) node.textContent = value;
+      });
     }
   }
 

@@ -756,6 +756,62 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.11.3 (2026-05-26)
+**CRITICAL FIX: Click handlers — scroll-to-top + boost charge "no response" bugs**
+
+User reported two related bugs:
+1. *"quando clicco su Force charge mi riporta on top della dashboard, in realtà questo bug ce l'ho quando clicco su qualsiasi tasto o button presente"*
+2. *"Quando clicco su boost charge in realtà non succede nulla e sembra non prendere comando"*
+
+**Single root cause**: every click on a toggle, stepper or time control triggered a full `innerHTML` rebuild of the entire dashboard. The `_computeStructuralKey()` function (introduced in v1.10.4 as the anti-flicker layer for sensor ticks) included `tg: toggles`, `nm: numbers`, `tm: times` in its hash, so any state change on those entities flipped the key, fell through to the slow path, and replaced `shadowRoot.innerHTML`. The browser then:
+
+- Reset scroll position to the top of the dashboard (visible bug 1)
+- Briefly showed the page-top while the user was looking at the toggle they just clicked further down (perceived as "click didn't register" — bug 2: the Boost Charge toggle DID flip state on HA's side, but the user was now staring at a different region of the dashboard with no visual feedback)
+
+**Architectural fix — three-part**:
+
+1. **Removed `tg`, `nm`, `tm` from the structural key.** Only genuinely structural state remains (view tab, accordion open/close, profile chip, charger status, priority state, prefix, language). Toggle / number / time changes now keep the key stable → fast path → live-update.
+
+2. **Extended the live-update path (`_collectLiveValues` + `_updateLiveValues`)** to handle:
+   - **Toggle classes** — every `[data-toggle="entityId"]` element gets its `is-on` / `on` class flipped based on the real HA state. Different toggle widgets in the codebase use different class names (`.control-toggle` / `.day-cell` / `.day-soc-cell` use `is-on`; `.evsc-set-toggle` / `.evsc-wp-tog` use `on`) — the helper detects which family the node belongs to. The inner `.switch-shell` (the iOS-style pill animation) gets the matching class.
+   - **Number values** — every `[data-live-number="entityId"]` span gets its leading text node replaced, preserving the trailing `<small>unit</small>` element. Applies to stepper values, weekly planner day SOC cells, settings panel number rows, day-grouped mobile cards.
+   - **Time values** — every `[data-live-time="entityId"]` span gets a `textContent` replacement. Applies to time controls, the Night Smart Charge START / CAR READY times, settings time rows.
+
+3. **Optimistic UI for toggle / number clicks.** When the user clicks a toggle or a `+ / −` button, the visual flips immediately — *before* the HA service call returns. The next render tick (driven by HA's `state_changed` event, ~50–200 ms later) confirms via the live-update path, or reverts if the call errored. Eliminates the perceived lag that contributed to the "boost charge not responding" complaint.
+
+**New `data-live-*` attribute conventions** (formalized in this release):
+
+| Attribute | Purpose | Update mechanism |
+|---|---|---|
+| `data-toggle="entityId"` | toggle button (existing since v1.0) | live-update flips `is-on` / `on` class |
+| `data-live-number="entityId"` | numeric value span (stepper, day-soc, settings stepper) | live-update replaces leading text node |
+| `data-live-time="entityId"` | time value span (time control, night times, settings time) | live-update replaces `textContent` |
+| `data-live="textKey"` | sensor-driven text (kW, W, A, %, ring headline) | unchanged from v1.10.4 |
+| `data-live-attr-id="attrKey"` | SVG attribute (ring stroke-dashoffset) | unchanged from v1.10.4 |
+
+**Files Modified**:
+- [frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js):
+  - `_computeStructuralKey()` — removed `tg`, `nm`, `tm`, kept `sel` + other structural state
+  - `_collectLiveValues()` — added `toggles`, `numbers`, `times` to the returned snapshot
+  - `_updateLiveValues()` — added class-flip logic for toggles, text-node update for numbers, textContent update for times
+  - `_toggle()` — added optimistic UI call before `callService`, with revert path on error
+  - `_adjustNumber()` — added optimistic UI call before `callService`
+  - New helpers: `_optimisticToggleVisual(entityId)`, `_optimisticNumberVisual(entityId, value)`
+  - Marked render output with `data-live-number` / `data-live-time` on: `.stepper-value`, `.time-value`, `.evsc-wp-soc.ev` / `.home` (both desktop and mobile day cards), `.day-soc-value`, `.evsc-set-val`, `.evsc-night-time .vv`
+- [const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.11.3"`
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): `version = "1.11.3"`
+
+**Backward compatibility**: zero schema / entity / API changes. Card config block identical. The new `data-live-*` attributes are inert when the live-update path can't find a snapshot value (no behavior change in the slow path).
+
+**Side benefits** (beyond the two reported bugs):
+- No more scroll-to-top on any sensor tick that happens to coincide with a profile change or accordion open
+- No more flicker on +/− stepper presses (the value used to redraw the entire grid for one digit change)
+- Touch-device interactions feel "instant" thanks to optimistic UI — sub-frame visual response on iOS / Android
+
+**Upgrade priority**: 🔴 **CRITICAL** for anyone who uses the dashboard interactively. The scroll-to-top + perceived "click does nothing" make the dashboard frustrating to use on every viewport. Fix is purely a frontend bundle update — hard-refresh the Lovelace page after HA restart.
+
+---
+
 ### v1.11.2 (2026-05-26)
 **REVERT: Custom typography stack — back to native system fonts**
 
