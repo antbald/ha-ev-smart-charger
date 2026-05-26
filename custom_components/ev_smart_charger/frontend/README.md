@@ -3,6 +3,11 @@
 > **Updated for v1.9.0** — auto-generated Liquid Glass dashboard (iOS 18 style).
 > The integration now bootstraps a ready-to-go Lovelace dashboard for you. No
 > YAML required. The bundled card is still usable on your own dashboards too.
+>
+> **Design system reference**: see [DESIGN.md](DESIGN.md) for the full
+> "Liquid Aurora" token reference, component recipes, anti-patterns and
+> responsive principles introduced in v1.11.0. Required reading before
+> adding or changing visual tokens.
 
 ## Zero-config auto-dashboard (v1.9.0+)
 

@@ -2186,11 +2186,18 @@ class EvSmartChargerDashboard extends HTMLElement {
   _inlineStyles() {
     return `
         /* ============================================================
-         * EV Smart Charger — Liquid Aurora (v1.11.0)
+         * EV Smart Charger — Liquid Aurora design system (v1.11.0+)
+         * ------------------------------------------------------------
          * Editorial typography (Instrument Serif italic display +
          * JetBrains Mono technical readouts) on top of a refined
-         * Liquid Glass surface. Apple System Colors with aurora accent.
+         * Liquid Glass surface. Apple System Colors with aurora accents.
          * Adaptive light/dark via prefers-color-scheme + HA hooks.
+         *
+         * ▸ FULL TOKEN REFERENCE, USAGE RULES, ANTI-PATTERNS:
+         *   custom_components/ev_smart_charger/frontend/DESIGN.md
+         *   Read it before adding/changing tokens or adding new
+         *   components. The doc is the discoverable surface of this
+         *   inline stylesheet.
          * ============================================================ */
         @import url('https://fonts.bunny.net/css?family=instrument-serif:400,400i&family=jetbrains-mono:500,600,700&display=swap');
 
@@ -2303,11 +2310,17 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
 
         .dashboard-shell {
+          /* v1.11.1: bumped max-width for large monitors (27"/32"/4K)
+             and made padding/gap scale fluidly with viewport. Stops
+             expanding at 1180 px so the eye-line stays readable —
+             classic "comfortable reading width" cap, à la Linear /
+             Vercel / Stripe dashboards. Centered horizontally on
+             everything wider. */
           position: relative;
-          padding: clamp(16px, 3vw, 40px);
+          padding: clamp(14px, 2.6vw, 36px);
           display: grid;
-          gap: 18px;
-          max-width: 1080px;
+          gap: clamp(14px, 1.6vw, 22px);
+          max-width: 1180px;
           margin: 0 auto;
         }
 
@@ -3121,18 +3134,26 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
 
         /* Two-column dashboard grid */
+        /* v1.11.1: vertical stack at every viewport. Was previously a
+           2-column grid (hero | weekly) which compressed both cards on
+           any width below ~1200 px — the hero h1 wrapped letter-by-letter
+           and the 4 metric tiles became 4 stacked rows of unreadable
+           pseudo-columns. Going full-width-per-card mirrors the way
+           Linear / Vercel / Stripe lay out content-dense dashboards:
+           each card gets to use its full eye-line, no inter-card
+           competition for horizontal space. */
         .evsc-dash-grid {
-          display: grid;
-          /* v1.10.4: minmax(0, …) prevents the implicit auto min-width
-             that would let grid tracks expand to fit overflowing content. */
-          grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-          gap: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: clamp(14px, 1.6vw, 22px);
         }
         .evsc-dash-grid > * {
           min-width: 0;
         }
-        @media (max-width: 980px) {
-          .evsc-dash-grid { grid-template-columns: minmax(0, 1fr); }
+        .evsc-dash-grid .evsc-stack {
+          /* the two original "columns" now stack as siblings inside the
+             single flex column — same render output, no DOM change. */
+          width: 100%;
         }
         .evsc-stack {
           display: flex;
@@ -3203,15 +3224,16 @@ class EvSmartChargerDashboard extends HTMLElement {
           }
         }
         .evsc-hero-body h1 {
-          /* v1.11.0: editorial display title — Instrument Serif italic
-             keys the whole aesthetic. Mix-cased serif on top of clean
-             sans body creates the distinctive "magazine spread"
-             contrast. */
+          /* v1.11.0: editorial display title — Instrument Serif italic.
+             v1.11.1: tighter clamp (was 28-40px) so it never explodes
+             on wide viewports where the hero body column is wider than
+             the title needs. Sits comfortably on a single line down to
+             ~360 px body width. */
           margin: 6px 0 8px;
           font-family: var(--evsc-font-display);
           font-style: italic;
           font-weight: 400;
-          font-size: clamp(28px, 4vw, 40px);
+          font-size: clamp(24px, 2.2vw, 32px);
           line-height: 1.05;
           letter-spacing: -0.015em;
           color: var(--evsc-fg);
@@ -3224,11 +3246,17 @@ class EvSmartChargerDashboard extends HTMLElement {
           max-width: 42ch;
         }
         .evsc-metric-row {
+          /* v1.11.1: adaptive grid — was hard-coded 2×2 since v1.10.4.
+             Now uses auto-fit with a 140 px floor so the row gracefully
+             becomes:
+               · 4 columns when the hero body is ≥ 620 px wide (large
+                 monitors with the new full-width hero)
+               · 2 columns when the body is between ~300 and 620 px
+                 (typical tablet / desktop)
+               · 1 column below ~300 px (very narrow mobile)
+             No flash of broken layout regardless of viewport. */
           display: grid;
-          /* v1.10.4: always 2×2 — user explicit request "tutti e quattro
-             i box devono entrare in una matrice 2x2". minmax(0, 1fr)
-             prevents column blowout from long sub-labels. */
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
           gap: 10px;
         }
         .evsc-metric-row > * {
@@ -3345,13 +3373,10 @@ class EvSmartChargerDashboard extends HTMLElement {
           display: block;
         }
 
-        /* v1.10.4: responsive breakpoint ladder.
-             ≤920 px → main grid collapses to 1 column
+        /* v1.11.1: responsive breakpoint ladder.
              ≤600 px → hero collapses to 1 column (ring on top, body below)
-             ≤480 px → compact metric tiles, smaller fonts, padding shrink */
-        @media (max-width: 920px) {
-          .evsc-dash-grid { grid-template-columns: minmax(0, 1fr); }
-        }
+             ≤480 px → compact metric tiles, smaller fonts, padding shrink
+           (dash-grid is now always 1-col — see .evsc-dash-grid above.) */
         @media (max-width: 600px) {
           .dashboard-shell {
             padding: 14px !important;

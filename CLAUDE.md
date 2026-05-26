@@ -756,6 +756,55 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.11.1 (2026-05-26)
+**FIX: Dashboard responsive on large monitors (27"/32"/4K) + extracted design system reference**
+
+User reported the v1.11.0 dashboard rendering badly on a 32" monitor: the hero card had the title "EV Smart Charger" wrapped letter-by-letter into 3 lines ("EV / Smart / Charger"), and the 4 metric tiles (Solar Power / Grid Import / Charge Current / Charging Power) were stacked in a single narrow column on the right edge of the hero with truncated values.
+
+**Root cause**: the `.evsc-dash-grid` was a hard 2-column layout (`1.15fr | 1fr`) for hero | weekly. At any viewport between ~980 px and ~1400 px, this layout compressed *both* cards — the hero body got barely enough room for the new (oversized) v1.11.0 h1 `clamp(28px, 4vw, 40px)`, and the 4 metric tiles squeezed via the hardcoded `repeat(2, minmax(0, 1fr))` to ~120 px each, where they wrapped to single-column rows of unreadable pseudo-columns. The 32" screen exhibited the worst case because HA's edit-mode side panel further shrunk the usable width.
+
+**Fix — three converging changes**:
+
+1. **Top-level layout: full vertical stack at every viewport.** `.evsc-dash-grid` switched from a 2-column grid to `display: flex; flex-direction: column`. Each top-level card now uses the full eye-line of the dashboard shell. Mirrors how Linear / Vercel / Stripe lay out content-dense dashboards: no inter-card competition for horizontal space. The render output is identical — the two original "stacks" inside `.evsc-dash-grid` are now flex siblings in a single column instead of grid cells in 2 columns.
+
+2. **Shell max-width raised + fluid padding.** `.dashboard-shell` max-width `1080 px → 1180 px` (better for 27"/32" monitors, still under the "comfortable reading width" cap). Padding `clamp(16px, 3vw, 40px) → clamp(14px, 2.6vw, 36px)`, gap added `clamp(14px, 1.6vw, 22px)` so spacing scales fluidly with viewport instead of being a fixed 18 px.
+
+3. **Hero typography + metric grid made adaptive.** Hero h1 clamp tightened from `clamp(28px, 4vw, 40px)` to `clamp(24px, 2.2vw, 32px)` — the 40 px max never visually justified itself even at wide hero-body widths and was the proximate cause of the wrap-each-word behavior. Metric row switched from hardcoded 2×2 to `repeat(auto-fit, minmax(140px, 1fr))` — now degrades gracefully 4→2→1 columns as the parent shrinks, without media queries.
+
+**Deprecated**: the duplicate `@media (max-width: 920px) { .evsc-dash-grid { grid-template-columns: minmax(0, 1fr) } }` block (a legacy of the 2-column era) was removed. The hero-internal `@media (max-width: 720px)` collapse (ring on top, body below) is preserved.
+
+**NEW: Design system reference — [frontend/DESIGN.md](custom_components/ev_smart_charger/frontend/DESIGN.md)**
+
+The user asked: *"il design pass è il nuovo design system che hai creato giusto? lo hai strutturato e salvato bene in repo per utilizzi futuri?"* — fair question. The v1.11.0 design tokens lived only inline in `_inlineStyles()`, undiscoverable for future maintainers.
+
+v1.11.1 extracts the design language into a self-contained discoverable document at `custom_components/ev_smart_charger/frontend/DESIGN.md`. Sections:
+
+1. **Direction** — editorial × engineering, why two specific display moments anchor everything
+2. **Typography** — three font roles (display / mono / body), the type scale, the Bunny Fonts import
+3. **Color** — Apple System Colors (ambient) + 4 aurora accents (live moments only), use rules
+4. **Motion** — easing tokens, keyframes, why entrance animations are forbidden
+5. **Spatial system** — radii, padding scale, gap scale (6-step ladder)
+6. **Surface & depth** — glass blur tokens, shadow tokens, the aurora background recipe
+7. **Responsive principles** — vertical stack everywhere, breakpoint ladder, adaptive-grid pattern
+8. **Component recipes** — copy-pasteable HTML for metric card, stepper, day card, priority pill
+9. **Anti-patterns** — a numbered list of "things tried and rejected", with the reasoning
+10. **Adding / changing tokens** — workflow for evolving the system without breaking it
+
+A short pointer at the top of `_inlineStyles()` directs future editors to the doc. The frontend `README.md` also references it as required reading before any visual change. Any future companion card / settings rewrite / sister artifact will start from this reference instead of re-deriving choices.
+
+**Files Modified**:
+- [frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js): `.dashboard-shell` (max-width + clamps), `.evsc-dash-grid` (flex vertical), `.evsc-hero-body h1` (tighter clamp), `.evsc-metric-row` (auto-fit), removed duplicate 920 px media query, added DESIGN.md pointer comment at top of `_inlineStyles()`
+- **NEW**: [frontend/DESIGN.md](custom_components/ev_smart_charger/frontend/DESIGN.md) — 10-section design system reference, ~12 KB
+- [frontend/README.md](custom_components/ev_smart_charger/frontend/README.md): added DESIGN.md cross-reference in the intro
+- [const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.11.1"`
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): `version = "1.11.1"`
+
+**Backward compatibility**: zero schema / entity / API changes. Same backward-compat profile as v1.11.0. Users who don't have the responsive issue see no behavioral change on their viewport (the new layout fits inside the existing one — stack-vertical is a superset of stack-as-second-grid-column).
+
+**Upgrade priority**: 🟡 **RECOMMENDED for users on monitors ≥ 27"** — fixes a visibly broken layout on large screens. Smaller-screen users see no regression and benefit from the fluid padding / gap scaling.
+
+---
+
 ### v1.11.0 (2026-05-26)
 **FEATURE: "Liquid Aurora" — editorial typography redesign of the auto-dashboard**
 
