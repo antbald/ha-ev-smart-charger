@@ -505,20 +505,25 @@ class EvSmartChargerDashboard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config?.entity_prefix) {
-      throw new Error("`entity_prefix` is required");
-    }
-
+    // v1.9.1: soft accept. We auto-discover the real entity_prefix from
+    // hass.states using the `evsc_forza_ricarica` sentinel, so the user no
+    // longer has to know (or correctly spell) the prefix in advance.
     this._config = {
-      title: config.title,
-      entity_prefix: config.entity_prefix,
-      charging_power_entity: config.charging_power_entity,
-      ev_soc_entity: config.ev_soc_entity,
-      home_battery_soc_entity: config.home_battery_soc_entity,
-      solar_power_entity: config.solar_power_entity,
-      grid_import_entity: config.grid_import_entity,
-      current_entity: config.current_entity,
+      title: config?.title,
+      entity_prefix: config?.entity_prefix || "",
+      charging_power_entity: config?.charging_power_entity,
+      ev_soc_entity: config?.ev_soc_entity,
+      home_battery_soc_entity: config?.home_battery_soc_entity,
+      solar_power_entity: config?.solar_power_entity,
+      grid_import_entity: config?.grid_import_entity,
+      current_entity: config?.current_entity,
+      charger_status_entity: config?.charger_status_entity,
     };
+
+    // Reset discovery and render caches — the configured prefix may have changed.
+    this._resolvedPrefix = null;
+    this._discoveryDone = false;
+    this._lastRenderHash = "";
 
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
@@ -529,9 +534,72 @@ class EvSmartChargerDashboard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    // Run entity-prefix discovery exactly once (or whenever setConfig has
+    // reset the flag). The scan is cheap (Object.keys + regex) and runs only
+    // until we resolve a valid prefix.
+    if (!this._discoveryDone) {
+      this._discoverEntityPrefix();
+      this._discoveryDone = true;
+    }
     if (this.shadowRoot) {
       this.render();
     }
+  }
+
+  /**
+   * Discover the real entity prefix from hass.states using the
+   * `evsc_forza_ricarica` switch as a sentinel (it is created by every
+   * EV Smart Charger entry). Case is preserved exactly as found in HA — do
+   * NOT lowercase, since installs predating v1.6.23 keep uppercase ULID IDs
+   * in their state machine and forcing lowercase would break them.
+   */
+  _discoverEntityPrefix() {
+    const states = this._hass?.states;
+    if (!states) return;
+
+    // Fast path: configured prefix already resolves a real entity.
+    const configured = this._config?.entity_prefix;
+    if (configured && states[`switch.${configured}_evsc_forza_ricarica`]) {
+      this._resolvedPrefix = configured;
+      return;
+    }
+
+    // Scan the state machine.
+    const sentinelRe = /^switch\.(.+)_evsc_forza_ricarica$/;
+    const matches = [];
+    for (const entityId of Object.keys(states)) {
+      const m = sentinelRe.exec(entityId);
+      if (m) matches.push(m[1]);
+    }
+
+    if (matches.length === 0) {
+      this._resolvedPrefix = null;
+      return;
+    }
+    if (matches.length === 1) {
+      this._resolvedPrefix = matches[0];
+      return;
+    }
+
+    // Multi-entry install: prefer case-insensitive match against config,
+    // otherwise pick the first deterministically and warn.
+    if (configured) {
+      const lc = configured.toLowerCase();
+      const preferred = matches.find((p) => p.toLowerCase() === lc);
+      if (preferred) {
+        this._resolvedPrefix = preferred;
+        return;
+      }
+    }
+    this._resolvedPrefix = matches[0];
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[ev-smart-charger-dashboard] Multiple EV Smart Charger entries detected; " +
+        "using prefix:",
+      matches[0],
+      "Other candidates:",
+      matches.slice(1)
+    );
   }
 
   getCardSize() {
@@ -540,7 +608,25 @@ class EvSmartChargerDashboard extends HTMLElement {
 
   _entityId(key) {
     const [domain, suffix] = DOMAIN_SUFFIXES[key];
-    return `${domain}.${this._config.entity_prefix}_${suffix}`;
+    // v1.9.1: use the resolved (real) prefix when available; fall back to
+    // whatever the user passed in config. An empty prefix produces
+    // `${domain}._${suffix}` which will not resolve and shows "Unavailable"
+    // gracefully — no exception, no flicker.
+    const prefix = this._resolvedPrefix || this._config?.entity_prefix || "";
+    return `${domain}.${prefix}_${suffix}`;
+  }
+
+  /**
+   * djb2-style cheap string hash. Used by render() to skip innerHTML rewrites
+   * when nothing visible changed — eliminates the per-state-tick flicker
+   * caused by `set hass()` firing on every HA state change.
+   */
+  _cheapHash(s) {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) {
+      h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+    }
+    return h;
   }
 
   _stateObj(entityId) {
@@ -1020,6 +1106,11 @@ class EvSmartChargerDashboard extends HTMLElement {
     }
 
     if (!this._hass) {
+      // Anti-flicker guard for the boot-state placeholder as well.
+      if (this._lastRenderHash === "__boot__") {
+        return;
+      }
+      this._lastRenderHash = "__boot__";
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div class="boot-state">${this._t("boot.waiting_for_hass")}</div>
@@ -1083,7 +1174,7 @@ class EvSmartChargerDashboard extends HTMLElement {
     const gridImport = this._displayValue(this._config.grid_import_entity, this._t("fallback.grid_import_entity"));
     const chargerCurrent = this._displayValue(this._config.current_entity, this._t("fallback.current_entity"));
 
-    this.shadowRoot.innerHTML = `
+    const html = `
       <ha-card>
         <div class="dashboard-shell">
           <div class="aurora aurora-a"></div>
@@ -2050,6 +2141,17 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
       </style>
     `;
+
+    // Anti-flicker guard: HA calls `set hass(hass)` on every state change in
+    // the entire system, which triggers render(). Without this guard, we
+    // rewrite the entire shadow DOM each time → visible flicker. With it,
+    // we only repaint when the HTML output actually changed.
+    const newHash = this._cheapHash(html);
+    if (newHash === this._lastRenderHash) {
+      return;
+    }
+    this._lastRenderHash = newHash;
+    this.shadowRoot.innerHTML = html;
 
     this._bindEvents();
   }
