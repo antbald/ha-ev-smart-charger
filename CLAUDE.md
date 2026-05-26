@@ -756,6 +756,57 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.11.2 (2026-05-26)
+**FIX: Tolerate user-disabled helper entities at startup (issue #22 — xion2000)**
+
+**Problem reported**:
+User `xion2000` disabled a handful of helper entities manually in Home Assistant (Night Smart Charge controls + daily SOC targets) because his use case — retired, no overnight tariff — did not need them. After a HA restart the integration failed to initialize with no actionable error. Re-enabling the entities fixed it. Reported in [issue #22](https://github.com/antbald/ha-ev-smart-charger/issues/22).
+
+**Root cause**:
+[__init__.py](custom_components/ev_smart_charger/__init__.py) Phase 1 waits on `runtime_data.registration_event`, which only fires when `registered_entity_count >= expected_entity_count` (58 or 51 depending on PV-only mode). User-disabled entities never call `async_added_to_hass` ([entity_base.py:51](custom_components/ev_smart_charger/entity_base.py:51)), so the counter never reaches the target, the 10 s `asyncio.wait_for` times out, and the setup raises `ConfigEntryNotReady` with the unhelpful message "Timed out while waiting for EV Smart Charger helper entities registration".
+
+**Fix**:
+New helper `_async_wait_for_helper_registration()` in [__init__.py](custom_components/ev_smart_charger/__init__.py) replaces the inline `try/except`. Behaviour:
+
+| Scenario | Outcome |
+|---|---|
+| All helpers register within 10 s | Setup proceeds normally. Any stale Repairs entry from a previous run is cleared. |
+| Timeout, but `registered + disabled_by(any) ≥ expected` | The user consciously disabled the missing helpers. Setup proceeds in **degraded mode** using state-helper defaults (already tolerant of `None`/`unknown`/`unavailable`), logs a `WARNING` listing the disabled keys, and surfaces a Home Assistant Repairs entry (`severity=WARNING`, `translation_key="disabled_helpers"`). |
+| Timeout, real shortfall | Logs an `ERROR` with the count of genuinely missing entities and raises `ConfigEntryNotReady` so HA retries setup later. |
+
+The disabled-entity count is read from `homeassistant.helpers.entity_registry` filtered by `config_entry_id == entry.entry_id` and `disabled_by is not None` (covers `USER`, `INTEGRATION`, `HASS`, `CONFIG_ENTRY` — HA skips `async_added_to_hass` for all of them).
+
+**Safety verification**:
+Spot-checked every reader of the critical kill switch `evsc_forza_ricarica` ([automation_coordinator.py:65](custom_components/ev_smart_charger/automation_coordinator.py:65), [automations.py:410](custom_components/ev_smart_charger/automations.py:410), [solar_surplus.py:420](custom_components/ev_smart_charger/solar_surplus.py:420)). All use `if self._forza_ricarica_entity:` or `state_helper.get_bool(..., default=False)` guards, so disabling the kill switch = "kill switch OFF" = neutral behaviour. Same defensive pattern across `_blocker_enabled`, `_night_charge_*`, and every other helper lookup — degraded mode is safe by construction.
+
+**User-visible Repairs notice**:
+A new Repairs entry surfaces under **Settings → Devices & services → EV Smart Charger** whenever the warning fires. Translation strings added in EN/IT/NL ([strings.json](custom_components/ev_smart_charger/strings.json), [translations/en.json](custom_components/ev_smart_charger/translations/en.json), [translations/it.json](custom_components/ev_smart_charger/translations/it.json), [translations/nl.json](custom_components/ev_smart_charger/translations/nl.json)) with placeholders for count, disabled keys (sorted, truncated to 8), and entry title. Includes a `learn_more_url` pointing at issue #22. The Repairs entry is automatically cleared on the next successful boot once the user re-enables the entities.
+
+**Test coverage**:
+[tests/test_integration_setup.py](tests/test_integration_setup.py) adds three tests:
+- `test_entity_key_from_unique_id_matches_evsc_pattern` — unit test for the unique_id → key extractor.
+- `test_entity_key_from_unique_id_rejects_foreign_unique_id` — rejects unique_ids from other integrations or other EVSC entries on the same registry.
+- `test_async_setup_entry_proceeds_with_user_disabled_helpers` — regression test that mirrors xion2000's scenario: 7 EVSC helpers disabled with `RegistryEntryDisabler.USER`, registration timeout fired, setup must return `True` and a Repairs entry must exist with `translation_key="disabled_helpers"` and the expected placeholders.
+
+The pre-existing `test_async_setup_entry_raises_not_ready_on_registration_timeout` still verifies the genuine shortfall path (no disabled entities + zero registered → `ConfigEntryNotReady`). Full suite goes from 116 → 119 passing on this branch (the unrelated 22 pre-existing failures on master are unchanged).
+
+**Files modified**:
+- [custom_components/ev_smart_charger/__init__.py](custom_components/ev_smart_charger/__init__.py): new constant `DISABLED_HELPERS_ISSUE_PREFIX`, new helpers `_entity_key_from_unique_id`, `_collect_disabled_helper_keys`, `_refresh_disabled_helpers_issue`, `_async_wait_for_helper_registration`; Phase 1 try/except replaced by a single call to the new helper.
+- [custom_components/ev_smart_charger/const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.11.2"`.
+- [custom_components/ev_smart_charger/manifest.json](custom_components/ev_smart_charger/manifest.json): `"version": "1.11.2"`.
+- [custom_components/ev_smart_charger/strings.json](custom_components/ev_smart_charger/strings.json), [translations/en.json](custom_components/ev_smart_charger/translations/en.json), [translations/it.json](custom_components/ev_smart_charger/translations/it.json), [translations/nl.json](custom_components/ev_smart_charger/translations/nl.json): new top-level `issues.disabled_helpers` block.
+- [tests/test_integration_setup.py](tests/test_integration_setup.py): three new tests + imports for `er`, `ir`, `_entity_key_from_unique_id`.
+
+**Backward compatibility**:
+Zero schema / entity / API changes. No new config flow steps, no new entities, no behaviour change for installations where every helper is enabled (the happy path returns from `_async_wait_for_helper_registration` exactly as before — only the failure branch is new).
+
+**Known limitation / follow-up**:
+Disabling helper entities to "remove features I don't use" is technically tolerated now but still not a supported configuration model. The proper fix is to extend the v1.7.0 PV-only mode pattern (`has_home_battery(config)` → skip helpers) to other feature groups — Night Smart Charge, daily SOC schedule, hybrid inverter mode — via opt-in toggles in the config flow. Tracked at [issue #24](https://github.com/antbald/ha-ev-smart-charger/issues/24), not blocked by this release.
+
+**Upgrade priority**: 🟢 RECOMMENDED — Existing users see no behavioural change. Users who disabled helpers (knowingly or not) will see the integration start instead of failing, with a clear Repairs notice explaining what is going on.
+
+---
+
 ### v1.11.1 (2026-05-26)
 **FIX: Dashboard responsive on large monitors (27"/32"/4K) + extracted design system reference**
 

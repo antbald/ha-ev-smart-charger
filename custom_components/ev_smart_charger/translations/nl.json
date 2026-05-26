@@ -262,6 +262,12 @@
       "invalid_domain": "De entiteit moet tot het domein `number` of `input_number` behoren."
     }
   },
+  "issues": {
+    "disabled_helpers": {
+      "title": "EV Smart Charger helper-entiteiten uitgeschakeld",
+      "description": "{count} helper-entiteit(en) aangemaakt door **{entry_title}** zijn momenteel uitgeschakeld in Home Assistant en konden zich daardoor niet registreren bij het opstarten. De integratie startte in gedegradeerde modus met veilige standaardwaarden voor die velden.\n\nUitgeschakeld: `{entities}`\n\nAls dit bewust was, kun je deze melding negeren. Schakel ze anders weer in via **Instellingen → Apparaten en services → EV Smart Charger → Entiteiten** en herlaad de integratie. Helper-entiteiten uitschakelen om functies die je niet gebruikt te verwijderen wordt niet ondersteund — open een issue als je liever een speciale opt-out wilt."
+    }
+  },
   "entity": {
     "switch": {
       "evsc_forza_ricarica": { "name": "Laad forceren" },

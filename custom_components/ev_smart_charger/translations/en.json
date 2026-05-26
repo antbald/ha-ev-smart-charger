@@ -262,6 +262,12 @@
       "invalid_domain": "Entity must belong to the `number` or `input_number` domain."
     }
   },
+  "issues": {
+    "disabled_helpers": {
+      "title": "EV Smart Charger helper entities disabled",
+      "description": "{count} helper entit(y/ies) created by **{entry_title}** are currently disabled in Home Assistant, so they could not register at startup. The integration started in degraded mode using safe defaults for those values.\n\nDisabled: `{entities}`\n\nIf this was intentional you can ignore this notice. Otherwise, re-enable them under **Settings → Devices & services → EV Smart Charger → Entities** and reload the integration. Disabling helper entities to remove features you don't use is not supported — open an issue if you'd like an opt-out flag instead."
+    }
+  },
   "entity": {
     "switch": {
       "evsc_forza_ricarica": { "name": "Force charge" },
