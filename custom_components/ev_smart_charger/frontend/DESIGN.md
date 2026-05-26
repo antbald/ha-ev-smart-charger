@@ -1,6 +1,6 @@
 # Liquid Aurora — Design System
 
-The single design language of the EV Smart Charger dashboard, introduced in v1.11.0 and refined in v1.11.1.
+The single design language of the EV Smart Charger dashboard, introduced in v1.11.0 and refined in v1.11.1. **v1.11.2 reverted the custom typography stack (Instrument Serif italic + JetBrains Mono) back to the native system fonts after user feedback** — what remains in v1.11.2+ is the *spatial / color / motion / layout* part of Liquid Aurora, on top of the SF Pro / system sans stack.
 
 Maintained as a single‑file inline stylesheet inside [ev-smart-charger-dashboard.js](ev-smart-charger-dashboard.js) (function `_inlineStyles()`). This document is the **discoverable surface** of that system — token reference, usage rules, anti‑patterns, and component recipes — so future work can extend the dashboard or build sister cards without re‑deriving the choices.
 
@@ -23,64 +23,68 @@ If you're about to add a new metric tile, a new module accordion, a new device�
 
 ---
 
-## Direction
+## Direction (v1.11.2+)
 
-**Editorial × Engineering.** A serif italic display font carries the eye; a tabular monospaced face carries the data. System sans carries the body. The combination reads as a *deliberate* dashboard — closer to a magazine technical spread than a generic admin panel.
+**Native iOS Liquid Glass, dialled up.** System SF Pro sans across the board, but pushed beyond a default admin look through *spatial* and *color* commitments:
 
-This is not a "minimalist" system — it commits to a strong typographic voice. It is also not "maximalist" — surfaces stay quiet, color stays restrained, motion stays slow. The differentiation is concentrated in **two moves**:
+- **Generous SOC ring** as the focal point of the hero — large percentage in bold sans, concentric dual arcs (EV outer + Home inner) with saturated aurora accents.
+- **Atmospheric background** — three radial gradients + two animated aurora blobs + a subtle grain overlay. The ha-card surface is never a flat solid color.
+- **Glass surfaces** — `backdrop-filter: saturate(180%) blur(40px)` on every card, with a lifted hover state on touch‑capable surfaces.
+- **Editorial restraint on motion** — slow aurora float (28–36 s), 3.2 s priority pill pulse, no entrance animations. The dashboard breathes, it doesn't perform.
+- **Day‑grouped Weekly Planner mobile cards** — full localized weekday names (Mercoledì / Wednesday / Woensdag), TODAY badge, blue accent for today. The information architecture is the differentiator, not the typography.
 
-1. The SOC ring percentage in **Instrument Serif italic** at a generous size.
-2. The Weekly Planner mobile cards using full localized weekday names in the same serif italic.
+This is *not* a "minimalist" system — it commits to atmospheric depth and saturated live moments. It is also *not* a "maximalist" or "editorial" system after v1.11.2 — the previous attempt at serif italic display moments was reverted because the user preferred the native look.
 
-Everything else exists to make those two moments land.
-
-If you remove either, the system stops working. Don't.
+**Single moment of strong identity**: the SOC ring. Big percentage, dual aurora arcs, charging pulse dot. If you remove or shrink it, the system loses its anchor. Don't.
 
 ---
 
 ## Typography
 
-Three font roles, mapped to three font families. Each role has a single justification — no overlap, no "designer's choice" usage.
+**v1.11.2 update**: the custom typography stack introduced in v1.11.0 (Instrument Serif italic + JetBrains Mono, loaded from Bunny Fonts) has been reverted. The dashboard now uses the **native system sans stack** for everything. The reversion was driven by direct user feedback: the serif italic display moments did not land as intended and the user preferred the v1.10.5 native look.
 
-| Role | Family | Weight / Style | Used for |
-|---|---|---|---|
-| **Display** | Instrument Serif | 400 italic | SOC ring percentage, hero `<h1>`, Night Charge times, Weekly Planner mobile day names |
-| **Mono** | JetBrains Mono | 500 / 600 / 700 | Every numeric readout (kW, A, W, %, kWh), every eyebrow micro‑cap, stepper values, priority pill, ring legend, day‑card kind labels |
-| **Body** | SF Pro Display / SF Pro Text → BlinkMacSystemFont → Inter → system | 400 / 500 / 600 | Headings other than hero h1, descriptions, button labels, settings copy, info banners |
+Single font role, native stack, no external dependencies, no FOUT, no GDPR footprint:
 
-Loaded once at the top of `_inlineStyles()`:
+| Role | Family | Used for |
+|---|---|---|
+| **Sans (everything)** | SF Pro Display / SF Pro Text → BlinkMacSystemFont → Inter → Segoe UI → system‑ui → sans‑serif | All display moments, all numeric readouts, all body copy, all labels |
 
-```css
-@import url('https://fonts.bunny.net/css?family=instrument-serif:400,400i&family=jetbrains-mono:500,600,700&display=swap');
-```
-
-[Bunny Fonts](https://fonts.bunny.net) is a GDPR‑friendly Google Fonts mirror. ~50 KB total over both families. `display=swap` ensures FOUT (Flash of Unstyled Text) over FOIT — the dashboard never blocks on the network.
+No `@import`. No external fonts. The dashboard renders fully native on every supported HA client (web, iOS app, Android app), with zero font‑related latency.
 
 ### Custom properties
 
 ```css
---evsc-font:         -apple-system, "SF Pro Display", "SF Pro Text", BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
---evsc-font-display: "Instrument Serif", "Georgia", "Times New Roman", serif;
---evsc-font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+--evsc-font: -apple-system, "SF Pro Display", "SF Pro Text", BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
 ```
 
-### Type scale (current)
+The `--evsc-font-display` and `--evsc-font-mono` tokens introduced in v1.11.0 have been **removed**. If you re‑introduce a custom face in a future release, add it as a new token here (and update the table below + the [Anti‑patterns](#anti-patterns) section if it changes the rules).
 
-| Use | Size | Family | Weight | Style |
-|---|---|---|---|---|
-| Hero `<h1>` | `clamp(24px, 2.2vw, 32px)` | display | 400 | italic |
-| SOC ring percentage | 3rem | display | 400 | italic |
-| Night Charge time (vv) | 32px | display | 400 | italic |
-| Day card name (mobile) | 22px | display | 400 | italic |
-| Metric card value | `clamp(1.05rem, 1.8vw, 1.45rem)` | mono | 700 | normal |
-| Stepper / time value | 1.05rem | mono | 600 | normal |
-| Priority pill label | 0.7rem | mono | 600 | uppercase + 0.16em tracking |
-| Eyebrow / kicker | 0.65rem | mono | 500 | uppercase + 0.18em tracking |
-| Ring legend | 0.72rem | mono | 500 | tabular‑nums |
-| Ring sub label | 0.7rem | mono | 500 | uppercase + 0.18em tracking |
-| Body description | 13px | body | 400 | line‑height 1.55, max‑width 42ch |
+### Type scale (current — v1.11.2+)
 
-**Tabular numerics**: every mono numeric readout uses `font-variant-numeric: tabular-nums` so `+ / −` taps nudge the same character slot every time (no horizontal jitter as digits change width).
+| Use | Size | Weight | Style |
+|---|---|---|---|
+| Hero `<h1>` | `clamp(20px, 1.8vw, 26px)` | 700 | normal |
+| SOC ring percentage | 2.2rem | 700 | normal |
+| Night Charge time (vv) | 22px | 800 | normal |
+| Day card name (mobile) | 18px | 700 | normal |
+| Today badge (mobile) | 10px | 700 | uppercase + 0.10em tracking |
+| Day kind label (mobile) | 11px | 700 | uppercase + 0.08em tracking |
+| Metric card value | `clamp(1.2rem, 2vw, 1.7rem)` | 700 | normal |
+| Stepper / time value | 1.1rem | 700 | normal |
+| Priority pill label | 0.85rem | 600 | normal |
+| Eyebrow / kicker | 0.7rem | 600 | uppercase + 0.14em tracking |
+| Ring legend | 0.78rem | 400 | tabular‑nums |
+| Ring sub label | 0.78rem | 600 | uppercase + 0.04em tracking |
+| Body description | 13px | 400 | line‑height 1.55, max‑width 42ch |
+
+**Tabular numerics**: every numeric readout still uses `font-variant-numeric: tabular-nums` (set globally on `ha-card` via `font-feature-settings: "tnum" on`) so `+ / −` taps nudge the same character slot every time (no horizontal jitter as digits change width).
+
+### Why the reversion is documented (not just removed)
+
+Two reasons:
+
+1. The custom typography stack might be re‑attempted in a future minor (with a different display face, or as an opt‑in). Future maintainers should know it was tried and what the failure mode was (taste, not technical), so the bar for re‑introducing it is "the user specifically asks for an editorial face", not "let's try a serif again".
+2. The component recipes in this doc reference the previous structure (e.g. the SOC ring percentage was sized 3rem to look right in serif italic; in sans bold it's 2.2rem). The diff between v1.11.1 and v1.11.2 typography is non‑trivial — anyone reading old PR descriptions or screenshots needs context.
 
 ---
 
@@ -416,7 +420,7 @@ Things that have been tried and explicitly rejected. Don't reach for these witho
 | **`align-items: baseline` on flex containers with mixed font sizes** | Baseline of a 1.1 rem mono digit lands ~4 px above the cell center; reads as "stuck to the top". | `align-items: center`. |
 | **CSS entrance animations (`fade-in`, slide-up)** | Replays on every sensor tick because the dashboard re-renders via innerHTML. Visible flicker. | Persistent animations only (aurora float, pulse dots). Stagger via natural HTML order, not `animation-delay`. |
 | **Adding a fourth aurora accent for "variety"** | Dilutes the rule that aurora = live moments only. Quickly devolves into the cliché "rainbow dashboard". | Use a system color from the existing 11. If absolutely needed, propose adding a new aurora here, with a written justification of what live moment it represents. |
-| **Loading a fourth font family** | The 50 KB cost of two families is acceptable; a third doubles it and the visual hierarchy collapses (each family carries less unique weight). | Use weight / italic / tracking variations within the three existing families. |
+| **Re‑introducing custom web fonts casually** | v1.11.0 added Instrument Serif italic + JetBrains Mono via Bunny Fonts. User feedback in v1.11.2 was negative ("non mi piace questo font, preferivo il precedente") and they were removed. Network dependency, FOUT, GDPR considerations, and taste-divergence make custom fonts a real cost. | Stick with the SF Pro / system stack unless the user *specifically* asks for an editorial face. If you do reintroduce one, ship it behind an opt‑in config option, not as the default. |
 | **Hover‑only interactions** | Touch devices have no hover. The dashboard is used on iPhone / iPad as much as desktop. | Every hover decoration must have a touchable / focus‑visible equivalent. Currently hover effects are purely decorative (shadow lift) — never load‑bearing. |
 
 ---

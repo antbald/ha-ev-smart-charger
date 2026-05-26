@@ -756,6 +756,42 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.11.2 (2026-05-26)
+**REVERT: Custom typography stack — back to native system fonts**
+
+User feedback after v1.11.1 ship: *"non mi piace questo font, preferivo il precedente"*. The v1.11.0 typography pass — Instrument Serif italic for display moments (SOC ring percentage, hero h1, Night Charge times, Weekly Planner mobile day names) + JetBrains Mono for numeric readouts — has been **completely reverted** to the native system sans stack that v1.10.5 and earlier used.
+
+**What changed**:
+
+- **Removed**: the `@import url('https://fonts.bunny.net/...')` line at the top of `_inlineStyles()`. Zero external font dependencies. No FOUT, no GDPR considerations, no latency.
+- **Removed**: the `--evsc-font-display` and `--evsc-font-mono` custom properties from `:host`. Only `--evsc-font` (system sans stack) remains.
+- **Reverted**: every `font-family: var(--evsc-font-display)` and `font-family: var(--evsc-font-mono)` rule removed. Affected elements: `.hero-ring-center .ring-headline` (back to 2.2rem sans bold from 3rem italic), `.hero-ring-center .ring-sub`, `.hero-ring-legend > div`, `.eyebrow / .kicker` (back to 0.7rem 600 0.14em), `.metric-card strong` (back to `clamp(1.2rem, 2vw, 1.7rem)` sans bold), `.stepper-value / .time-value` (back to 1.1rem sans 700), `.priority-pill` (back to 0.85rem sans 600, no uppercase), `.evsc-hero-body h1` (back to `clamp(20px, 1.8vw, 26px)` sans 700, no italic), `.evsc-wp-day-name` (mobile, back to 18px sans 700), `.evsc-wp-today-badge`, `.evsc-wp-day-kind`, `.evsc-wp-day-card .evsc-wp-soc`, `.evsc-night-time .lbl / .vv` (back to 22px 800).
+
+**What's preserved from Liquid Aurora** (v1.11.0–v1.11.1):
+
+- ✅ Aurora color accents (`--evsc-aurora-green / cyan / violet / amber`) on the SOC ring arcs, charging pulse, background blobs
+- ✅ Vertical-stack layout (v1.11.1 responsive fix) — all cards full‑width on every viewport, no more squeeze on 32" monitors
+- ✅ Mobile day-card stack — 7 day-grouped editorial cards with TODAY pill, kind labels, current-day blue accent
+- ✅ All v1.10.5 functional fixes — SOC ring centering, Charging Power "Non in carica" / "Completamente carica" states, stepper alignment, mobile responsive
+- ✅ Aurora background blobs (slower 28–36 s float), priority pill pulse halo, charging pulse dot
+- ✅ Responsive shell with fluid clamps, max-width 1180 px cap
+
+**Design system doc updated**: [frontend/DESIGN.md](custom_components/ev_smart_charger/frontend/DESIGN.md) — Direction section rewritten to drop the editorial framing, Typography section rewritten with the new (simpler) single-stack table + a "Why the reversion is documented" rationale, Anti-patterns updated with a new "Re‑introducing custom web fonts casually" entry that captures the lesson.
+
+**Network footprint**: zero. No `@import`, no Bunny Fonts request, no FOUT. The dashboard renders fully native on every supported HA client (web, iOS app, Android app).
+
+**Files Modified**:
+- [frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js): removed `@import`, removed 2 custom properties, reverted ~14 font-family declarations and their adjacent size/weight tokens back to v1.10.5 values
+- [frontend/DESIGN.md](custom_components/ev_smart_charger/frontend/DESIGN.md): Direction + Typography + Anti-patterns sections rewritten to reflect v1.11.2 reality
+- [const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.11.2"` (also drives `?v=` cache-buster)
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): `version = "1.11.2"`
+
+**Backward compatibility**: zero schema / entity / API changes. The card config block is identical to v1.11.0/v1.11.1. Existing users see the typography revert on next Lovelace reload; no manual reconfiguration required.
+
+**Upgrade priority**: 🟢 **STRONGLY RECOMMENDED** if you were on v1.11.0/v1.11.1 — removes external font dependency and restores the native look. No regression on responsive (carries v1.11.1 fixes) or on any functional behavior (carries v1.10.5 fixes).
+
+---
+
 ### v1.11.1 (2026-05-26)
 **FIX: Dashboard responsive on large monitors (27"/32"/4K) + extracted design system reference**
 

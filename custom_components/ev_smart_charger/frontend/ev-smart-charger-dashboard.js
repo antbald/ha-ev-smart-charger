@@ -2188,10 +2188,13 @@ class EvSmartChargerDashboard extends HTMLElement {
         /* ============================================================
          * EV Smart Charger — Liquid Aurora design system (v1.11.0+)
          * ------------------------------------------------------------
-         * Editorial typography (Instrument Serif italic display +
-         * JetBrains Mono technical readouts) on top of a refined
-         * Liquid Glass surface. Apple System Colors with aurora accents.
-         * Adaptive light/dark via prefers-color-scheme + HA hooks.
+         * v1.11.2: reverted to native system fonts after user feedback
+         * ("non mi piace questo font, preferivo il precedente"). The
+         * Bunny Fonts import (Instrument Serif italic + JetBrains Mono)
+         * introduced in v1.11.0 has been removed — no external font
+         * dependency, no FOUT, dashboard renders fully native. All other
+         * Liquid Aurora elements stay: aurora color accents, vertical-
+         * stack layout, mobile day cards, responsive clamps, motion.
          *
          * ▸ FULL TOKEN REFERENCE, USAGE RULES, ANTI-PATTERNS:
          *   custom_components/ev_smart_charger/frontend/DESIGN.md
@@ -2199,7 +2202,6 @@ class EvSmartChargerDashboard extends HTMLElement {
          *   components. The doc is the discoverable surface of this
          *   inline stylesheet.
          * ============================================================ */
-        @import url('https://fonts.bunny.net/css?family=instrument-serif:400,400i&family=jetbrains-mono:500,600,700&display=swap');
 
         :host {
           /* v1.10.4: shadow DOM box model reset — explicit, NOT inherited
@@ -2213,10 +2215,6 @@ class EvSmartChargerDashboard extends HTMLElement {
           box-sizing: border-box;
           --evsc-font: -apple-system, "SF Pro Display", "SF Pro Text",
             BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
-          --evsc-font-display: "Instrument Serif", "Georgia", "Times New Roman",
-            serif;
-          --evsc-font-mono: "JetBrains Mono", ui-monospace, "SF Mono",
-            "Menlo", "Consolas", monospace;
 
           --evsc-bg-1: #f2f2f7;
           --evsc-bg-2: #e5e5ea;
@@ -2453,40 +2451,26 @@ class EvSmartChargerDashboard extends HTMLElement {
           gap: 2px; text-align: center;
         }
         .hero-ring-center .ring-headline {
-          /* v1.11.0: editorial-grade percentage. Instrument Serif italic
-             at a generous size — the single most distinctive moment in
-             the whole dashboard. Falls back to Georgia on networks that
-             can't reach Bunny Fonts. */
-          font-family: var(--evsc-font-display);
-          font-style: italic;
-          font-weight: 400;
-          font-size: 3rem;
-          line-height: 1;
-          letter-spacing: -0.02em;
+          /* v1.11.2: reverted to system sans bold (was Instrument Serif
+             italic in v1.11.0-1.11.1). User preferred the native look. */
+          font-size: 2.2rem;
+          font-weight: 700;
+          letter-spacing: -0.04em;
           color: var(--evsc-fg);
-          /* the italic foot subtly drifts right — pull it back so it
-             sits dead-center optically (the optical center of italics is
-             slightly to the right of the geometric center). */
-          margin-left: -0.06em;
         }
         .hero-ring-center .ring-sub {
-          font-family: var(--evsc-font-mono);
-          font-size: 0.7rem;
+          font-size: 0.78rem;
           color: var(--evsc-fg-mid);
-          letter-spacing: 0.18em;
+          letter-spacing: 0.04em;
           text-transform: uppercase;
-          font-weight: 500;
-          margin-top: 6px;
+          font-weight: 600;
         }
         .hero-ring-legend {
-          display: flex; gap: 16px; justify-content: center; margin-top: 14px;
+          display: flex; gap: 16px; justify-content: center; margin-top: 12px;
         }
         .hero-ring-legend > div {
           display: flex; align-items: center; gap: 6px;
-          font-family: var(--evsc-font-mono);
-          font-size: 0.72rem;
-          font-weight: 500;
-          letter-spacing: 0.04em;
+          font-size: 0.78rem;
           color: var(--evsc-fg-mid);
           font-variant-numeric: tabular-nums;
         }
@@ -2498,18 +2482,16 @@ class EvSmartChargerDashboard extends HTMLElement {
 
         .eyebrow,
         .kicker {
-          /* v1.11.0: eyebrow micro-caps in JetBrains Mono. Pairs with the
-             mono numbers below to anchor each card in technical lineage,
-             while leaving the serif italic free for the display moments. */
+          /* v1.11.2: reverted to system sans (was JetBrains Mono in
+             v1.11.0-1.11.1). */
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          font-family: var(--evsc-font-mono);
-          font-size: 0.65rem;
-          letter-spacing: 0.18em;
+          font-size: 0.7rem;
+          letter-spacing: 0.14em;
           text-transform: uppercase;
           color: var(--evsc-fg-low);
-          font-weight: 500;
+          font-weight: 600;
         }
 
         /* ---------- Generic glass cards ---------- */
@@ -2560,10 +2542,9 @@ class EvSmartChargerDashboard extends HTMLElement {
         .metric-card strong,
         .spotlight-main strong,
         .target-chip strong {
-          /* v1.11.0: technical readouts in JetBrains Mono — engineering
-             feel for live numbers. Falls back to system mono. */
-          font-family: var(--evsc-font-mono);
-          font-size: clamp(1.05rem, 1.8vw, 1.45rem);
+          /* v1.11.2: reverted to system sans (was JetBrains Mono in
+             v1.11.0-1.11.1). Tabular numerics still on via ha-card. */
+          font-size: clamp(1.2rem, 2vw, 1.7rem);
           line-height: 1.05;
           letter-spacing: -0.02em;
           font-weight: 700;
@@ -2782,9 +2763,9 @@ class EvSmartChargerDashboard extends HTMLElement {
 
         .stepper-value,
         .time-value {
-          /* v1.11.0: technical readouts in JetBrains Mono — the digits
-             align in tabular columns so taps on −/+ visually nudge the
-             same character slot every time. */
+          /* v1.11.2: reverted to system sans (was JetBrains Mono in
+             v1.11.0-1.11.1). Tabular nums still active via ha-card.
+             align-items: center preserved from v1.10.5 stepper fix. */
           display: flex;
           align-items: center;
           justify-content: center;
@@ -2794,19 +2775,17 @@ class EvSmartChargerDashboard extends HTMLElement {
           border-radius: 14px;
           background: var(--evsc-surface-strong);
           border: 1px solid var(--evsc-stroke);
-          font-family: var(--evsc-font-mono);
-          font-weight: 600;
-          font-size: 1.05rem;
-          letter-spacing: -0.01em;
+          font-weight: 700;
+          font-size: 1.1rem;
+          letter-spacing: -0.02em;
           font-variant-numeric: tabular-nums;
           color: var(--evsc-fg);
         }
 
         .stepper-value small {
           color: var(--evsc-fg-mid);
-          font-size: 0.7rem;
+          font-size: 0.8rem;
           font-weight: 500;
-          letter-spacing: 0.05em;
         }
 
         .profile-row {
@@ -2996,16 +2975,15 @@ class EvSmartChargerDashboard extends HTMLElement {
         .tone-amber  { --evsc-tone: var(--evsc-sys-orange); color: var(--evsc-sys-orange); }
         .tone-teal   { --evsc-tone: var(--evsc-sys-teal);   color: var(--evsc-sys-teal); }
 
-        /* Priority state pill — v1.11.0: mono caps for engineering feel */
+        /* Priority state pill — v1.11.2: reverted to system sans (was
+           JetBrains Mono uppercase in v1.11.0-1.11.1). Slow pulse halo
+           kept. */
         .priority-pill {
-          display: inline-flex; align-items: center; gap: 10px;
-          padding: 7px 14px;
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 6px 12px;
           border-radius: var(--evsc-radius-pill);
-          font-family: var(--evsc-font-mono);
-          font-size: 0.7rem;
+          font-size: 0.85rem;
           font-weight: 600;
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
           background: var(--evsc-surface-strong);
           border: 1px solid var(--evsc-stroke);
           color: var(--evsc-fg);
@@ -3224,18 +3202,13 @@ class EvSmartChargerDashboard extends HTMLElement {
           }
         }
         .evsc-hero-body h1 {
-          /* v1.11.0: editorial display title — Instrument Serif italic.
-             v1.11.1: tighter clamp (was 28-40px) so it never explodes
-             on wide viewports where the hero body column is wider than
-             the title needs. Sits comfortably on a single line down to
-             ~360 px body width. */
-          margin: 6px 0 8px;
-          font-family: var(--evsc-font-display);
-          font-style: italic;
-          font-weight: 400;
-          font-size: clamp(24px, 2.2vw, 32px);
-          line-height: 1.05;
-          letter-spacing: -0.015em;
+          /* v1.11.2: reverted to system sans bold (was Instrument Serif
+             italic in v1.11.0-1.11.1). Conservative clamp kept from
+             v1.11.1 so the title never blows out on wide hero bodies. */
+          margin: 8px 0 4px;
+          font-size: clamp(20px, 1.8vw, 26px);
+          font-weight: 700;
+          letter-spacing: -0.02em;
           color: var(--evsc-fg);
         }
         .evsc-hero-sub {
@@ -3565,30 +3538,28 @@ class EvSmartChargerDashboard extends HTMLElement {
           min-width: 0;
         }
         .evsc-wp-day-name {
-          /* Display serif italic — the same editorial cue as the SOC
-             percentage and the hero h1. "Mercoledì" italic feels
-             considered, not generic. */
-          font-family: var(--evsc-font-display);
-          font-style: italic;
-          font-weight: 400;
-          font-size: 22px;
+          /* v1.11.2: reverted to system sans bold (was Instrument Serif
+             italic 22px in v1.11.0-1.11.1). Still the card's anchor —
+             just native. */
+          font-size: 18px;
+          font-weight: 700;
           line-height: 1;
           color: var(--evsc-fg);
-          letter-spacing: -0.01em;
+          letter-spacing: -0.02em;
         }
         .evsc-wp-day-card.today .evsc-wp-day-name {
           color: var(--evsc-sys-blue);
         }
         .evsc-wp-today-badge {
+          /* v1.11.2: reverted to system sans (was JetBrains Mono caps). */
           display: inline-block;
           padding: 3px 9px;
           border-radius: var(--evsc-radius-pill);
           background: var(--evsc-sys-blue);
           color: #fff;
-          font-family: var(--evsc-font-mono);
-          font-size: 9px;
-          font-weight: 600;
-          letter-spacing: 0.16em;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.1em;
           text-transform: uppercase;
           box-shadow: 0 4px 12px color-mix(in srgb, var(--evsc-sys-blue) 35%, transparent);
         }
@@ -3604,10 +3575,10 @@ class EvSmartChargerDashboard extends HTMLElement {
           gap: 12px;
         }
         .evsc-wp-day-kind {
-          font-family: var(--evsc-font-mono);
-          font-size: 10px;
-          font-weight: 600;
-          letter-spacing: 0.16em;
+          /* v1.11.2: reverted to system sans (was JetBrains Mono caps). */
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
           color: var(--evsc-fg-mid);
         }
@@ -3717,9 +3688,9 @@ class EvSmartChargerDashboard extends HTMLElement {
             color: var(--evsc-sys-blue);
           }
           .evsc-wp-day-card .evsc-wp-soc {
-            font-family: var(--evsc-font-mono);
+            /* v1.11.2: reverted to system sans. */
             font-size: 16px;
-            font-weight: 600;
+            font-weight: 700;
             min-width: 42px;
             text-align: center;
             font-variant-numeric: tabular-nums;
@@ -3810,24 +3781,20 @@ class EvSmartChargerDashboard extends HTMLElement {
           padding: 10px 12px;
         }
         .evsc-night-time .lbl {
-          font-family: var(--evsc-font-mono);
+          /* v1.11.2: reverted to system sans (was JetBrains Mono). */
           font-size: 9px;
           color: var(--evsc-fg-low);
           text-transform: uppercase;
-          letter-spacing: 0.16em;
-          font-weight: 500;
+          letter-spacing: 0.08em;
+          font-weight: 700;
         }
         .evsc-night-time .vv {
-          /* v1.11.0: night charge times in display serif italic — same
-             editorial cue as the SOC ring percentage. "01:00" rendered
-             italic feels deliberate, intentional, like a magazine pull
-             quote rather than a debug timer. */
-          font-family: var(--evsc-font-display);
-          font-style: italic;
-          font-size: 32px;
-          font-weight: 400;
-          letter-spacing: -0.01em;
-          margin-top: 4px;
+          /* v1.11.2: reverted to system sans bold (was Instrument Serif
+             italic 32px in v1.11.0-1.11.1). */
+          font-size: 22px;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+          margin-top: 2px;
           font-variant-numeric: tabular-nums;
           color: var(--evsc-fg);
         }
