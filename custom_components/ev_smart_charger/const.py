@@ -2,10 +2,19 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
+
+# ========== AUTO-GENERATED DASHBOARD (v1.9.0+) ==========
+# When CONF_CREATE_DASHBOARD is True the integration auto-creates a Lovelace
+# storage-mode dashboard preloaded with the EV Smart Charger card and the
+# user-mapped energy sensors. Zero YAML, ready-to-go after setup.
+DASHBOARD_URL_PATH = "ev-smart-charger"
+DASHBOARD_TITLE = DEFAULT_NAME
+DASHBOARD_ICON = "mdi:ev-station"
+DASHBOARD_RESOURCE_KEY = f"{DOMAIN}_auto_dashboard"
 
 # ========== PLATFORMS ==========
 PLATFORMS = ["switch", "number", "select", "sensor", "time"]
@@ -72,6 +81,10 @@ CONF_CAR_OWNER = "car_owner"  # Person entity for car owner (v1.3.19+)
 # Energy Forecast Configuration (v1.4.8+)
 CONF_BATTERY_CAPACITY = "battery_capacity"
 CONF_ENERGY_FORECAST_TARGET = "energy_forecast_target"
+
+# Auto-generated Dashboard (v1.9.0+)
+CONF_CREATE_DASHBOARD = "create_dashboard"
+DEFAULT_CREATE_DASHBOARD = True
 
 # Energy Forecast Defaults
 DEFAULT_BATTERY_CAPACITY = 50.0  # kWh

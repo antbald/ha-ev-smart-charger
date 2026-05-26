@@ -77,6 +77,16 @@
           "energy_forecast_target": "Optional helper entity where the calculated target is written. Supported domains: `number`, `input_number`."
         }
       },
+      "dashboard": {
+        "title": "Ready-to-go Dashboard - Step {step}/{total_steps}",
+        "description": "Auto-generate a Lovelace dashboard preloaded with every helper entity from this integration. The dashboard will appear in the sidebar as 'EV Smart Charger' with a glass-style UI inspired by iOS 18. Zero YAML, zero configuration.",
+        "data": {
+          "create_dashboard": "Auto-generate sidebar dashboard"
+        },
+        "data_description": {
+          "create_dashboard": "When enabled, a dedicated Lovelace panel-mode dashboard is created at /ev-smart-charger and registered as a sidebar entry."
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure Charger Entities - Step {step}/{total_steps}",
         "description": "Update the charger entities for this config entry.",
@@ -141,6 +151,16 @@
         "data_description": {
           "battery_capacity": "Battery capacity used to calculate the energy needed to reach the configured EV target.",
           "energy_forecast_target": "Optional helper entity where the calculated target is written. Supported domains: `number`, `input_number`."
+        }
+      },
+      "reconfigure_dashboard": {
+        "title": "Reconfigure Dashboard - Step {step}/{total_steps}",
+        "description": "Enable or disable the auto-generated Lovelace dashboard. Disabling removes it from the sidebar; re-enabling recreates it.",
+        "data": {
+          "create_dashboard": "Auto-generate sidebar dashboard"
+        },
+        "data_description": {
+          "create_dashboard": "Toggle to create or remove the EV Smart Charger Lovelace dashboard."
         }
       }
     },
@@ -222,6 +242,16 @@
         "data_description": {
           "battery_capacity": "Battery capacity used to calculate the energy needed to reach the configured EV target.",
           "energy_forecast_target": "Optional helper entity where the calculated target is written. Supported domains: `number`, `input_number`."
+        }
+      },
+      "dashboard": {
+        "title": "Update Dashboard - Step {step}/{total_steps}",
+        "description": "Toggle the auto-generated Lovelace dashboard. Disabling removes it from the sidebar.",
+        "data": {
+          "create_dashboard": "Auto-generate sidebar dashboard"
+        },
+        "data_description": {
+          "create_dashboard": "When enabled, a Lovelace dashboard preloaded with all integration entities is added to the sidebar at /ev-smart-charger."
         }
       }
     },

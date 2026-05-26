@@ -77,6 +77,16 @@
           "energy_forecast_target": "Optionele helper-entiteit waarin het berekende doel wordt geschreven. Ondersteunde domeinen: `number`, `input_number`."
         }
       },
+      "dashboard": {
+        "title": "Kant-en-klaar dashboard - Stap {step}/{total_steps}",
+        "description": "Genereer automatisch een Lovelace-dashboard met alle helper-entiteiten van deze integratie. Het dashboard verschijnt in de zijbalk als 'EV Smart Charger' met een glass-stijl UI geïnspireerd op iOS 18. Geen YAML, geen configuratie nodig.",
+        "data": {
+          "create_dashboard": "Automatisch zijbalkdashboard genereren"
+        },
+        "data_description": {
+          "create_dashboard": "Indien ingeschakeld wordt een toegewijd Lovelace panel-mode dashboard aangemaakt op /ev-smart-charger en als zijbalkvermelding geregistreerd."
+        }
+      },
       "reconfigure": {
         "title": "Lader-entiteiten opnieuw configureren - Stap {step}/{total_steps}",
         "description": "Werk de lader-entiteiten voor deze config entry bij.",
@@ -141,6 +151,16 @@
         "data_description": {
           "battery_capacity": "Batterijcapaciteit die wordt gebruikt om de energie te berekenen die nodig is om het geconfigureerde EV-doel te bereiken.",
           "energy_forecast_target": "Optionele helper-entiteit waarin het berekende doel wordt geschreven. Ondersteunde domeinen: `number`, `input_number`."
+        }
+      },
+      "reconfigure_dashboard": {
+        "title": "Dashboard opnieuw configureren - Stap {step}/{total_steps}",
+        "description": "Schakel het automatisch gegenereerde Lovelace-dashboard in of uit. Uitschakelen verwijdert het uit de zijbalk; opnieuw inschakelen maakt het opnieuw aan.",
+        "data": {
+          "create_dashboard": "Automatisch zijbalkdashboard genereren"
+        },
+        "data_description": {
+          "create_dashboard": "Schakelen om het toegewijde EV Smart Charger Lovelace-dashboard aan te maken of te verwijderen."
         }
       }
     },
@@ -222,6 +242,16 @@
         "data_description": {
           "battery_capacity": "Batterijcapaciteit die wordt gebruikt om de energie te berekenen die nodig is om het geconfigureerde EV-doel te bereiken.",
           "energy_forecast_target": "Optionele helper-entiteit waarin het berekende doel wordt geschreven. Ondersteunde domeinen: `number`, `input_number`."
+        }
+      },
+      "dashboard": {
+        "title": "Dashboard bijwerken - Stap {step}/{total_steps}",
+        "description": "Schakel het automatisch gegenereerde Lovelace-dashboard in of uit. Uitschakelen verwijdert het uit de zijbalk.",
+        "data": {
+          "create_dashboard": "Automatisch zijbalkdashboard genereren"
+        },
+        "data_description": {
+          "create_dashboard": "Indien ingeschakeld wordt een Lovelace-dashboard met alle integratie-entiteiten toegevoegd aan de zijbalk op /ev-smart-charger."
         }
       }
     },

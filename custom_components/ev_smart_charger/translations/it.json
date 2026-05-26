@@ -77,6 +77,16 @@
           "energy_forecast_target": "Helper opzionale in cui viene scritto il target calcolato. Domini supportati: `number`, `input_number`."
         }
       },
+      "dashboard": {
+        "title": "Dashboard Ready-to-go - Passo {step}/{total_steps}",
+        "description": "Genera automaticamente una dashboard Lovelace precaricata con tutte le entita dell'integrazione. Comparira nella sidebar come 'EV Smart Charger' con una UI glass ispirata a iOS 18. Zero YAML, zero configurazione — disabilita solo se preferisci aggiungere la card manualmente alle tue dashboard.",
+        "data": {
+          "create_dashboard": "Genera dashboard nella sidebar"
+        },
+        "data_description": {
+          "create_dashboard": "Se attivo, viene creata una dashboard Lovelace in modalita panel su /ev-smart-charger e aggiunta come voce della sidebar. Disabilita per non crearla (o per rimuoverla)."
+        }
+      },
       "reconfigure": {
         "title": "Riconfigura Entita Charger - Passo {step}/{total_steps}",
         "description": "Aggiorna le entita del charger per questa config entry.",
@@ -141,6 +151,16 @@
         "data_description": {
           "battery_capacity": "Capacita batteria usata per calcolare l'energia necessaria a raggiungere il target EV configurato.",
           "energy_forecast_target": "Helper opzionale in cui viene scritto il target calcolato. Domini supportati: `number`, `input_number`."
+        }
+      },
+      "reconfigure_dashboard": {
+        "title": "Riconfigura Dashboard - Passo {step}/{total_steps}",
+        "description": "Attiva o disattiva la dashboard Lovelace generata automaticamente. Disattivandola viene rimossa dalla sidebar; riattivandola viene ricreata con la configurazione corrente.",
+        "data": {
+          "create_dashboard": "Genera dashboard nella sidebar"
+        },
+        "data_description": {
+          "create_dashboard": "Attiva/disattiva la dashboard EV Smart Charger dedicata."
         }
       }
     },
@@ -222,6 +242,16 @@
         "data_description": {
           "battery_capacity": "Capacita batteria usata per calcolare l'energia necessaria a raggiungere il target EV configurato.",
           "energy_forecast_target": "Helper opzionale in cui viene scritto il target calcolato. Domini supportati: `number`, `input_number`."
+        }
+      },
+      "dashboard": {
+        "title": "Aggiorna Dashboard - Passo {step}/{total_steps}",
+        "description": "Attiva o disattiva la dashboard Lovelace generata automaticamente. Disattivandola viene rimossa dalla sidebar.",
+        "data": {
+          "create_dashboard": "Genera dashboard nella sidebar"
+        },
+        "data_description": {
+          "create_dashboard": "Se attivo, viene creata una dashboard Lovelace precaricata con tutte le entita su /ev-smart-charger."
         }
       }
     },

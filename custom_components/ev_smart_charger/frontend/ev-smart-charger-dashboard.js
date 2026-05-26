@@ -646,6 +646,114 @@ class EvSmartChargerDashboard extends HTMLElement {
     });
   }
 
+  /**
+   * Extract a numeric value from an HA entity state. Returns null when the
+   * entity is missing or its state is unknown/unavailable.
+   */
+  _numericState(entityId) {
+    const stateObj = this._stateObj(entityId);
+    if (!stateObj || !stateObj.state) return null;
+    if (stateObj.state === "unknown" || stateObj.state === "unavailable") return null;
+    const v = Number(stateObj.state);
+    return Number.isFinite(v) ? v : null;
+  }
+
+  /**
+   * Dual concentric SOC ring (iOS Activity-style):
+   *   outer = EV SOC (system green)
+   *   inner = Home Battery SOC (system purple) — only drawn when configured
+   *
+   * The center shows the most useful piece of info we have:
+   *   - charging power if a charging_power_entity is configured and >0
+   *   - otherwise the EV SOC %
+   *   - otherwise "—"
+   */
+  _renderHeroRing() {
+    const evPct = this._numericState(this._config.ev_soc_entity);
+    const homePct = this._numericState(this._config.home_battery_soc_entity);
+    const chargingPowerObj = this._stateObj(this._config.charging_power_entity);
+    const chargerStatus = this._stateObj(this._config.charger_status_entity)?.state;
+    const isCharging =
+      chargerStatus === "charger_charging" ||
+      (chargingPowerObj && Number(chargingPowerObj.state) > 0.05);
+
+    // Geometry — viewBox is 220×220, center (110,110)
+    const rOuter = 96;
+    const rInner = 76;
+    const cOuter = 2 * Math.PI * rOuter;
+    const cInner = 2 * Math.PI * rInner;
+    const clamp01 = (n) => Math.max(0, Math.min(1, n));
+    const evFrac = evPct != null ? clamp01(evPct / 100) : 0;
+    const homeFrac = homePct != null ? clamp01(homePct / 100) : 0;
+
+    let headline = "—";
+    let sub = this._t("metric.ev_soc");
+    if (isCharging && chargingPowerObj) {
+      const unit = chargingPowerObj.attributes?.unit_of_measurement || "";
+      headline = `${chargingPowerObj.state}${unit ? " " + unit : ""}`;
+      sub = this._t("metric.charging_power");
+    } else if (evPct != null) {
+      headline = `${Math.round(evPct)}%`;
+    }
+
+    const inner = homePct != null
+      ? `
+        <circle class="ring-track" cx="110" cy="110" r="${rInner}" stroke-width="13"/>
+        <circle class="ring-progress" cx="110" cy="110" r="${rInner}" stroke-width="13"
+                style="color: var(--evsc-sys-purple); stroke: var(--evsc-sys-purple);"
+                stroke-dasharray="${cInner}" stroke-dashoffset="${cInner * (1 - homeFrac)}"/>`
+      : "";
+
+    const legendHome = homePct != null
+      ? `<div style="color: var(--evsc-sys-purple);"><span class="ring-dot"></span><span>${this._t("metric.home_battery")} ${Math.round(homePct)}%</span></div>`
+      : "";
+
+    const chargingDot = isCharging
+      ? `<span class="charging-pulse" title="${this._t("metric.charging_power")}"></span>`
+      : "";
+
+    return `
+      <div class="hero-ring-wrap">
+        <div class="hero-ring">
+          <svg viewBox="0 0 220 220" aria-hidden="true">
+            <circle class="ring-track" cx="110" cy="110" r="${rOuter}" stroke-width="13"/>
+            <circle class="ring-progress" cx="110" cy="110" r="${rOuter}" stroke-width="13"
+                    style="color: var(--evsc-sys-green); stroke: var(--evsc-sys-green);"
+                    stroke-dasharray="${cOuter}" stroke-dashoffset="${cOuter * (1 - evFrac)}"/>
+            ${inner}
+          </svg>
+          <div class="hero-ring-center">
+            <div class="ring-headline">${chargingDot}${headline}</div>
+            <div class="ring-sub">${sub}</div>
+          </div>
+        </div>
+        <div class="hero-ring-legend">
+          <div style="color: var(--evsc-sys-green);"><span class="ring-dot"></span><span>${this._t("metric.ev_soc")}${evPct != null ? " " + Math.round(evPct) + "%" : ""}</span></div>
+          ${legendHome}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render the priority engine state as a colored pill. EV → green,
+   * Home → blue, EV_Free → purple. Unknown / unavailable → neutral chip.
+   */
+  _renderPriorityPill(stateObj) {
+    if (!stateObj?.state) {
+      return `<span class="priority-pill">${this._t("common.unavailable")}</span>`;
+    }
+    const raw = String(stateObj.state).trim();
+    const modifier = raw.toLowerCase().replace(/\s+/g, "_");
+    const labelMap = {
+      ev: "EV",
+      home: "Home",
+      ev_free: "EV Free",
+    };
+    const label = labelMap[modifier] || raw;
+    return `<span class="priority-pill state-${modifier}">${label}</span>`;
+  }
+
   _bindEvents() {
     const root = this.shadowRoot;
     if (!root) {
@@ -983,25 +1091,26 @@ class EvSmartChargerDashboard extends HTMLElement {
           <div class="grain"></div>
 
           <header class="hero-card">
-            <div class="hero-copy">
-              <span class="eyebrow">${this._t("hero.eyebrow")}</span>
-              <h1>${this._config.title || this._t("title.default")}</h1>
-              <p>${this._t("hero.description")}</p>
-            </div>
-            <div class="hero-grid">
-              ${this._renderMetric(this._t("metric.charging_power"), chargingPower, "cyan", this._labelFor(this._config.charging_power_entity, this._t("metric.live_power")))}
-              ${this._renderMetric(this._t("metric.ev_soc"), evSoc, "violet", this._labelFor(this._config.ev_soc_entity, this._t("metric.vehicle_battery")))}
-              ${this._renderMetric(this._t("metric.home_battery"), homeBatterySoc, "lime", this._labelFor(this._config.home_battery_soc_entity, this._t("metric.storage_reserve")))}
-              ${this._renderMetric(this._t("metric.grid_import"), gridImport, "rose", this._labelFor(this._config.grid_import_entity, this._t("metric.import_threshold")))}
-              ${this._renderMetric(this._t("metric.solar_power"), solarPower, "amber", this._labelFor(this._config.solar_power_entity, this._t("metric.pv_feed")))}
-              ${this._renderMetric(this._t("metric.charge_current"), chargerCurrent, "teal", this._labelFor(this._config.current_entity, this._t("metric.wallbox_current")))}
+            ${this._renderHeroRing()}
+            <div class="hero-right">
+              <div class="hero-copy">
+                <span class="eyebrow">${this._t("hero.eyebrow")}</span>
+                <h1>${this._config.title || this._t("title.default")}</h1>
+                <p>${this._t("hero.description")}</p>
+              </div>
+              <div class="hero-grid">
+                ${this._renderMetric(this._t("metric.solar_power"), solarPower, "amber", this._labelFor(this._config.solar_power_entity, this._t("metric.pv_feed")))}
+                ${this._renderMetric(this._t("metric.grid_import"), gridImport, "rose", this._labelFor(this._config.grid_import_entity, this._t("metric.import_threshold")))}
+                ${this._renderMetric(this._t("metric.charge_current"), chargerCurrent, "teal", this._labelFor(this._config.current_entity, this._t("metric.wallbox_current")))}
+                ${this._renderMetric(this._t("metric.charging_power"), chargingPower, "cyan", this._labelFor(this._config.charging_power_entity, this._t("metric.live_power")))}
+              </div>
             </div>
           </header>
 
           <section class="spotlight-panel">
             <div class="spotlight-main">
               <span class="eyebrow">${this._t("spotlight.priority_engine")}</span>
-              <strong>${priorityState?.state || this._t("common.unavailable")}</strong>
+              ${this._renderPriorityPill(priorityState)}
               <span class="metric-sub">${this._t("spotlight.description")}</span>
             </div>
             <div class="spotlight-side">
@@ -1138,8 +1247,66 @@ class EvSmartChargerDashboard extends HTMLElement {
         </div>
       </ha-card>
       <style>
+        /* ============================================================
+         * EV Smart Charger — Liquid Glass iOS 18
+         * Palette: Apple System colors. Adaptive light/dark via
+         * prefers-color-scheme + HA --primary-background-color hooks.
+         * ============================================================ */
         :host {
           display: block;
+          --evsc-font: -apple-system, "SF Pro Display", "SF Pro Text",
+            BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+
+          --evsc-bg-1: #f2f2f7;
+          --evsc-bg-2: #e5e5ea;
+          --evsc-surface: rgba(255, 255, 255, 0.62);
+          --evsc-surface-strong: rgba(255, 255, 255, 0.78);
+          --evsc-stroke: rgba(0, 0, 0, 0.07);
+          --evsc-stroke-strong: rgba(0, 0, 0, 0.12);
+          --evsc-fg: #1c1c1e;
+          --evsc-fg-mid: rgba(60, 60, 67, 0.78);
+          --evsc-fg-low: rgba(60, 60, 67, 0.55);
+
+          --evsc-sys-blue: #007aff;
+          --evsc-sys-green: #34c759;
+          --evsc-sys-mint: #00c7be;
+          --evsc-sys-teal: #30b0c7;
+          --evsc-sys-indigo: #5856d6;
+          --evsc-sys-purple: #af52de;
+          --evsc-sys-pink: #ff2d55;
+          --evsc-sys-red: #ff3b30;
+          --evsc-sys-orange: #ff9500;
+          --evsc-sys-yellow: #ffcc00;
+          --evsc-sys-cyan: #32ade6;
+
+          --evsc-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.04),
+            0 8px 24px rgba(0, 0, 0, 0.06);
+          --evsc-shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.06),
+            0 12px 36px rgba(0, 0, 0, 0.1);
+          --evsc-blur: saturate(180%) blur(40px);
+          --evsc-blur-light: saturate(160%) blur(20px);
+          --evsc-spring: cubic-bezier(0.32, 0.72, 0, 1);
+          --evsc-radius: 22px;
+          --evsc-radius-lg: 28px;
+          --evsc-radius-pill: 999px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+          :host {
+            --evsc-bg-1: #000000;
+            --evsc-bg-2: #1c1c1e;
+            --evsc-surface: rgba(28, 28, 30, 0.62);
+            --evsc-surface-strong: rgba(44, 44, 46, 0.82);
+            --evsc-stroke: rgba(255, 255, 255, 0.08);
+            --evsc-stroke-strong: rgba(255, 255, 255, 0.16);
+            --evsc-fg: #f2f2f7;
+            --evsc-fg-mid: rgba(235, 235, 245, 0.6);
+            --evsc-fg-low: rgba(235, 235, 245, 0.4);
+            --evsc-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4),
+              0 12px 32px rgba(0, 0, 0, 0.5);
+            --evsc-shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.5),
+              0 16px 48px rgba(0, 0, 0, 0.6);
+          }
         }
 
         * {
@@ -1148,62 +1315,73 @@ class EvSmartChargerDashboard extends HTMLElement {
 
         ha-card {
           overflow: hidden;
-          border: 0;
-          border-radius: 32px;
+          border: 0 !important;
+          border-radius: 0;
           background:
-            radial-gradient(circle at top right, rgba(49, 216, 255, 0.18), transparent 36%),
-            radial-gradient(circle at left center, rgba(122, 58, 255, 0.22), transparent 30%),
-            linear-gradient(145deg, #060816 0%, #0b1022 42%, #111323 100%);
-          box-shadow:
-            0 32px 80px rgba(0, 0, 0, 0.42),
-            inset 0 1px 0 rgba(255, 255, 255, 0.05);
-          color: #f5f7ff;
+            radial-gradient(1200px 600px at 8% -10%, color-mix(in srgb, var(--evsc-sys-cyan) 22%, transparent), transparent 60%),
+            radial-gradient(1000px 500px at 110% 10%, color-mix(in srgb, var(--evsc-sys-purple) 22%, transparent), transparent 60%),
+            radial-gradient(900px 600px at 50% 110%, color-mix(in srgb, var(--evsc-sys-mint) 18%, transparent), transparent 70%),
+            linear-gradient(160deg, var(--evsc-bg-1) 0%, var(--evsc-bg-2) 100%);
+          box-shadow: none;
+          color: var(--evsc-fg);
+          font-family: var(--evsc-font);
+          font-feature-settings: "tnum" on, "ss01" on, "cv01" on;
+          -webkit-font-smoothing: antialiased;
+          letter-spacing: -0.011em;
+          min-height: 100vh;
         }
 
         .dashboard-shell {
           position: relative;
-          padding: 28px;
+          padding: clamp(16px, 3vw, 40px);
           display: grid;
-          gap: 22px;
-          min-height: 400px;
+          gap: 18px;
+          max-width: 1080px;
+          margin: 0 auto;
         }
 
+        /* Soft accent blobs floating in the background. Subtle and slow. */
         .aurora {
           position: absolute;
           inset: auto;
-          filter: blur(36px);
-          opacity: 0.9;
+          filter: blur(80px);
+          opacity: 0.55;
           pointer-events: none;
-          animation: floatGlow 9s ease-in-out infinite;
+          animation: floatGlow 18s ease-in-out infinite;
         }
 
         .aurora-a {
-          width: 180px;
-          height: 180px;
-          top: -40px;
-          right: -30px;
-          background: radial-gradient(circle, rgba(26, 229, 255, 0.28), transparent 65%);
+          width: 360px;
+          height: 360px;
+          top: -90px;
+          right: -80px;
+          background: radial-gradient(circle, color-mix(in srgb, var(--evsc-sys-cyan) 35%, transparent), transparent 65%);
         }
 
         .aurora-b {
-          width: 220px;
-          height: 220px;
-          bottom: 10%;
-          left: -40px;
-          background: radial-gradient(circle, rgba(169, 88, 255, 0.22), transparent 70%);
-          animation-delay: -3s;
+          width: 420px;
+          height: 420px;
+          bottom: 4%;
+          left: -120px;
+          background: radial-gradient(circle, color-mix(in srgb, var(--evsc-sys-purple) 30%, transparent), transparent 70%);
+          animation-delay: -7s;
+        }
+
+        @keyframes floatGlow {
+          0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.5; }
+          50%      { transform: translate3d(20px, -16px, 0) scale(1.08); opacity: 0.7; }
         }
 
         .grain {
           position: absolute;
           inset: 0;
           pointer-events: none;
-          opacity: 0.08;
+          opacity: 0.04;
+          mix-blend-mode: overlay;
           background-image:
-            radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.35) 0, transparent 18%),
-            radial-gradient(circle at 80% 35%, rgba(255, 255, 255, 0.28) 0, transparent 12%),
-            radial-gradient(circle at 40% 75%, rgba(255, 255, 255, 0.22) 0, transparent 14%);
-          mix-blend-mode: screen;
+            radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.6) 0, transparent 14%),
+            radial-gradient(circle at 80% 35%, rgba(255, 255, 255, 0.4) 0, transparent 10%),
+            radial-gradient(circle at 40% 78%, rgba(255, 255, 255, 0.45) 0, transparent 12%);
         }
 
         .hero-card,
@@ -1214,35 +1392,91 @@ class EvSmartChargerDashboard extends HTMLElement {
           z-index: 1;
         }
 
+        /* ---------- Hero ---------- */
         .hero-card {
           display: grid;
+          gap: 22px;
+          grid-template-columns: minmax(220px, 280px) 1fr;
+          align-items: center;
+          padding: 26px 28px;
+          border-radius: var(--evsc-radius-lg);
+          background: var(--evsc-surface);
+          border: 1px solid var(--evsc-stroke);
+          backdrop-filter: var(--evsc-blur);
+          -webkit-backdrop-filter: var(--evsc-blur);
+          box-shadow: var(--evsc-shadow-lift),
+            inset 0 1px 0 color-mix(in srgb, white 30%, transparent);
+        }
+
+        .hero-right {
+          display: grid;
           gap: 18px;
-          grid-template-columns: 1fr;
-          padding: 24px;
-          border-radius: 28px;
-          background: linear-gradient(135deg, rgba(14, 18, 41, 0.84), rgba(16, 29, 58, 0.72));
-          border: 1px solid rgba(139, 162, 255, 0.16);
-          backdrop-filter: blur(14px);
+          min-width: 0;
         }
 
         .hero-copy h1 {
-          margin: 6px 0 10px;
-          font-size: clamp(2rem, 4vw, 3.4rem);
-          line-height: 0.95;
-          letter-spacing: -0.04em;
+          margin: 8px 0 6px;
+          font-size: clamp(1.7rem, 3.4vw, 2.6rem);
+          line-height: 1.02;
+          letter-spacing: -0.035em;
+          font-weight: 700;
+          color: var(--evsc-fg);
         }
 
         .hero-copy p {
           margin: 0;
-          max-width: 44ch;
-          color: rgba(223, 229, 255, 0.8);
-          line-height: 1.55;
+          max-width: 52ch;
+          color: var(--evsc-fg-mid);
+          line-height: 1.5;
+          font-size: 0.92rem;
         }
 
         .hero-grid {
           display: grid;
-          gap: 12px;
-          grid-template-columns: 1fr;
+          gap: 10px;
+          grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        }
+
+        /* SOC ring stack — concentric activity-style rings (EV + Home). */
+        .hero-ring {
+          position: relative;
+          width: 220px;
+          height: 220px;
+          margin: 0 auto;
+          display: grid;
+          place-items: center;
+          isolation: isolate;
+        }
+        .hero-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); display: block; }
+        .hero-ring circle { fill: none; stroke-linecap: round; }
+        .hero-ring .ring-track { stroke: var(--evsc-stroke); }
+        .hero-ring .ring-progress {
+          transition: stroke-dashoffset 800ms var(--evsc-spring);
+          filter: drop-shadow(0 0 6px color-mix(in srgb, currentColor 50%, transparent));
+        }
+        .hero-ring-center {
+          position: absolute; inset: 0; display: grid; place-items: center; gap: 2px;
+          text-align: center;
+        }
+        .hero-ring-center .ring-headline {
+          font-size: 2.2rem; font-weight: 700; letter-spacing: -0.04em;
+          color: var(--evsc-fg);
+        }
+        .hero-ring-center .ring-sub {
+          font-size: 0.78rem; color: var(--evsc-fg-mid);
+          letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600;
+        }
+        .hero-ring-legend {
+          display: flex; gap: 16px; justify-content: center; margin-top: 12px;
+        }
+        .hero-ring-legend > div {
+          display: flex; align-items: center; gap: 6px;
+          font-size: 0.78rem; color: var(--evsc-fg-mid);
+        }
+        .ring-dot {
+          width: 8px; height: 8px; border-radius: 50%;
+          background: currentColor;
+          box-shadow: 0 0 8px color-mix(in srgb, currentColor 60%, transparent);
         }
 
         .eyebrow,
@@ -1250,89 +1484,114 @@ class EvSmartChargerDashboard extends HTMLElement {
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          font-size: 0.73rem;
-          letter-spacing: 0.16em;
+          font-size: 0.7rem;
+          letter-spacing: 0.14em;
           text-transform: uppercase;
-          color: rgba(196, 207, 255, 0.66);
+          color: var(--evsc-fg-low);
+          font-weight: 600;
         }
 
+        /* ---------- Generic glass cards ---------- */
         .metric-card,
         .target-chip,
         .diag-card,
         .control-card,
         .profile-card {
-          border-radius: 22px;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          background: linear-gradient(180deg, rgba(17, 24, 44, 0.92), rgba(10, 14, 28, 0.94));
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+          border-radius: var(--evsc-radius);
+          border: 1px solid var(--evsc-stroke);
+          background: var(--evsc-surface);
+          backdrop-filter: var(--evsc-blur-light);
+          -webkit-backdrop-filter: var(--evsc-blur-light);
+          box-shadow: var(--evsc-shadow-soft),
+            inset 0 1px 0 color-mix(in srgb, white 25%, transparent);
+          transition: transform 200ms var(--evsc-spring),
+            box-shadow 200ms var(--evsc-spring);
         }
 
+        .metric-card:hover,
+        .control-card:hover,
+        .target-chip:hover {
+          transform: translateY(-1px);
+          box-shadow: var(--evsc-shadow-lift),
+            inset 0 1px 0 color-mix(in srgb, white 30%, transparent);
+        }
+
+        /* ---------- Metric cards (hero KPIs) ---------- */
         .metric-card {
-          min-height: 108px;
-          padding: 16px;
+          min-height: 92px;
+          padding: 14px 16px;
           display: grid;
-          gap: 10px;
+          gap: 6px;
           align-content: space-between;
           overflow: hidden;
           position: relative;
         }
 
-        .metric-card::after {
+        .metric-card::before {
           content: "";
           position: absolute;
-          inset: auto -18% -40% auto;
-          width: 90px;
-          height: 90px;
-          border-radius: 50%;
-          background: radial-gradient(circle, rgba(255, 255, 255, 0.12), transparent 65%);
-          opacity: 0.8;
+          inset: 0;
+          background: radial-gradient(120% 80% at 100% 0%, var(--evsc-tone, transparent), transparent 60%);
+          opacity: 0.18;
+          pointer-events: none;
         }
 
         .metric-card strong,
         .spotlight-main strong,
         .target-chip strong {
-          font-size: clamp(1.15rem, 2vw, 1.8rem);
-          line-height: 1;
-          letter-spacing: -0.03em;
+          font-size: clamp(1.2rem, 2vw, 1.7rem);
+          line-height: 1.05;
+          letter-spacing: -0.02em;
+          font-weight: 700;
+          color: var(--evsc-fg);
         }
 
         .metric-sub {
-          color: rgba(214, 221, 255, 0.76);
-          font-size: 0.82rem;
+          color: var(--evsc-fg-mid);
+          font-size: 0.8rem;
+          font-weight: 500;
         }
 
+        /* ---------- Spotlight (priority engine) ---------- */
         .spotlight-panel {
           display: grid;
-          grid-template-columns: 1fr;
+          grid-template-columns: 1.4fr 1fr;
           gap: 16px;
         }
 
         .spotlight-main {
-          padding: 22px;
-          border-radius: 26px;
-          background:
-            linear-gradient(135deg, rgba(0, 197, 255, 0.14), rgba(134, 77, 255, 0.08)),
-            rgba(7, 13, 29, 0.9);
-          border: 1px solid rgba(76, 214, 255, 0.18);
+          padding: 22px 24px;
+          border-radius: var(--evsc-radius-lg);
+          background: var(--evsc-surface);
+          border: 1px solid var(--evsc-stroke);
+          backdrop-filter: var(--evsc-blur);
+          -webkit-backdrop-filter: var(--evsc-blur);
+          box-shadow: var(--evsc-shadow-soft),
+            inset 0 1px 0 color-mix(in srgb, white 25%, transparent);
           display: grid;
           gap: 12px;
         }
 
+        .spotlight-main strong {
+          font-size: clamp(1.6rem, 3vw, 2.3rem);
+          font-weight: 700;
+        }
+
         .spotlight-side {
           display: grid;
-          gap: 16px;
+          gap: 12px;
         }
 
         .target-chip,
         .diag-card {
-          padding: 18px;
+          padding: 16px 18px;
           display: grid;
-          gap: 10px;
+          gap: 8px;
         }
 
         .diag-grid {
           display: grid;
-          gap: 10px;
+          gap: 8px;
           grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
         }
 
@@ -1342,49 +1601,57 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
 
         .diag-detail strong {
-          font-size: 0.92rem;
+          font-size: 0.95rem;
           line-height: 1.35;
-          letter-spacing: -0.02em;
-          color: rgba(245, 247, 255, 0.92);
+          letter-spacing: -0.015em;
+          color: var(--evsc-fg);
           word-break: break-word;
+          font-weight: 600;
         }
 
+        /* ---------- Module panels (collapsible sections) ---------- */
         .module-grid {
           display: grid;
-          gap: 18px;
+          gap: 16px;
           grid-template-columns: 1fr;
         }
 
         .module-panel {
           display: grid;
           gap: 14px;
-          padding: 20px;
-          border-radius: 28px;
-          background:
-            linear-gradient(180deg, rgba(12, 17, 35, 0.92), rgba(8, 12, 24, 0.96)),
-            rgba(8, 12, 24, 0.9);
-          border: 1px solid rgba(255, 255, 255, 0.06);
+          padding: 22px 24px;
+          border-radius: var(--evsc-radius-lg);
+          background: var(--evsc-surface);
+          border: 1px solid var(--evsc-stroke);
+          backdrop-filter: var(--evsc-blur);
+          -webkit-backdrop-filter: var(--evsc-blur);
+          box-shadow: var(--evsc-shadow-soft),
+            inset 0 1px 0 color-mix(in srgb, white 25%, transparent);
         }
 
         .module-header {
           display: grid;
-          gap: 6px;
-          margin-bottom: 2px;
+          gap: 4px;
+          margin-bottom: 4px;
         }
 
         .module-header h2 {
           margin: 0;
-          font-size: 1.45rem;
-          line-height: 1;
-          letter-spacing: -0.03em;
+          font-size: 1.35rem;
+          line-height: 1.1;
+          letter-spacing: -0.025em;
+          font-weight: 700;
+          color: var(--evsc-fg);
         }
 
+        /* ---------- Control rows (switch / stepper / time / select) ---------- */
         .control-card,
         .profile-card {
           width: 100%;
           padding: 14px 16px;
           display: grid;
-          gap: 14px;
+          gap: 12px;
+          align-items: center;
         }
 
         .control-toggle {
@@ -1392,64 +1659,67 @@ class EvSmartChargerDashboard extends HTMLElement {
           appearance: none;
           color: inherit;
           text-align: left;
-          background:
-            linear-gradient(180deg, rgba(17, 24, 44, 0.94), rgba(10, 14, 28, 0.98));
+          grid-template-columns: 1fr auto;
+          background: var(--evsc-surface-strong);
+          border: 1px solid var(--evsc-stroke);
         }
 
         .control-toggle.is-on {
-          border-color: rgba(80, 228, 255, 0.26);
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.04),
-            0 0 0 1px rgba(80, 228, 255, 0.05),
-            0 12px 24px rgba(0, 0, 0, 0.18);
+          border-color: color-mix(in srgb, var(--evsc-sys-green) 45%, transparent);
+          background: color-mix(in srgb, var(--evsc-sys-green) 8%, var(--evsc-surface-strong));
+          box-shadow: 0 0 0 4px color-mix(in srgb, var(--evsc-sys-green) 12%, transparent),
+            var(--evsc-shadow-soft);
         }
 
         .control-copy {
           display: grid;
-          gap: 6px;
+          gap: 4px;
         }
 
         .control-label {
-          font-size: 1rem;
+          font-size: 0.98rem;
           line-height: 1.2;
-          font-weight: 700;
-          color: #f6f8ff;
+          font-weight: 600;
+          color: var(--evsc-fg);
         }
 
+        /* iOS-style toggle: 51×31 pill with 27px thumb */
         .switch-shell {
           justify-self: end;
-          width: 66px;
-          height: 36px;
-          border-radius: 999px;
-          padding: 4px;
-          background: rgba(255, 255, 255, 0.12);
-          transition: background 180ms ease;
+          width: 51px;
+          height: 31px;
+          border-radius: var(--evsc-radius-pill);
+          padding: 2px;
+          background: color-mix(in srgb, var(--evsc-fg-low) 24%, transparent);
+          transition: background 250ms var(--evsc-spring);
+          flex-shrink: 0;
         }
 
         .switch-shell.is-on {
-          background: rgba(30, 201, 255, 0.36);
+          background: var(--evsc-sys-green);
         }
 
         .switch-thumb {
           display: block;
-          width: 28px;
-          height: 28px;
+          width: 27px;
+          height: 27px;
           border-radius: 50%;
-          background: white;
+          background: #ffffff;
           transform: translateX(0);
-          transition: transform 180ms ease;
-          box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
+          transition: transform 280ms var(--evsc-spring);
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06),
+            0 3px 8px rgba(0, 0, 0, 0.15);
         }
 
         .switch-shell.is-on .switch-thumb {
-          transform: translateX(30px);
+          transform: translateX(20px);
         }
 
         .stepper-shell,
         .time-shell {
           display: grid;
           grid-template-columns: auto 1fr auto;
-          gap: 10px;
+          gap: 8px;
           align-items: center;
         }
 
@@ -1457,24 +1727,33 @@ class EvSmartChargerDashboard extends HTMLElement {
         .profile-chip {
           cursor: pointer;
           appearance: none;
-          border: 0;
-          color: inherit;
-          border-radius: 16px;
-          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid var(--evsc-stroke);
+          color: var(--evsc-fg);
+          border-radius: 14px;
+          background: var(--evsc-surface-strong);
           font: inherit;
-          transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+          font-weight: 600;
+          transition: transform 160ms var(--evsc-spring),
+            background 160ms ease, border-color 160ms ease;
         }
 
         .stepper-button {
-          padding: 12px 14px;
-          font-weight: 700;
-          min-width: 56px;
+          padding: 10px 12px;
+          min-width: 44px;
+          font-size: 1rem;
         }
 
         .stepper-button:hover,
         .profile-chip:hover {
-          transform: translateY(-1px);
-          background: rgba(255, 255, 255, 0.13);
+          background: color-mix(in srgb, var(--evsc-sys-blue) 12%, var(--evsc-surface-strong));
+          border-color: color-mix(in srgb, var(--evsc-sys-blue) 30%, var(--evsc-stroke));
+        }
+
+        .stepper-button:active,
+        .profile-chip:active,
+        .day-cell:active,
+        .day-soc-cell:active {
+          transform: scale(0.96);
         }
 
         .stepper-value,
@@ -1483,40 +1762,46 @@ class EvSmartChargerDashboard extends HTMLElement {
           align-items: baseline;
           justify-content: center;
           gap: 6px;
-          min-height: 48px;
+          min-height: 44px;
           padding: 0 14px;
-          border-radius: 16px;
-          background: rgba(255, 255, 255, 0.05);
-          font-weight: 800;
-          font-size: 1.15rem;
+          border-radius: 14px;
+          background: var(--evsc-surface-strong);
+          border: 1px solid var(--evsc-stroke);
+          font-weight: 700;
+          font-size: 1.1rem;
           letter-spacing: -0.02em;
+          color: var(--evsc-fg);
         }
 
         .stepper-value small {
-          color: rgba(214, 221, 255, 0.68);
+          color: var(--evsc-fg-mid);
           font-size: 0.8rem;
-          font-weight: 600;
+          font-weight: 500;
         }
 
         .profile-row {
           display: flex;
           flex-wrap: wrap;
-          gap: 10px;
+          gap: 8px;
         }
 
         .profile-chip {
-          padding: 10px 14px;
+          padding: 9px 14px;
           text-transform: capitalize;
+          font-size: 0.92rem;
+          border-radius: var(--evsc-radius-pill);
         }
 
         .profile-chip.selected {
-          background: linear-gradient(135deg, rgba(18, 203, 255, 0.35), rgba(130, 92, 255, 0.3));
-          box-shadow: 0 10px 24px rgba(34, 132, 255, 0.18);
+          background: var(--evsc-sys-blue);
+          color: #ffffff;
+          border-color: var(--evsc-sys-blue);
+          box-shadow: 0 4px 16px color-mix(in srgb, var(--evsc-sys-blue) 35%, transparent);
         }
 
-        /* Weekly grid (Car Ready) */
+        /* ---------- Weekly Day Grid (Car Ready) ---------- */
         .weekly-grid {
-          padding: 16px;
+          padding: 14px;
           display: grid;
           gap: 12px;
         }
@@ -1528,55 +1813,56 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
 
         .day-cell {
-          padding: 10px 4px;
-          border-radius: 12px;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          background: rgba(8, 12, 24, 0.7);
-          color: rgba(225, 232, 255, 0.84);
+          padding: 12px 4px;
+          border-radius: 16px;
+          border: 1px solid var(--evsc-stroke);
+          background: var(--evsc-surface-strong);
+          color: var(--evsc-fg-mid);
           cursor: pointer;
           display: grid;
           gap: 6px;
           justify-items: center;
           font: inherit;
-          transition: all 0.15s ease;
+          transition: all 200ms var(--evsc-spring);
         }
 
         .day-cell:hover {
-          background: rgba(16, 22, 40, 0.95);
-          border-color: rgba(170, 200, 255, 0.32);
+          border-color: var(--evsc-stroke-strong);
+          color: var(--evsc-fg);
         }
 
         .day-cell.is-on {
-          background: linear-gradient(135deg, rgba(157, 92, 255, 0.34), rgba(122, 58, 255, 0.18));
-          border-color: rgba(157, 92, 255, 0.55);
-          color: #fff;
+          background: var(--evsc-sys-green);
+          border-color: var(--evsc-sys-green);
+          color: #ffffff;
+          box-shadow: 0 4px 14px color-mix(in srgb, var(--evsc-sys-green) 35%, transparent);
         }
 
         .day-initial,
         .day-initial-sm {
           font-weight: 600;
-          letter-spacing: 0.05em;
+          letter-spacing: 0.04em;
         }
 
         .day-initial { font-size: 0.95rem; }
         .day-initial-sm { font-size: 0.78rem; opacity: 0.78; }
 
         .day-dot {
-          width: 8px;
-          height: 8px;
+          width: 6px;
+          height: 6px;
           border-radius: 50%;
-          background: rgba(120, 130, 150, 0.4);
-          transition: background 0.15s ease;
+          background: color-mix(in srgb, var(--evsc-fg-low) 60%, transparent);
+          transition: background 200ms var(--evsc-spring);
         }
 
-        .day-dot.is-on {
-          background: #56ec86;
-          box-shadow: 0 0 10px rgba(86, 236, 134, 0.6);
+        .day-cell.is-on .day-dot {
+          background: rgba(255, 255, 255, 0.95);
+          box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
         }
 
-        /* Daily SOC grid */
+        /* ---------- Daily SOC stepper grid ---------- */
         .daily-soc {
-          padding: 16px;
+          padding: 14px;
           display: grid;
           gap: 12px;
         }
@@ -1588,10 +1874,10 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
 
         .day-soc-cell {
-          padding: 8px 4px;
-          border-radius: 10px;
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          background: rgba(8, 12, 24, 0.55);
+          padding: 10px 4px;
+          border-radius: 14px;
+          border: 1px solid var(--evsc-stroke);
+          background: var(--evsc-surface-strong);
           display: grid;
           gap: 6px;
           justify-items: center;
@@ -1608,28 +1894,32 @@ class EvSmartChargerDashboard extends HTMLElement {
           height: 22px;
           padding: 0;
           border-radius: 50%;
-          border: 1px solid rgba(170, 200, 255, 0.18);
-          background: rgba(16, 22, 40, 0.85);
-          color: #fff;
+          border: 1px solid var(--evsc-stroke);
+          background: var(--evsc-surface);
+          color: var(--evsc-fg);
           cursor: pointer;
           font-size: 0.8rem;
+          font-weight: 700;
           line-height: 1;
+          transition: all 150ms var(--evsc-spring);
         }
 
         .micro-stepper:hover {
-          background: rgba(34, 132, 255, 0.18);
-          border-color: rgba(34, 132, 255, 0.42);
+          background: var(--evsc-sys-blue);
+          color: #ffffff;
+          border-color: var(--evsc-sys-blue);
         }
 
         .day-soc-value {
           min-width: 38px;
           text-align: center;
-          font-size: 0.78rem;
+          font-size: 0.82rem;
           font-variant-numeric: tabular-nums;
-          color: rgba(245, 247, 255, 0.92);
+          font-weight: 600;
+          color: var(--evsc-fg);
         }
 
-        /* Info card (read-only display, e.g. log file path) */
+        /* ---------- Info card (read-only) ---------- */
         .info-card {
           padding: 16px;
           display: grid;
@@ -1639,60 +1929,124 @@ class EvSmartChargerDashboard extends HTMLElement {
         .info-value {
           font-family: ui-monospace, "SF Mono", Menlo, monospace;
           font-size: 0.78rem;
-          color: rgba(225, 232, 255, 0.88);
+          color: var(--evsc-fg);
           word-break: break-all;
-          padding: 8px 10px;
-          border-radius: 10px;
-          background: rgba(8, 12, 24, 0.65);
-          border: 1px solid rgba(255, 255, 255, 0.04);
+          padding: 10px 12px;
+          border-radius: 12px;
+          background: var(--evsc-surface-strong);
+          border: 1px solid var(--evsc-stroke);
         }
 
+        /* ---------- Diagnostics ---------- */
         .diagnostic-panel {
           display: grid;
-          gap: 16px;
+          gap: 14px;
           grid-template-columns: 1fr;
         }
 
         .diag-card p {
           margin: 0;
-          color: rgba(225, 232, 255, 0.84);
-          line-height: 1.55;
+          color: var(--evsc-fg-mid);
+          line-height: 1.5;
           white-space: pre-wrap;
         }
 
         .boot-state,
         .muted {
           padding: 24px;
-          color: rgba(225, 232, 255, 0.72);
+          color: var(--evsc-fg-mid);
+          font-size: 0.95rem;
         }
 
-        .tone-cyan { box-shadow: inset 0 0 0 1px rgba(0, 224, 255, 0.05); }
-        .tone-violet { box-shadow: inset 0 0 0 1px rgba(157, 92, 255, 0.05); }
-        .tone-lime { box-shadow: inset 0 0 0 1px rgba(86, 236, 134, 0.05); }
-        .tone-rose { box-shadow: inset 0 0 0 1px rgba(255, 88, 133, 0.05); }
-        .tone-amber { box-shadow: inset 0 0 0 1px rgba(255, 188, 40, 0.05); }
-        .tone-teal { box-shadow: inset 0 0 0 1px rgba(22, 228, 194, 0.05); }
+        /* Tonal accents — pre-assigned to each hero metric via tone-* class */
+        .tone-cyan   { --evsc-tone: var(--evsc-sys-cyan);   color: var(--evsc-sys-cyan); }
+        .tone-violet { --evsc-tone: var(--evsc-sys-purple); color: var(--evsc-sys-purple); }
+        .tone-lime   { --evsc-tone: var(--evsc-sys-green);  color: var(--evsc-sys-green); }
+        .tone-rose   { --evsc-tone: var(--evsc-sys-pink);   color: var(--evsc-sys-pink); }
+        .tone-amber  { --evsc-tone: var(--evsc-sys-orange); color: var(--evsc-sys-orange); }
+        .tone-teal   { --evsc-tone: var(--evsc-sys-teal);   color: var(--evsc-sys-teal); }
 
-        @keyframes floatGlow {
-          0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-          50% { transform: translate3d(0, -10px, 0) scale(1.04); }
+        /* Priority state pill */
+        .priority-pill {
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 6px 12px;
+          border-radius: var(--evsc-radius-pill);
+          font-size: 0.85rem; font-weight: 600;
+          background: var(--evsc-surface-strong);
+          border: 1px solid var(--evsc-stroke);
+          color: var(--evsc-fg);
+        }
+        .priority-pill::before {
+          content: ""; width: 8px; height: 8px; border-radius: 50%;
+          background: currentColor;
+          box-shadow: 0 0 8px currentColor;
+        }
+        .priority-pill.state-ev      { color: var(--evsc-sys-green);  }
+        .priority-pill.state-home    { color: var(--evsc-sys-blue);   }
+        .priority-pill.state-ev_free { color: var(--evsc-sys-purple); }
+
+        /* Charging indicator with pulse */
+        @keyframes evsc-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50%      { opacity: 0.55; transform: scale(0.85); }
+        }
+        .charging-pulse {
+          display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+          background: var(--evsc-sys-green);
+          box-shadow: 0 0 12px var(--evsc-sys-green);
+          animation: evsc-pulse 1.4s ease-in-out infinite;
+          margin-right: 6px;
+          vertical-align: middle;
         }
 
+        /* Section entrance animation */
+        @keyframes evsc-fade-in {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .hero-card,
+        .spotlight-panel,
+        .module-panel,
+        .diagnostic-panel > * {
+          animation: evsc-fade-in 500ms var(--evsc-spring) backwards;
+        }
+        .hero-card { animation-delay: 40ms; }
+        .spotlight-panel { animation-delay: 100ms; }
+        .module-grid .module-panel:nth-child(1) { animation-delay: 160ms; }
+        .module-grid .module-panel:nth-child(2) { animation-delay: 200ms; }
+        .module-grid .module-panel:nth-child(3) { animation-delay: 240ms; }
+        .module-grid .module-panel:nth-child(4) { animation-delay: 280ms; }
+        .module-grid .module-panel:nth-child(5) { animation-delay: 320ms; }
+        .module-grid .module-panel:nth-child(n+6) { animation-delay: 360ms; }
+        .diagnostic-panel > *:nth-child(2) { animation-delay: 80ms; }
+        .diagnostic-panel > *:nth-child(3) { animation-delay: 120ms; }
+
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+          *, *::before, *::after {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+
+        /* Responsive */
         @media (max-width: 980px) {
-          .hero-card,
+          .hero-card { grid-template-columns: 1fr; }
           .spotlight-panel,
           .module-grid,
           .diagnostic-panel {
             grid-template-columns: 1fr;
           }
+          .hero-ring { width: 180px; height: 180px; }
+          .dashboard-shell { padding: 16px; }
+        }
 
-          .dashboard-shell {
-            padding: 18px;
-          }
-
-          .hero-grid {
-            grid-template-columns: 1fr;
-          }
+        @media (max-width: 540px) {
+          .hero-card { padding: 18px 18px; }
+          .module-panel { padding: 18px 18px; }
+          .spotlight-main { padding: 18px 18px; }
+          .hero-ring { width: 160px; height: 160px; }
+          .hero-ring-center .ring-headline { font-size: 1.8rem; }
         }
       </style>
     `;

@@ -11,6 +11,7 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_BATTERY_CAPACITY,
     CONF_CAR_OWNER,
+    CONF_CREATE_DASHBOARD,
     CONF_ENERGY_FORECAST_TARGET,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
@@ -23,6 +24,7 @@ from .const import (
     CONF_SOC_CAR,
     CONF_SOC_HOME,
     DEFAULT_BATTERY_CAPACITY,
+    DEFAULT_CREATE_DASHBOARD,
     DEFAULT_NAME,
     DOMAIN,
     MAX_BATTERY_CAPACITY,
@@ -201,6 +203,20 @@ def _external_connectors_schema(current_data: dict[str, Any] | None = None) -> v
     )
 
 
+def _dashboard_schema(current_data: dict[str, Any] | None = None) -> vol.Schema:
+    """Build the auto-generated dashboard schema (v1.9.0+)."""
+    current_data = current_data or {}
+    current_value = current_data.get(CONF_CREATE_DASHBOARD, DEFAULT_CREATE_DASHBOARD)
+    return vol.Schema(
+        {
+            vol.Optional(
+                CONF_CREATE_DASHBOARD,
+                default=current_value,
+            ): selector.BooleanSelector(),
+        }
+    )
+
+
 class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle the EV Smart Charger config flow."""
 
@@ -213,6 +229,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.sensor_info: dict[str, Any] = {}
         self.pv_forecast_info: dict[str, Any] = {}
         self.notifications_info: dict[str, Any] = {}
+        self.external_info: dict[str, Any] = {}
         self._reconfigure_entry = None
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
@@ -225,7 +242,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=vol.Schema({vol.Optional(CONF_NAME, default=DEFAULT_NAME): str}),
             errors={},
-            description_placeholders={"step": "1", "total_steps": "6"},
+            description_placeholders={"step": "1", "total_steps": "7"},
         )
 
     async def async_step_entities(self, user_input: dict[str, Any] | None = None):
@@ -242,7 +259,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="entities",
             data_schema=_charger_schema(),
             errors=errors,
-            description_placeholders={"step": "2", "total_steps": "6"},
+            description_placeholders={"step": "2", "total_steps": "7"},
         )
 
     async def async_step_sensors(self, user_input: dict[str, Any] | None = None):
@@ -255,7 +272,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="sensors",
             data_schema=_sensor_schema(),
             errors={},
-            description_placeholders={"step": "3", "total_steps": "6"},
+            description_placeholders={"step": "3", "total_steps": "7"},
         )
 
     async def async_step_pv_forecast(self, user_input: dict[str, Any] | None = None):
@@ -268,7 +285,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="pv_forecast",
             data_schema=_pv_forecast_schema(),
             errors={},
-            description_placeholders={"step": "4", "total_steps": "6"},
+            description_placeholders={"step": "4", "total_steps": "7"},
         )
 
     async def async_step_notifications(self, user_input: dict[str, Any] | None = None):
@@ -281,7 +298,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="notifications",
             data_schema=_notifications_schema(self.hass),
             errors={},
-            description_placeholders={"step": "5", "total_steps": "6"},
+            description_placeholders={"step": "5", "total_steps": "7"},
         )
 
     async def async_step_external_connectors(self, user_input: dict[str, Any] | None = None):
@@ -291,23 +308,37 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             errors = _validate_external_connectors(self.hass, user_input)
             if not errors:
-                data = _merge_entry_data(
-                    {},
-                    self.init_info,
-                    self.charger_info,
-                    self.sensor_info,
-                    self.pv_forecast_info,
-                    self.notifications_info,
-                    user_input,
-                )
-                title = self.init_info.get(CONF_NAME, DEFAULT_NAME)
-                return self.async_create_entry(title=title, data=data)
+                self.external_info = user_input
+                return await self.async_step_dashboard()
 
         return self.async_show_form(
             step_id="external_connectors",
             data_schema=_external_connectors_schema(),
             errors=errors,
-            description_placeholders={"step": "6", "total_steps": "6"},
+            description_placeholders={"step": "6", "total_steps": "7"},
+        )
+
+    async def async_step_dashboard(self, user_input: dict[str, Any] | None = None):
+        """Final step: auto-generate the Lovelace dashboard (v1.9.0+)."""
+        if user_input is not None:
+            data = _merge_entry_data(
+                {},
+                self.init_info,
+                self.charger_info,
+                self.sensor_info,
+                self.pv_forecast_info,
+                self.notifications_info,
+                self.external_info,
+                user_input,
+            )
+            title = self.init_info.get(CONF_NAME, DEFAULT_NAME)
+            return self.async_create_entry(title=title, data=data)
+
+        return self.async_show_form(
+            step_id="dashboard",
+            data_schema=_dashboard_schema(),
+            errors={},
+            description_placeholders={"step": "7", "total_steps": "7"},
         )
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
@@ -332,7 +363,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=_charger_schema(self._reconfigure_entry.data),
             errors={},
-            description_placeholders={"step": "1", "total_steps": "5"},
+            description_placeholders={"step": "1", "total_steps": "6"},
         )
 
     async def async_step_reconfigure_sensors(self, user_input: dict[str, Any] | None = None):
@@ -345,7 +376,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure_sensors",
             data_schema=_sensor_schema(self._reconfigure_entry.data),
             errors={},
-            description_placeholders={"step": "2", "total_steps": "5"},
+            description_placeholders={"step": "2", "total_steps": "6"},
         )
 
     async def async_step_reconfigure_pv_forecast(self, user_input: dict[str, Any] | None = None):
@@ -358,7 +389,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure_pv_forecast",
             data_schema=_pv_forecast_schema(self._reconfigure_entry.data),
             errors={},
-            description_placeholders={"step": "3", "total_steps": "5"},
+            description_placeholders={"step": "3", "total_steps": "6"},
         )
 
     async def async_step_reconfigure_notifications(self, user_input: dict[str, Any] | None = None):
@@ -371,7 +402,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure_notifications",
             data_schema=_notifications_schema(self.hass, self._reconfigure_entry.data),
             errors={},
-            description_placeholders={"step": "4", "total_steps": "5"},
+            description_placeholders={"step": "4", "total_steps": "6"},
         )
 
     async def async_step_reconfigure_external_connectors(
@@ -384,26 +415,42 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             errors = _validate_external_connectors(self.hass, user_input)
             if not errors:
-                updated_data = _merge_entry_data(
-                    self._reconfigure_entry.data,
-                    self.charger_info,
-                    self.sensor_info,
-                    self.pv_forecast_info,
-                    self.notifications_info,
-                    user_input,
-                )
-                self.hass.config_entries.async_update_entry(
-                    self._reconfigure_entry,
-                    data=updated_data,
-                    unique_id=updated_data[CONF_EV_CHARGER_SWITCH],
-                )
-                return self.async_abort(reason="reconfigure_successful")
+                self.external_info = user_input
+                return await self.async_step_reconfigure_dashboard()
 
         return self.async_show_form(
             step_id="reconfigure_external_connectors",
             data_schema=_external_connectors_schema(self._reconfigure_entry.data),
             errors=errors,
-            description_placeholders={"step": "5", "total_steps": "5"},
+            description_placeholders={"step": "5", "total_steps": "6"},
+        )
+
+    async def async_step_reconfigure_dashboard(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Final step of reconfigure: auto-generated dashboard toggle."""
+        if user_input is not None:
+            updated_data = _merge_entry_data(
+                self._reconfigure_entry.data,
+                self.charger_info,
+                self.sensor_info,
+                self.pv_forecast_info,
+                self.notifications_info,
+                self.external_info,
+                user_input,
+            )
+            self.hass.config_entries.async_update_entry(
+                self._reconfigure_entry,
+                data=updated_data,
+                unique_id=updated_data[CONF_EV_CHARGER_SWITCH],
+            )
+            return self.async_abort(reason="reconfigure_successful")
+
+        return self.async_show_form(
+            step_id="reconfigure_dashboard",
+            data_schema=_dashboard_schema(self._reconfigure_entry.data),
+            errors={},
+            description_placeholders={"step": "6", "total_steps": "6"},
         )
 
     def _get_mobile_notify_services(self) -> list[str]:
@@ -427,6 +474,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         self.sensor_info: dict[str, Any] = {}
         self.pv_forecast_info: dict[str, Any] = {}
         self.notifications_info: dict[str, Any] = {}
+        self.external_info: dict[str, Any] = {}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         """Manage charger entities options."""
@@ -443,7 +491,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="init",
             data_schema=_charger_schema(self.config_entry.data),
-            description_placeholders={"step": "1", "total_steps": "5"},
+            description_placeholders={"step": "1", "total_steps": "6"},
         )
 
     async def async_step_sensors(self, user_input: dict[str, Any] | None = None):
@@ -455,7 +503,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="sensors",
             data_schema=_sensor_schema(self.config_entry.data),
-            description_placeholders={"step": "2", "total_steps": "5"},
+            description_placeholders={"step": "2", "total_steps": "6"},
         )
 
     async def async_step_pv_forecast(self, user_input: dict[str, Any] | None = None):
@@ -467,7 +515,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="pv_forecast",
             data_schema=_pv_forecast_schema(self.config_entry.data),
-            description_placeholders={"step": "3", "total_steps": "5"},
+            description_placeholders={"step": "3", "total_steps": "6"},
         )
 
     async def async_step_notifications(self, user_input: dict[str, Any] | None = None):
@@ -479,7 +527,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="notifications",
             data_schema=_notifications_schema(self.hass, self.config_entry.data),
-            description_placeholders={"step": "4", "total_steps": "5"},
+            description_placeholders={"step": "4", "total_steps": "6"},
         )
 
     async def async_step_external_connectors(self, user_input: dict[str, Any] | None = None):
@@ -489,26 +537,39 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         if user_input is not None:
             errors = _validate_external_connectors(self.hass, user_input)
             if not errors:
-                updated_data = _merge_entry_data(
-                    self.config_entry.data,
-                    self.charger_info,
-                    self.sensor_info,
-                    self.pv_forecast_info,
-                    self.notifications_info,
-                    user_input,
-                )
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry,
-                    data=updated_data,
-                    unique_id=updated_data[CONF_EV_CHARGER_SWITCH],
-                )
-                return self.async_create_entry(title="", data={})
+                self.external_info = user_input
+                return await self.async_step_dashboard()
 
         return self.async_show_form(
             step_id="external_connectors",
             data_schema=_external_connectors_schema(self.config_entry.data),
             errors=errors,
-            description_placeholders={"step": "5", "total_steps": "5"},
+            description_placeholders={"step": "5", "total_steps": "6"},
+        )
+
+    async def async_step_dashboard(self, user_input: dict[str, Any] | None = None):
+        """Final options step: auto-generated dashboard toggle."""
+        if user_input is not None:
+            updated_data = _merge_entry_data(
+                self.config_entry.data,
+                self.charger_info,
+                self.sensor_info,
+                self.pv_forecast_info,
+                self.notifications_info,
+                self.external_info,
+                user_input,
+            )
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=updated_data,
+                unique_id=updated_data[CONF_EV_CHARGER_SWITCH],
+            )
+            return self.async_create_entry(title="", data={})
+
+        return self.async_show_form(
+            step_id="dashboard",
+            data_schema=_dashboard_schema(self.config_entry.data),
+            description_placeholders={"step": "6", "total_steps": "6"},
         )
 
     def _get_mobile_notify_services(self) -> list[str]:
