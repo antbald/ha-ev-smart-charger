@@ -448,9 +448,12 @@ const FRONTEND_LOCALES = {
       "Single-column EV charging control with native Home Assistant service calls, stacked modules, and live operational telemetry.",
     "metric.charging_power": "Charging Power",
     "metric.live_power": "Live power",
-    "metric.ev_soc": "EV State Of Charge",
+    "metric.ev_soc": "EV",
     "metric.vehicle_battery": "Vehicle battery",
     "metric.home_battery": "Home Battery",
+    "charging_state.fully_charged": "Fully Charged",
+    "charging_state.not_charging": "Not Charging",
+    "charging_state.waiting": "Waiting",
     "metric.storage_reserve": "Storage reserve",
     "metric.grid_import": "Grid Import",
     "metric.import_threshold": "Import threshold",
@@ -586,7 +589,10 @@ const FRONTEND_LOCALES = {
       "Controllo ricarica EV a colonna singola con chiamate servizio native di Home Assistant, moduli sovrapposti e telemetria operativa live.",
     "metric.charging_power": "Potenza di ricarica",
     "metric.live_power": "Potenza live",
-    "metric.ev_soc": "Stato di carica EV",
+    "metric.ev_soc": "EV",
+    "charging_state.fully_charged": "Completamente carica",
+    "charging_state.not_charging": "Non in carica",
+    "charging_state.waiting": "In attesa",
     "metric.vehicle_battery": "Batteria veicolo",
     "metric.home_battery": "Batteria domestica",
     "metric.storage_reserve": "Riserva accumulo",
@@ -724,7 +730,10 @@ const FRONTEND_LOCALES = {
       "Enkelkoloms EV-laadbediening met native Home Assistant-serviceaanroepen, gestapelde modules en live operationele telemetrie.",
     "metric.charging_power": "Laadvermogen",
     "metric.live_power": "Live vermogen",
-    "metric.ev_soc": "EV-laadstatus",
+    "metric.ev_soc": "EV",
+    "charging_state.fully_charged": "Volledig opgeladen",
+    "charging_state.not_charging": "Niet aan het laden",
+    "charging_state.waiting": "Wachten",
     "metric.vehicle_battery": "Voertuigbatterij",
     "metric.home_battery": "Thuisbatterij",
     "metric.storage_reserve": "Opslagreserve",
@@ -1840,7 +1849,23 @@ class EvSmartChargerDashboard extends HTMLElement {
     const cachedEvSoc = this._integrationState("cachedEvSoc");
     const logFilePath = this._integrationState("logFilePath");
 
-    const chargingPower = this._displayValue(this._config.charging_power_entity, this._t("fallback.live_feed_optional"));
+    // v1.10.1: charging power label is conditional on charger status.
+    //   charger_free  → "Not Charging"     (cable unplugged)
+    //   charger_end   → "Fully Charged"    (session completed at 100%)
+    //   charger_wait  → "Waiting"          (plugged, waiting for trigger)
+    //   charger_charging → live kW reading (fall through to _displayValue)
+    //   anything else → fall through (sensor unavailable etc.)
+    const _chargerStatusState = this._stateObj(this._config.charger_status_entity)?.state;
+    let chargingPower;
+    if (_chargerStatusState === "charger_free") {
+      chargingPower = this._t("charging_state.not_charging");
+    } else if (_chargerStatusState === "charger_end") {
+      chargingPower = this._t("charging_state.fully_charged");
+    } else if (_chargerStatusState === "charger_wait") {
+      chargingPower = this._t("charging_state.waiting");
+    } else {
+      chargingPower = this._displayValue(this._config.charging_power_entity, this._t("fallback.live_feed_optional"));
+    }
     const evSoc = this._displayValue(this._config.ev_soc_entity, this._t("fallback.ev_soc_entity"));
     const homeBatterySoc = this._displayValue(
       this._config.home_battery_soc_entity,
@@ -2834,6 +2859,37 @@ class EvSmartChargerDashboard extends HTMLElement {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           gap: 10px;
+        }
+
+        /* v1.10.1: center the metric-card content for visual symmetry.
+           The legacy .metric-card uses left-aligned text; in the new dashboard
+           grid we want the eyebrow / value / sublabel stacked and centered. */
+        .evsc-metric-row .metric-card {
+          text-align: center;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+        }
+        .evsc-metric-row .metric-card .eyebrow,
+        .evsc-metric-row .metric-card .metric-sub,
+        .evsc-metric-row .metric-card strong {
+          display: block;
+          width: 100%;
+        }
+
+        /* v1.10.1: hero ring center — vertical balance.
+           When the small "EV" sub label is short, the SOC percentage can
+           appear slightly above the visual center. Adding a touch of bottom
+           offset to ring-headline restores the optical centroid. */
+        .evsc-hero-v2 .hero-ring-center {
+          padding-bottom: 6px;
+        }
+        .evsc-hero-v2 .hero-ring-center .ring-sub {
+          margin-top: 2px;
+          letter-spacing: 0.16em;
+          opacity: 0.65;
         }
 
         /* Weekly Planner card */
