@@ -1,40 +1,117 @@
-# EV Smart Charger
+<div align="center">
 
-[![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger)](https://github.com/antbald/ha-ev-smart-charger/releases)
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.4%2B-blue)](https://www.home-assistant.io/)
-[![Code owner](https://img.shields.io/badge/maintainer-%40antbald-blue)](https://github.com/antbald)
+# ⚡ EV Smart Charger
 
-**Intelligent EV charging orchestration for Home Assistant.**
+### Intelligent EV charging orchestration for Home Assistant
 
-This custom integration maximises solar self-consumption by charging your EV with surplus PV energy, balances daily SOC targets between the car and a home battery, automates overnight charging driven by tomorrow's forecast, and protects the system from unsafe or unwanted charger activations.
+Maximise solar self-consumption · balance EV vs home battery · automate overnight charging · ride curtailment on zero-export inverters — all from a single Liquid Glass dashboard.
 
-## Preview
+[![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger?style=for-the-badge&logo=github&color=007AFF)](https://github.com/antbald/ha-ev-smart-charger/releases)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-FF6F00?style=for-the-badge&logo=home-assistant&logoColor=white)](https://github.com/custom-components/hacs)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.4+-41BDF5?style=for-the-badge&logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-34C759?style=for-the-badge)](LICENSE)
+[![Maintainer](https://img.shields.io/badge/maintainer-%40antbald-AF52DE?style=for-the-badge&logo=github)](https://github.com/antbald)
 
-| Dashboard — operational view | Settings — configuration accordion |
-|---|---|
-| ![Dashboard preview](docs/screenshots/dashboard.png) | ![Settings preview](docs/screenshots/settings.png) |
+<br/>
 
-The bundled Lovelace card is split into two views (**v1.10.0**): on the left, an operational dashboard with hero SOC ring, override + boost, weekly planner and a bento-style Night Smart Charge card. On the right, a settings page where every automation parameter is grouped under an expandable accordion with multilingual descriptions (EN / IT / NL, picked automatically from your Home Assistant profile language).
+![EV Smart Charger Dashboard](docs/screenshots/dashboard.png)
 
-**Key features at a glance:**
+<sub>The auto-generated Lovelace dashboard, rendered in Liquid Glass iOS 18 style — auto-detects light / dark mode and your HA profile language.</sub>
 
-- **Split-view dashboard** (v1.10.0+) — Dashboard and Settings tabs, accordion-grouped parameters with multilingual descriptions, system-detected language (no manual picker).
-- **Auto-generated Liquid Glass dashboard** (v1.9.0+) — a sidebar dashboard with every entity pre-mapped appears the moment you finish setup. iOS 18 visual language, dual-ring SOC, zero YAML.
-- Solar Surplus charging with dynamic amperage control (`6–32 A`) and a per-wallbox ceiling
-- Priority Balancer — daily EV vs home battery SOC targets, automatically resolved
-- Night Smart Charge — overnight charging from home battery or grid based on PV forecast
-- Boost Charge — immediate high-priority session with automatic SOC stop, manual or scheduled
-- Smart Charger Blocker — blocks charging outside your allowed window
-- Cached EV SOC — reliable fallback for cloud-based car integrations
-- Built-in diagnostic sensors, file logging, and trace logging
+</div>
+
+---
+
+## ✨ Why this integration?
+
+Most "smart charging" integrations stop at "use solar surplus". This one orchestrates a complete strategy:
+
+- 🌞 **Solar Surplus** — dynamic amperage control (6 → 32 A) with grid-import protection, surplus-drop hysteresis and a per-wallbox ceiling.
+- ⚖️ **Priority Balancer** — daily SOC targets per day-of-week for both EV *and* home battery, automatically arbitrated. EV at 50% on weekdays, 80% on weekends? Done.
+- 🌙 **Night Smart Charge** — overnight session driven by *tomorrow's* PV forecast. Battery mode if forecast is good, grid fallback otherwise, skipped entirely on days you don't need the car.
+- ⚡ **Boost Charge** — manual or scheduled high-priority session with automatic SOC stop.
+- 🛡️ **Smart Charger Blocker** — prevents charging outside your allowed window (sunset → night-charge time, or sunset → sunrise).
+- ⚡ **Hybrid Inverter Mode** *(v1.8.0+)* — empirically probes for hidden PV capacity in zero-export hybrid systems (Deye, Sunsynk, Solis, Growatt, Goodwe…). Solves [issue #20](https://github.com/antbald/ha-ev-smart-charger/issues/20).
+- 💾 **Cached EV SOC** — reliable fallback for flaky cloud-based car integrations.
+
+> **🎉 New in v1.10.0** — The bundled dashboard now splits into **Dashboard** (operational) and **Settings** (configuration) tabs. Every parameter is grouped under an expandable category with a full multilingual description (EN / IT / NL, picked from your HA profile automatically). [Jump to the preview ↓](#-preview)
+
+---
+
+## 📸 Preview
+
+The integration auto-generates a Liquid Glass Lovelace dashboard on first setup. No resource registration, no YAML, no entity mapping. Two tabs at the top split operational controls from configuration knobs.
+
+<table>
+<tr>
+<td width="50%" align="center"><strong>Dashboard tab — operational</strong></td>
+<td width="50%" align="center"><strong>Settings tab — configuration</strong></td>
+</tr>
+<tr>
+<td>
+
+![Dashboard view](docs/screenshots/dashboard.png)
+
+</td>
+<td>
+
+![Settings view](docs/screenshots/settings.png)
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+Hero ring with dual concentric arcs (EV outer, home battery inner). Live charging pill below the ring shows amperage + power. Priority engine state, live metrics (solar / grid / current / power), Override + Boost stack, 7-day Weekly Planner with per-day EV + Home SOC targets and Car Ready toggles, bento-style Night Smart Charge card, Charging Profile chips.
+
+</td>
+<td valign="top">
+
+Seven expandable categories with gradient icons: ☀ Solar Surplus, 🌙 Night Smart Charge, 🔋 Home Battery Support, ⚡ Hybrid Inverter, ⏱ Boost Schedule, 🔔 Notifications, 📊 Logging. Click a category to expand inline; each parameter shows title, entity key, description, and default/range — all in the language detected from your Home Assistant profile.
+
+</td>
+</tr>
+</table>
+
+<details>
+<summary><strong>🎨 Visual language — Liquid Glass iOS 18</strong></summary>
+
+- **Activity-style dual SOC ring** — outer arc tracks EV SOC, inner arc tracks home battery SOC (hidden in PV-only mode). Center shows EV percentage with an `EV` label inside; a dedicated **CHARGING · 16 A · 3.68 kW** pill appears below the ring when a session is active.
+- **Liquid Glass surfaces** — every card uses `backdrop-filter: saturate(180%) blur(40px)` over a layered aurora background.
+- **Apple System Colors** throughout — system green for EV SOC, system blue for selected profile, system purple for home battery and `EV_Free` priority state.
+- **iOS-spec toggles** (51 × 31 px pill, 27 px thumb) with 280 ms spring transitions.
+- **SF Pro typography stack** with tabular numerals on metric values.
+- **Native dark / light mode** — switches automatically via `prefers-color-scheme`.
+- **Accessible motion** — respects `prefers-reduced-motion`.
+
+</details>
+
+---
+
+## 🚀 Quick start
+
+```text
+HACS → Integrations → ⋮ → Custom repositories
+URL:  https://github.com/antbald/ha-ev-smart-charger
+Type: Integration
+
+→ Install · Restart Home Assistant
+→ Settings · Devices & Services · Add Integration · "EV Smart Charger"
+→ Walk through the 7-step config wizard
+→ Done — the EV Smart Charger dashboard appears in your sidebar
+```
+
+The wizard asks for your wallbox switch, current entity, status entity, SOC sensors (EV + optional home battery), solar production, grid import, home consumption, and a PV-forecast sensor. Everything else (~60 helper entities, the dashboard, the priority engine) is generated automatically.
+
+[📖 Full installation guide →](#installation) · [⚙️ Configuration wizard →](#configuration) · [🧠 How it works →](#how-it-works)
 
 ---
 
 ## Table of Contents
 
-- [Preview](#preview)
+- [✨ Why this integration?](#-why-this-integration)
+- [📸 Preview](#-preview)
+- [🚀 Quick start](#-quick-start)
 - [How It Works](#how-it-works)
   - [Automation Priority System](#automation-priority-system)
 - [Requirements](#requirements)
