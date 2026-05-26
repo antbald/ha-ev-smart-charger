@@ -756,6 +756,58 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.9.0 (2026-05-26)
+**FEATURE: Auto-generated Liquid Glass dashboard — zero-config sidebar UI**
+
+**Problem solved**:
+Until v1.8.0 the bundled Lovelace card existed but the user had to manually register the resource, create a dashboard or view, paste the YAML, type the `entity_prefix` of the config entry (lowercased, ULID for new installs) and map every external sensor — 6+ entity IDs. Far from "ready-to-go".
+
+**Solution — ready-to-go bootstrap**:
+A new `dashboard_manager.py` provisions a dedicated panel-mode Lovelace dashboard on first setup. The integration:
+
+1. **Registers the Lovelace resource** (`/api/ev_smart_charger/frontend/ev-smart-charger-dashboard.js?v=1.9.0`) via the `ResourceStorageCollection` API. Idempotent: skipped if already present, updated on version bump.
+2. **Creates a storage-mode dashboard** at `url_path: ev-smart-charger`, with `mdi:ev-station` icon, shown in the sidebar as "EV Smart Charger". Uses the (non-public but stable since 2019) `hass.data["lovelace"]` collections with safe fallbacks for YAML-mode and missing-API cores — never blocks setup, just warns and degrades.
+3. **Writes the card config directly** into the Home Assistant `Store` (filename `lovelace.ev-smart-charger`, wrapped as `{"config": ...}` to match `LovelaceStorage`'s own format). The literal filename is used rather than `CONFIG_STORAGE_KEY.format(...)` — older HA cores use printf-style `'lovelace.%s'` and `.format()` would silently produce garbage.
+4. **Pre-populates every parameter**: `entity_prefix` is `ev_smart_charger_<entry_id.lower()>` (v1.6.23 lowercase rule), and all user-mapped sensors are pulled from `entry.data` (`CONF_SOC_CAR`, `CONF_SOC_HOME`, `CONF_FV_PRODUCTION`, `CONF_GRID_IMPORT`, `CONF_HOME_CONSUMPTION`, `CONF_EV_CHARGER_STATUS`, `CONF_EV_CHARGER_CURRENT`, `CONF_EV_CHARGER_SWITCH`, `CONF_PV_FORECAST`).
+
+**Opt-out**: new 7th step in the config flow (`dashboard`) plus a matching step in the reconfigure and options flows, with `vol.Optional(CONF_CREATE_DASHBOARD, default=True): BooleanSelector()`. Translations for EN/IT/NL.
+
+**Lifecycle**:
+- Phase 8.5 in `async_setup_entry` ensures or removes the dashboard based on the toggle. Multi-entry guard: when one entry disables the toggle, the dashboard is removed **only if** no other active entry still has it enabled.
+- `async_unload_entry` removes the dashboard **and the resource** only when this is the last active entry of the integration. Resource stays put if other entries remain.
+
+**Frontend redesign — Liquid Glass iOS 18**:
+Same module file (`frontend/ev-smart-charger-dashboard.js`), CSS rewritten end-to-end (~700 lines replaced), entity-binding JS logic kept intact.
+
+- **Apple System Colors** palette as CSS variables (`--evsc-sys-blue: #007aff`, `--evsc-sys-green: #34c759`, `--evsc-sys-purple: #af52de`, `--evsc-sys-pink: #ff2d55`, etc.).
+- **Native dark/light** via `@media (prefers-color-scheme: dark)` — no theme config required.
+- **Glass surfaces** with `backdrop-filter: saturate(180%) blur(40px)` over a layered aurora background (two soft accent blobs floating with 18s `floatGlow` animation).
+- **Dual concentric SOC ring SVG** (new `_renderHeroRing()` helper): outer arc = EV SOC (system green), inner arc = home battery SOC (system purple, hidden in PV-only mode), center shows live charging power with pulsing green dot when charging, otherwise EV %.
+- **Priority engine pill** (new `_renderPriorityPill()`): green for EV, blue for Home, purple for EV_Free, with `box-shadow` glow.
+- **iOS-spec toggles**: 51×31 pill with 27px thumb, 280 ms spring transition (`cubic-bezier(0.32, 0.72, 0, 1)`).
+- **SF Pro typography stack** with `font-feature-settings: "tnum"` on metric values.
+- **Staggered entrance animations** (`evsc-fade-in`, 500 ms each, increasing delays per panel).
+- **Accessibility**: `prefers-reduced-motion` neutralises all animations and transitions.
+
+**Files modified**:
+- **NEW**: [dashboard_manager.py](custom_components/ev_smart_charger/dashboard_manager.py) — `async_ensure_resource()`, `async_ensure_dashboard()`, `async_remove_dashboard()`, `async_remove_resource_if_unused()` with safe Lovelace-API wrappers
+- [const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.9.0"`, new `DASHBOARD_URL_PATH`, `DASHBOARD_TITLE`, `DASHBOARD_ICON`, `DASHBOARD_RESOURCE_KEY`, `CONF_CREATE_DASHBOARD`, `DEFAULT_CREATE_DASHBOARD = True`
+- [config_flow.py](custom_components/ev_smart_charger/config_flow.py): new `_dashboard_schema()`, new `async_step_dashboard()` in initial flow + new `async_step_reconfigure_dashboard()` in reconfigure flow + new `async_step_dashboard()` in options flow; total steps 6 → 7 (5 → 6 in reconfigure/options)
+- [__init__.py](custom_components/ev_smart_charger/__init__.py): new Phase 8.5 hooks `async_ensure_dashboard` / `async_remove_dashboard` with multi-entry guard; cleanup of resource on last-entry unload
+- [strings.json](custom_components/ev_smart_charger/strings.json), [translations/{en,it,nl}.json](custom_components/ev_smart_charger/translations): new `dashboard`, `reconfigure_dashboard` and options `dashboard` steps
+- [frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js): full CSS rewrite (~700 lines) + new `_numericState()`, `_renderHeroRing()` and `_renderPriorityPill()` helpers + hero layout restructured (ring left, copy+metrics right)
+- [frontend/README.md](custom_components/ev_smart_charger/frontend/README.md): rewritten for the auto-bootstrap flow + Liquid Glass design notes
+- [README.md](README.md): added auto-dashboard to the feature list, TOC entry, new Step 7 in the configuration wizard, rewritten Dashboard section as "Auto-generated Dashboard" + "Manual usage"
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version 1.9.0
+
+**Upgrade priority**: 🟢 RECOMMENDED — Existing users see the dashboard pop up in the sidebar on first reload after upgrade (the toggle defaults to True). The bundled card itself remains fully backward compatible: every existing manual `custom:ev-smart-charger-dashboard` card keeps rendering — only the look changes. Users who don't want the auto-dashboard can disable it from the integration's options at any time.
+
+**Known limitations**:
+- The Lovelace dashboards/resources collections (`hass.data["lovelace"]`) are not a public HA API. They have been stable since 2019 but could change without notice. All access is wrapped in defensive `try/except` blocks that log a warning and continue setup if the surface changes.
+- HA instances running Lovelace in YAML mode cannot have dashboards created programmatically. The integration logs a warning in this case; users can still register the card manually via the documented YAML snippet.
+
+---
+
 ### v1.6.23 (2026-05-16)
 **FIX: Invalid entity IDs containing uppercase characters (Issue #19)**
 

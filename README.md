@@ -12,6 +12,7 @@ This custom integration maximises solar self-consumption by charging your EV wit
 
 **Key features at a glance:**
 
+- **Auto-generated Liquid Glass dashboard** (v1.9.0+) — a sidebar dashboard with every entity pre-mapped appears the moment you finish setup. iOS 18 visual language, dual-ring SOC, zero YAML.
 - Solar Surplus charging with dynamic amperage control (`6–32 A`) and a per-wallbox ceiling
 - Priority Balancer — daily EV vs home battery SOC targets, automatically resolved
 - Night Smart Charge — overnight charging from home battery or grid based on PV forecast
@@ -19,7 +20,6 @@ This custom integration maximises solar self-consumption by charging your EV wit
 - Smart Charger Blocker — blocks charging outside your allowed window
 - Cached EV SOC — reliable fallback for cloud-based car integrations
 - Built-in diagnostic sensors, file logging, and trace logging
-- Bundled Lovelace dashboard module served directly by the integration
 
 ---
 
@@ -38,6 +38,7 @@ This custom integration maximises solar self-consumption by charging your EV wit
   - [Step 4 — PV Forecast](#step-4--pv-forecast)
   - [Step 5 — Notifications](#step-5--notifications)
   - [Step 6 — External Connectors](#step-6--external-connectors)
+  - [Step 7 — Auto-generated Dashboard](#step-7--auto-generated-dashboard)
   - [Reconfigure](#reconfigure)
 - [Created Entities](#created-entities)
   - [Charging Profile](#charging-profile)
@@ -60,7 +61,9 @@ This custom integration maximises solar self-consumption by charging your EV wit
   - [Smart Charger Blocker](#smart-charger-blocker)
   - [Hybrid Inverter Mode](#hybrid-inverter-mode-zero-export-systems)
   - [Cached EV SOC](#cached-ev-soc)
-- [Dashboard Card](#dashboard-card)
+- [Auto-generated Dashboard](#auto-generated-dashboard)
+  - [Look — Liquid Glass iOS 18](#look--liquid-glass-ios-18)
+  - [Manual usage on your own dashboards](#manual-usage-on-your-own-dashboards)
 - [Logging & Diagnostics](#logging--diagnostics)
 - [Notifications & Presence](#notifications--presence)
 - [Analytics & Privacy](#analytics--privacy)
@@ -232,7 +235,7 @@ If you do not have a home battery installed, leave the **Home battery SOC** fiel
 
 ## Configuration
 
-Add the integration from **Settings → Devices & Services → Add Integration** and search for `EV Smart Charger`. The setup wizard has **6 steps**.
+Add the integration from **Settings → Devices & Services → Add Integration** and search for `EV Smart Charger`. The setup wizard has **7 steps**.
 
 ### Step 1 — Name
 
@@ -287,6 +290,14 @@ The `person` entity enables presence-based filtering: notifications are only sen
 | Energy forecast target | No | — | `number` or `input_number` domain |
 
 The energy forecast target is an external helper entity where the integration writes the calculated nightly forecast value. Useful for automations or dashboards that need this figure.
+
+### Step 7 — Auto-generated Dashboard
+
+| Field | Required | Default |
+|---|:---:|---|
+| Auto-generate sidebar dashboard | No | `ON` |
+
+When enabled (default), the integration registers the bundled Lovelace card as a resource, creates a panel-mode dashboard at `/ev-smart-charger`, and adds it to the sidebar with the `mdi:ev-station` icon. The card is preloaded with the lowercased `entity_prefix` for this config entry and every sensor you mapped in the previous steps — zero YAML, ready to use the moment the wizard ends. Disable this toggle only if you prefer to add the card to your existing dashboards manually (see [Manual usage](#manual-usage-on-your-own-dashboards) below).
 
 ### Reconfigure
 
@@ -842,13 +853,37 @@ The Cached EV SOC component polls the source EV SOC sensor every **5 seconds** a
 
 ---
 
-## Dashboard Card
+## Auto-generated Dashboard
 
-The integration bundles a Lovelace custom card served directly from the integration's HTTP endpoint. No external CDN or separate download is needed.
+Since **v1.9.0** the integration provisions a Lovelace dashboard for you on first setup — no resource registration, no YAML, no entity mapping. Leave the toggle in [Step 7](#step-7--auto-generated-dashboard) at its default value and a panel-mode dashboard named **EV Smart Charger** appears in your sidebar at `/ev-smart-charger`, fully populated with the entities of the just-configured entry.
 
-**Step 1 — Register the resource**
+What the integration does for you under the hood:
 
-Add to your Lovelace resources (edit mode → Manage Resources, or directly in `ui-lovelace.yaml`):
+1. Registers `/api/ev_smart_charger/frontend/ev-smart-charger-dashboard.js` as a Lovelace `module` resource.
+2. Creates a storage-mode dashboard with `url_path: ev-smart-charger`, `mdi:ev-station` icon, and shows it in the sidebar.
+3. Writes a single panel-mode view containing the EV Smart Charger custom card pre-filled with:
+   - `entity_prefix` derived from this entry's `entry_id` (lowercased, as required since v1.6.23)
+   - every user-mapped sensor from Steps 2–4 (`ev_soc_entity`, `home_battery_soc_entity`, `solar_power_entity`, `grid_import_entity`, `home_consumption_entity`, `charger_status_entity`, `current_entity`, `charger_switch_entity`, `pv_forecast_entity`)
+
+Toggling Step 7 off (initial wizard or via **Reconfigure**) removes the dashboard from the sidebar; toggling it back on recreates it with the current mapping. Multi-entry installs are handled safely: the dashboard is preserved as long as at least one active entry still has the toggle enabled.
+
+> If your Home Assistant runs Lovelace in YAML mode the integration cannot create dashboards programmatically. It will log a warning and you can fall back to [Manual usage](#manual-usage-on-your-own-dashboards) below — the bundled card is still served and works the same way.
+
+### Look — Liquid Glass iOS 18
+
+The card uses an Apple-inspired visual language:
+
+- **Activity-style dual SOC ring** in the hero: outer arc tracks EV SOC, inner arc tracks home battery SOC (hidden in PV-only mode). The center reads live charging power with a pulsing green dot when charging, otherwise the EV percentage.
+- **Liquid Glass surfaces** — every card uses `backdrop-filter: saturate(180%) blur(40px)` over a layered aurora background.
+- **Apple System Colors** throughout: system green for EV SOC and ON toggles, system blue for selected profile chip, system purple for home battery and `EV_Free` priority state.
+- **iOS-spec toggles** (51×31 pill, 27px thumb) with 280 ms spring transitions.
+- **SF Pro typography stack** with tabular numerals on metric values.
+- **Native dark/light** — switches automatically via `prefers-color-scheme`, no theme tweaks required.
+- **Accessible motion** — respects `prefers-reduced-motion`.
+
+### Manual usage on your own dashboards
+
+If you disabled Step 7 or want the card in an existing dashboard, the bundled module is still served by the integration. Add the resource once:
 
 ```yaml
 lovelace:
@@ -857,28 +892,41 @@ lovelace:
       type: module
 ```
 
-**Step 2 — Add the card**
+Then drop the card into any view:
 
 ```yaml
 type: custom:ev-smart-charger-dashboard
 title: EV Smart Charger
-entity_prefix: ev_smart_charger_<entry_id>
+entity_prefix: ev_smart_charger_<entry_id_lowercased>
+ev_soc_entity: sensor.tesla_battery
+home_battery_soc_entity: sensor.home_battery_soc
+solar_power_entity: sensor.solar_production
+grid_import_entity: sensor.grid_import_w
+charger_status_entity: sensor.wallbox_status
+current_entity: number.wallbox_current
+charger_switch_entity: switch.wallbox_charging
+charging_power_entity: sensor.current_charging_power
+pv_forecast_entity: sensor.pv_forecast_tomorrow
 ```
 
 **Full configuration reference:**
 
 | Parameter | Required | Description |
 |---|:---:|---|
-| `entity_prefix` | **Yes** | Prefix that matches the integration's config entry. Find it in your entity IDs (part between `ev_smart_charger_` and `_evsc_*`). |
+| `entity_prefix` | **Yes** | Prefix that matches the integration's config entry. Lowercase. Find it in your entity IDs (the part between `ev_smart_charger_` and `_evsc_*`). |
 | `title` | No | Card title shown in the header. |
-| `charging_power_entity` | No | Sensor for live charging power (shown in hero metrics). |
-| `ev_soc_entity` | No | Sensor for current EV battery level (shown in hero metrics). |
-| `home_battery_soc_entity` | No | Sensor for current home battery level (shown in hero metrics). |
-| `solar_power_entity` | No | Sensor for solar production (shown in hero metrics). |
-| `grid_import_entity` | No | Sensor for grid import/export (shown in hero metrics). |
-| `current_entity` | No | Number entity for current wallbox amperage (shown in hero metrics). |
+| `ev_soc_entity` | No | Sensor for current EV battery level — drives the outer SOC ring. |
+| `home_battery_soc_entity` | No | Sensor for current home battery level — drives the inner SOC ring. |
+| `solar_power_entity` | No | Sensor for solar production. |
+| `grid_import_entity` | No | Sensor for grid import/export. |
+| `home_consumption_entity` | No | Sensor for instantaneous home consumption. |
+| `charger_status_entity` | No | Wallbox status sensor (`charger_charging`, `charger_free`, …). |
+| `current_entity` | No | Number entity for current wallbox amperage. |
+| `charger_switch_entity` | No | Switch entity that starts/stops the charger. |
+| `charging_power_entity` | No | Sensor for live charging power (kW). Used in the ring center when charging. |
+| `pv_forecast_entity` | No | Sensor with tomorrow's PV forecast (kWh). |
 
-The card calls Home Assistant services directly (`switch.toggle`, `number.set_value`, `select.select_option`, `time.set_value`) using the entity prefix to resolve helper entities.
+The card calls Home Assistant services directly (`switch.toggle`, `number.set_value`, `select.select_option`, `time.set_value`) using `entity_prefix` to resolve helper entities.
 
 ---
 
