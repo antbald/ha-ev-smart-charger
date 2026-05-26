@@ -40,7 +40,9 @@ Most "smart charging" integrations stop at "use solar surplus". This one orchest
 
 ## 📸 Preview
 
-The integration auto-generates a Liquid Glass Lovelace dashboard on first setup. No resource registration, no YAML, no entity mapping. Two tabs at the top split operational controls from configuration knobs.
+The integration auto-generates a Liquid Glass Lovelace dashboard on first setup. No resource registration, no YAML, no entity mapping. Two tabs at the top split operational controls from configuration knobs — and the whole UI is **fully responsive**, reflowing into a single column on phones with no functional loss.
+
+### 🖥 Desktop
 
 <table>
 <tr>
@@ -68,6 +70,29 @@ Hero ring with dual concentric arcs (EV outer, home battery inner). Live chargin
 <td valign="top">
 
 Seven expandable categories with gradient icons: ☀ Solar Surplus, 🌙 Night Smart Charge, 🔋 Home Battery Support, ⚡ Hybrid Inverter, ⏱ Boost Schedule, 🔔 Notifications, 📊 Logging. Click a category to expand inline; each parameter shows title, entity key, description, and default/range — all in the language detected from your Home Assistant profile.
+
+</td>
+</tr>
+</table>
+
+### 📱 Mobile
+
+The dashboard reflows automatically when viewed in the Home Assistant Companion app or on a narrow browser window. The hero stacks vertically (ring on top, body below), the two-column grid collapses into a single stack, and the weekly planner keeps its 7-day grid with tighter cells. No horizontal scroll, no hidden controls.
+
+<table>
+<tr>
+<td width="50%" align="center"><strong>Dashboard — mobile</strong></td>
+<td width="50%" align="center"><strong>Settings — mobile</strong></td>
+</tr>
+<tr>
+<td align="center">
+
+<img src="docs/screenshots/dashboard-mobile.png" alt="Dashboard mobile view" width="320"/>
+
+</td>
+<td align="center">
+
+<img src="docs/screenshots/settings-mobile.png" alt="Settings mobile view" width="320"/>
 
 </td>
 </tr>
