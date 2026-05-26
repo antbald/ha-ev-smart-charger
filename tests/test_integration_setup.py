@@ -6,10 +6,12 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ev_smart_charger import (
     _async_register_frontend,
+    _entity_key_from_unique_id,
     async_setup_entry,
     async_unload_entry,
 )
@@ -185,6 +187,149 @@ async def test_async_setup_entry_raises_not_ready_on_registration_timeout(hass) 
     ):
         with pytest.raises(ConfigEntryNotReady):
             await async_setup_entry(hass, entry)
+
+
+def test_entity_key_from_unique_id_matches_evsc_pattern() -> None:
+    """Logical key is extracted from the EVSC unique_id format."""
+    key = _entity_key_from_unique_id(
+        f"{DOMAIN}_entry-1_evsc_forza_ricarica", "entry-1"
+    )
+    assert key == "evsc_forza_ricarica"
+
+
+def test_entity_key_from_unique_id_rejects_foreign_unique_id() -> None:
+    """Returns None for unique_ids belonging to other integrations."""
+    assert (
+        _entity_key_from_unique_id("some_other_integration_xyz", "entry-1") is None
+    )
+    # Wrong entry_id → another EVSC entry on the same registry.
+    assert (
+        _entity_key_from_unique_id(
+            f"{DOMAIN}_entry-2_evsc_forza_ricarica", "entry-1"
+        )
+        is None
+    )
+
+
+async def test_async_setup_entry_proceeds_with_user_disabled_helpers(hass) -> None:
+    """Regression for issue #22 (xion2000).
+
+    The user disabled a handful of helper entities (Night Charge / daily SOC
+    targets they didn't need). Those entities never call
+    ``async_added_to_hass`` so the registration barrier times out — but the
+    integration must still proceed in degraded mode and surface a Repairs
+    notice instead of failing setup.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, data=_entry_data(), entry_id="entry-1")
+    entry.add_to_hass(hass)
+    _stub_http(hass)
+
+    # Pre-populate the entity registry with 7 EVSC helpers all disabled by
+    # the user (mirrors the xion2000 scenario where Night Charge + daily SOC
+    # targets were turned off).
+    ent_reg = er.async_get(hass)
+    disabled_keys = [
+        "evsc_night_smart_charge_enabled",
+        "evsc_ev_min_soc_monday",
+        "evsc_ev_min_soc_tuesday",
+        "evsc_ev_min_soc_wednesday",
+        "evsc_ev_min_soc_thursday",
+        "evsc_ev_min_soc_friday",
+        "evsc_night_charge_amperage",
+    ]
+    for key in disabled_keys:
+        ent_reg.async_get_or_create(
+            domain="switch" if "enabled" in key else "number",
+            platform=DOMAIN,
+            unique_id=f"{DOMAIN}_entry-1_{key}",
+            config_entry=entry,
+            disabled_by=er.RegistryEntryDisabler.USER,
+        )
+
+    charger_controller = _component("charger")
+    ev_soc_monitor = _component("soc")
+    priority_balancer = _component("priority")
+    night_smart_charge = _component("night")
+    boost_charge = _component("boost")
+    smart_blocker = _component("blocker")
+    solar_surplus = _component("solar")
+    log_manager = _component("log")
+    diagnostic_manager = _component("diagnostic")
+    coordinator = SimpleNamespace()
+
+    async def forward_setups_partial(config_entry, platforms):
+        # Mirror reality — disabled entities never register, so the runtime
+        # count only includes the still-enabled ones.
+        runtime_data = config_entry.runtime_data
+        runtime_data.registered_entity_count = (
+            runtime_data.expected_entity_count - len(disabled_keys)
+        )
+        # Do NOT set runtime_data.registration_event — the wait_for must
+        # actually time out for the new branch to trigger.
+
+    async def timeout_wait_for(awaitable, timeout):
+        close = getattr(awaitable, "close", None)
+        if close is not None:
+            close()
+        raise TimeoutError
+
+    with patch.object(
+        hass.config_entries,
+        "async_forward_entry_setups",
+        side_effect=forward_setups_partial,
+        autospec=True,
+    ), patch(
+        "custom_components.ev_smart_charger.asyncio.wait_for",
+        side_effect=timeout_wait_for,
+    ), patch(
+        "custom_components.ev_smart_charger.ChargerController",
+        return_value=charger_controller,
+    ), patch(
+        "custom_components.ev_smart_charger.EVSOCMonitor",
+        return_value=ev_soc_monitor,
+    ), patch(
+        "custom_components.ev_smart_charger.AutomationCoordinator",
+        return_value=coordinator,
+    ), patch(
+        "custom_components.ev_smart_charger.DiagnosticManager",
+        return_value=diagnostic_manager,
+    ), patch(
+        "custom_components.ev_smart_charger.PriorityBalancer",
+        return_value=priority_balancer,
+    ), patch(
+        "custom_components.ev_smart_charger.NightSmartCharge",
+        return_value=night_smart_charge,
+    ), patch(
+        "custom_components.ev_smart_charger.BoostCharge",
+        return_value=boost_charge,
+    ), patch(
+        "custom_components.ev_smart_charger.SmartChargerBlocker",
+        return_value=smart_blocker,
+    ), patch(
+        "custom_components.ev_smart_charger.SolarSurplusAutomation",
+        return_value=solar_surplus,
+    ), patch(
+        "custom_components.ev_smart_charger.LogManager",
+        return_value=log_manager,
+    ):
+        result = await async_setup_entry(hass, entry)
+
+    # Setup completed despite the timeout — the integration proceeded in
+    # degraded mode because all "missing" entities are accounted for as
+    # user-disabled.
+    assert result is True
+    assert entry.runtime_data is not None
+
+    # A Repairs entry was created so the user sees a clear explanation.
+    issue_reg = ir.async_get(hass)
+    issue = issue_reg.async_get_issue(DOMAIN, f"disabled_helpers_{entry.entry_id}")
+    assert issue is not None
+    assert issue.translation_key == "disabled_helpers"
+    assert issue.severity == ir.IssueSeverity.WARNING
+    placeholders = issue.translation_placeholders or {}
+    assert placeholders.get("count") == str(len(disabled_keys))
+    # Preview lists the disabled keys (sorted, truncated to 8).
+    assert "evsc_night_smart_charge_enabled" in placeholders.get("entities", "")
 
 
 async def test_async_setup_entry_cleans_up_diagnostic_manager_on_late_failure(hass) -> None:

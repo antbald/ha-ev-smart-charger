@@ -13,6 +13,7 @@ except ImportError:  # pragma: no cover - compatibility branch for older HA core
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_time_interval,
@@ -22,6 +23,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_CREATE_DASHBOARD,
     DEFAULT_CREATE_DASHBOARD,
+    DEFAULT_NAME,
     DOMAIN,
     FRONTEND_CARD_FILENAME,
     FRONTEND_URL_BASE,
@@ -82,6 +84,137 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
     )
 
 
+DISABLED_HELPERS_ISSUE_PREFIX = "disabled_helpers"
+
+
+def _entity_key_from_unique_id(unique_id: str, entry_id: str) -> str | None:
+    """Extract the logical helper key from an EVSC entity unique_id.
+
+    Format is ``{DOMAIN}_{entry_id}_{key}`` — see entity_base.py:31.
+    Returns None if the unique_id does not match the EVSC pattern (e.g. it
+    belongs to a different integration sharing the registry).
+    """
+    prefix = f"{DOMAIN}_{entry_id}_"
+    if not unique_id.startswith(prefix):
+        return None
+    return unique_id[len(prefix):]
+
+
+def _collect_disabled_helper_keys(hass: HomeAssistant, entry_id: str) -> list[str]:
+    """Return logical keys of EVSC helper entities disabled in the registry.
+
+    "Disabled" here means ``disabled_by is not None`` for any reason
+    (USER, INTEGRATION, HASS, CONFIG_ENTRY). Home Assistant skips
+    ``async_added_to_hass`` for all of these, so they all break the
+    registration barrier in the same way.
+    """
+    ent_reg = er.async_get(hass)
+    disabled_keys: list[str] = []
+    for entry in ent_reg.entities.values():
+        if entry.config_entry_id != entry_id:
+            continue
+        if entry.disabled_by is None:
+            continue
+        key = _entity_key_from_unique_id(entry.unique_id, entry_id)
+        if key is not None:
+            disabled_keys.append(key)
+    return disabled_keys
+
+
+@callback
+def _refresh_disabled_helpers_issue(
+    hass: HomeAssistant, entry: ConfigEntry, disabled_keys: list[str]
+) -> None:
+    """Create or clear the Repairs entry for user-disabled helper entities."""
+    issue_id = f"{DISABLED_HELPERS_ISSUE_PREFIX}_{entry.entry_id}"
+    if not disabled_keys:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+
+    preview_limit = 8
+    preview = ", ".join(sorted(disabled_keys)[:preview_limit])
+    if len(disabled_keys) > preview_limit:
+        preview = f"{preview}, …"
+
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="disabled_helpers",
+        translation_placeholders={
+            "count": str(len(disabled_keys)),
+            "entities": preview,
+            "entry_title": entry.title or DEFAULT_NAME,
+        },
+        learn_more_url=(
+            "https://github.com/antbald/ha-ev-smart-charger/issues/22"
+        ),
+    )
+
+
+async def _async_wait_for_helper_registration(
+    hass: HomeAssistant, entry: ConfigEntry, runtime_data: EVSCRuntimeData
+) -> None:
+    """Wait for helper entities to register; tolerate user-disabled ones.
+
+    Behaviour (v1.11.1 — issue #22):
+      * Normal case — all helpers register within the timeout → return.
+      * User disabled some helpers — they never call ``async_added_to_hass``,
+        so the barrier never fires by itself. Once the timeout elapses, count
+        ``disabled_by != None`` entities via the entity registry: if
+        ``registered + disabled >= expected`` the user consciously turned
+        them off, so log a warning, surface a Repairs issue, and proceed in
+        degraded mode.
+      * Genuinely missing helpers (programming error, platform failure) →
+        raise ``ConfigEntryNotReady`` so HA retries setup later.
+    """
+    try:
+        await asyncio.wait_for(runtime_data.registration_event.wait(), timeout=10)
+        # Clean state — drop any stale Repairs entry left from a previous run.
+        _refresh_disabled_helpers_issue(hass, entry, [])
+        return
+    except TimeoutError as err:
+        disabled_keys = _collect_disabled_helper_keys(hass, entry.entry_id)
+        registered = runtime_data.registered_entity_count
+        expected = runtime_data.expected_entity_count
+        accounted = registered + len(disabled_keys)
+
+        if accounted >= expected:
+            _LOGGER.warning(
+                "⚠️  %d helper entit%s disabled by the user (registered=%d, "
+                "disabled=%d, expected=%d) — proceeding in degraded mode. "
+                "Disabled: %s",
+                len(disabled_keys),
+                "y" if len(disabled_keys) == 1 else "ies",
+                registered,
+                len(disabled_keys),
+                expected,
+                ", ".join(sorted(disabled_keys)),
+            )
+            _refresh_disabled_helpers_issue(hass, entry, disabled_keys)
+            return
+
+        missing = expected - accounted
+        _LOGGER.error(
+            "❌ Helper registration barrier failed: registered=%d, "
+            "disabled=%d, expected=%d, truly missing=%d. "
+            "Disabled keys: %s",
+            registered,
+            len(disabled_keys),
+            expected,
+            missing,
+            ", ".join(sorted(disabled_keys)) or "(none)",
+        )
+        await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+        entry.runtime_data = None
+        raise ConfigEntryNotReady(
+            f"Timed out waiting for {missing} EV Smart Charger helper "
+            f"entit{'y' if missing == 1 else 'ies'} to register"
+        ) from err
+
+
 async def _async_cleanup_partial_setup(runtime_data: EVSCRuntimeData) -> None:
     """Clean up partially initialized runtime services after setup failures."""
     cleanup_order = [
@@ -137,15 +270,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _LOGGER.info(f"✅ Platforms registered: {', '.join(PLATFORMS)}")
 
-    # Wait for entity registration barrier
-    try:
-        await asyncio.wait_for(runtime_data.registration_event.wait(), timeout=10)
-    except TimeoutError as err:
-        await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-        entry.runtime_data = None
-        raise ConfigEntryNotReady(
-            "Timed out while waiting for EV Smart Charger helper entities registration"
-        ) from err
+    # Wait for entity registration barrier. Tolerates helper entities the user
+    # has disabled in HA — see issue #22 (xion2000) and
+    # _async_wait_for_helper_registration() above.
+    await _async_wait_for_helper_registration(hass, entry, runtime_data)
 
     _LOGGER.info(
         "✅ %s helper entities registered",
