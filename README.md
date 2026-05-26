@@ -10,8 +10,17 @@
 
 This custom integration maximises solar self-consumption by charging your EV with surplus PV energy, balances daily SOC targets between the car and a home battery, automates overnight charging driven by tomorrow's forecast, and protects the system from unsafe or unwanted charger activations.
 
+## Preview
+
+| Dashboard — operational view | Settings — configuration accordion |
+|---|---|
+| ![Dashboard preview](docs/screenshots/dashboard.png) | ![Settings preview](docs/screenshots/settings.png) |
+
+The bundled Lovelace card is split into two views (**v1.10.0**): on the left, an operational dashboard with hero SOC ring, override + boost, weekly planner and a bento-style Night Smart Charge card. On the right, a settings page where every automation parameter is grouped under an expandable accordion with multilingual descriptions (EN / IT / NL, picked automatically from your Home Assistant profile language).
+
 **Key features at a glance:**
 
+- **Split-view dashboard** (v1.10.0+) — Dashboard and Settings tabs, accordion-grouped parameters with multilingual descriptions, system-detected language (no manual picker).
 - **Auto-generated Liquid Glass dashboard** (v1.9.0+) — a sidebar dashboard with every entity pre-mapped appears the moment you finish setup. iOS 18 visual language, dual-ring SOC, zero YAML.
 - Solar Surplus charging with dynamic amperage control (`6–32 A`) and a per-wallbox ceiling
 - Priority Balancer — daily EV vs home battery SOC targets, automatically resolved
@@ -25,6 +34,7 @@ This custom integration maximises solar self-consumption by charging your EV wit
 
 ## Table of Contents
 
+- [Preview](#preview)
 - [How It Works](#how-it-works)
   - [Automation Priority System](#automation-priority-system)
 - [Requirements](#requirements)
@@ -63,6 +73,7 @@ This custom integration maximises solar self-consumption by charging your EV wit
   - [Cached EV SOC](#cached-ev-soc)
 - [Auto-generated Dashboard](#auto-generated-dashboard)
   - [Look — Liquid Glass iOS 18](#look--liquid-glass-ios-18)
+  - [Split-view organisation (v1.10.0+)](#split-view-organisation-v1100)
   - [Manual usage on your own dashboards](#manual-usage-on-your-own-dashboards)
 - [Logging & Diagnostics](#logging--diagnostics)
 - [Notifications & Presence](#notifications--presence)
@@ -873,13 +884,22 @@ Toggling Step 7 off (initial wizard or via **Reconfigure**) removes the dashboar
 
 The card uses an Apple-inspired visual language:
 
-- **Activity-style dual SOC ring** in the hero: outer arc tracks EV SOC, inner arc tracks home battery SOC (hidden in PV-only mode). The center reads live charging power with a pulsing green dot when charging, otherwise the EV percentage.
+- **Activity-style dual SOC ring** in the hero: outer arc tracks EV SOC, inner arc tracks home battery SOC (hidden in PV-only mode). Center reads the EV percentage with the "EV" label inside; a separate **CHARGING** pill below the ring shows live amperage and power when a session is active.
 - **Liquid Glass surfaces** — every card uses `backdrop-filter: saturate(180%) blur(40px)` over a layered aurora background.
 - **Apple System Colors** throughout: system green for EV SOC and ON toggles, system blue for selected profile chip, system purple for home battery and `EV_Free` priority state.
 - **iOS-spec toggles** (51×31 pill, 27px thumb) with 280 ms spring transitions.
 - **SF Pro typography stack** with tabular numerals on metric values.
 - **Native dark/light** — switches automatically via `prefers-color-scheme`, no theme tweaks required.
 - **Accessible motion** — respects `prefers-reduced-motion`.
+
+### Split-view organisation (v1.10.0+)
+
+The card now ships with two tabs at the top:
+
+- **Dashboard** — operational only. Hero with dual SOC ring + charging pill, Override & Boost stack, Weekly Planner (per-day EV/home SOC targets + Car Ready toggle), bento-style Night Smart Charge card with crescent illustration, and Charging Profile chips.
+- **Settings** — every configuration parameter grouped under expandable accordion categories: Solar Surplus, Night Smart Charge, Home Battery Support, Hybrid Inverter Mode, Boost Schedule, Notifications, Logging & Diagnostics. Each parameter shows its title, the underlying entity key, a description of what it does and the default/range — all in the language detected from your Home Assistant profile (`en` / `it` / `nl`, English fallback for everything else).
+
+Click a category to expand its parameters inline; clicking again collapses it. The Dashboard view stays clutter-free while every knob remains one click away.
 
 ### Manual usage on your own dashboards
 

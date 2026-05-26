@@ -1,6 +1,9 @@
 // EV Smart Charger Dashboard — Lovelace custom card
-// Updated for integration v1.8.0 (Hybrid Inverter Mode + missing entities from
-// v1.3.13 through v1.7.0). Exposes all 64 helper entities (51 in PV-only mode).
+// v1.10.0 — Split-view rendering: Dashboard (operational) + Settings (configuration
+// accordions). Hero ring with EV label inside and CHARGING pill below. Bento-style
+// Night Smart Charge card with crescent illustration. Language detection inherited
+// from this._hass.language (no manual picker). Exposes all 64 helper entities
+// (51 in PV-only mode).
 const DEFAULT_TITLE = "EV Smart Charger";
 const SUPPORTED_PROFILES = ["manual", "solar_surplus"];
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -78,6 +81,361 @@ for (const day of DAYS) {
   DOMAIN_SUFFIXES[`evMinSoc_${day}`] = ["number", `evsc_ev_min_soc_${day}`];
   DOMAIN_SUFFIXES[`homeMinSoc_${day}`] = ["number", `evsc_home_min_soc_${day}`];
 }
+
+// =====================================================================
+// v1.10.0 reorganization: Settings catalog with inline translations.
+// Single source of truth for the Settings view accordions. Each item
+// has a kind ("toggle" | "stepper" | "time" | "info"), an entityKey
+// resolved via DOMAIN_SUFFIXES, and EN/IT/NL strings for the labels.
+// =====================================================================
+const SETTINGS_CATALOG = [
+  {
+    id: "solar", iconClass: "sun", icon: "☀",
+    name: { en: "Solar Surplus", it: "Surplus solare", nl: "Zonneoverschot" },
+    desc: {
+      en: "Solar surplus calculation, grid import protection, daytime home battery fallback",
+      it: "Calcolo surplus PV, protezione import rete, fallback batteria di casa diurno",
+      nl: "Berekening overschot, beveiliging tegen netinvoer, gebruik thuisbatterij overdag",
+    },
+    items: [
+      { entityKey: "checkInterval", kind: "stepper",
+        name: { en: "Check Interval", it: "Intervallo di controllo", nl: "Controle-interval" },
+        desc: {
+          en: "How often Solar Surplus recalculates amperage and decision. Lower = more reactive but more wallbox writes.",
+          it: "Ogni quanto Solar Surplus ricalcola amperaggio e decisione. Piu basso = piu reattivo ma piu scritture sul wallbox.",
+          nl: "Hoe vaak Solar Surplus stroom en beslissing herberekent. Lager = reactiever maar meer wallbox-schrijfacties.",
+        },
+        hint: { en: "Default 1 min · Range 1–60 min", it: "Default 1 min · Range 1–60 min", nl: "Standaard 1 min · Bereik 1–60 min" } },
+      { entityKey: "gridImportThreshold", kind: "stepper",
+        name: { en: "Grid Import Threshold", it: "Soglia prelievo rete", nl: "Drempel netinvoer" },
+        desc: {
+          en: "Max watts importable from grid before reducing amperage. Above this, the protection delay timer starts.",
+          it: "Watt massimi importabili dalla rete prima di ridurre l'amperaggio. Sopra questo valore parte il delay di protezione.",
+          nl: "Max watt netinvoer voordat de stroom wordt verlaagd. Daarboven start de beschermingsvertraging.",
+        },
+        hint: { en: "Default 50 W · Hysteresis recovery 25 W", it: "Default 50 W · Recovery isteresi 25 W", nl: "Standaard 50 W · Hysterese-herstel 25 W" } },
+      { entityKey: "gridImportDelay", kind: "stepper",
+        name: { en: "Grid Import Delay", it: "Ritardo prelievo rete", nl: "Vertraging netinvoer" },
+        desc: {
+          en: "Tolerance seconds before reducing amperage. Filters short spikes (fridge, oven, microwave).",
+          it: "Secondi di tolleranza prima di ridurre l'amperaggio. Filtra picchi momentanei (frigo, forno, microonde).",
+          nl: "Tolerantiesecondes voordat de stroom wordt verlaagd. Filtert korte pieken (koelkast, oven, magnetron).",
+        },
+        hint: { en: "Default 30 s", it: "Default 30 s", nl: "Standaard 30 s" } },
+      { entityKey: "surplusDropDelay", kind: "stepper",
+        name: { en: "Surplus Drop Delay", it: "Ritardo calo surplus", nl: "Vertraging overschotdaling" },
+        desc: {
+          en: "Wait seconds before stopping the wallbox when surplus drops. Protects against passing clouds.",
+          it: "Secondi di attesa prima di fermare il wallbox quando il surplus cala. Protegge da nuvole di passaggio.",
+          nl: "Wachtseconden voordat de wallbox stopt bij overschotdaling. Beschermt tegen voorbijtrekkende wolken.",
+        },
+        hint: { en: "Default 30 s · Cloud filter", it: "Default 30 s · Filtro nuvole", nl: "Standaard 30 s · Wolkenfilter" } },
+      { entityKey: "solarMaxAmperage", kind: "stepper",
+        name: { en: "Solar Max Amperage", it: "Amperaggio max solare", nl: "Maximale zonnestroom" },
+        desc: {
+          en: "Maximum current Solar Surplus can request. Caps wallbox usage below the physical limit.",
+          it: "Tetto massimo di corrente che Solar Surplus puo richiedere. Limita l'uso del wallbox al di sotto della portata fisica.",
+          nl: "Maximale stroom die Solar Surplus mag opvragen. Beperkt wallboxgebruik onder de fysieke limiet.",
+        },
+        hint: { en: "Default 32 A · Levels 6/8/10/13/16/20/24/32", it: "Default 32 A · Livelli 6/8/10/13/16/20/24/32", nl: "Standaard 32 A · Niveaus 6/8/10/13/16/20/24/32" } },
+    ],
+  },
+  {
+    id: "night", iconClass: "moon", icon: "🌙",
+    name: { en: "Night Smart Charge", it: "Night Smart Charge", nl: "Slim nachtelijk laden" },
+    desc: {
+      en: "Overnight charging strategy driven by next-day PV forecast",
+      it: "Strategia di ricarica notturna basata sul forecast PV del giorno successivo",
+      nl: "Strategie voor nachtelijk laden op basis van PV-voorspelling voor morgen",
+    },
+    items: [
+      { entityKey: "nightEnabled", kind: "toggle",
+        name: { en: "Enable Night Smart Charge", it: "Abilita Night Smart Charge", nl: "Slim nachtelijk laden inschakelen" },
+        desc: {
+          en: "Master switch for the nighttime charging logic.",
+          it: "Interruttore principale per la logica di ricarica notturna.",
+          nl: "Hoofdschakelaar voor de nachtelijke laadlogica.",
+        },
+        hint: { en: "Default on", it: "Default on", nl: "Standaard aan" } },
+      { entityKey: "nightTime", kind: "time",
+        name: { en: "Night Charge Start Time", it: "Ora di avvio Night Charge", nl: "Starttijd nachtelijk laden" },
+        desc: {
+          en: "Time at which the nightly recharge begins. After this hour, if conditions are met, Night Charge takes control.",
+          it: "Ora di inizio della ricarica notturna. Dopo questa ora, se le condizioni sono soddisfatte, Night Charge prende il controllo del wallbox.",
+          nl: "Tijdstip waarop nachtelijk laden begint. Na dit uur neemt Night Charge de controle over indien aan de voorwaarden is voldaan.",
+        },
+        hint: { en: "Default 01:00", it: "Default 01:00", nl: "Standaard 01:00" } },
+      { entityKey: "carReadyTime", kind: "time",
+        name: { en: "Car Ready Deadline", it: "Deadline auto pronta", nl: "Auto-klaar deadline" },
+        desc: {
+          en: "Latest hour by which the car must be ready on days with the Car Ready flag enabled. After this time charging stops.",
+          it: "Ora entro la quale l'auto deve essere pronta nei giorni con flag Car Ready attivo. Oltre questa ora la ricarica si ferma.",
+          nl: "Uiterste tijd waarop de auto klaar moet zijn op dagen met Car Ready aan. Daarna stopt het laden.",
+        },
+        hint: { en: "Default 08:00", it: "Default 08:00", nl: "Standaard 08:00" } },
+      { entityKey: "minSolarForecast", kind: "stepper",
+        name: { en: "Min Solar Forecast", it: "Forecast solare minimo", nl: "Min. PV-voorspelling" },
+        desc: {
+          en: "Next-day PV forecast below which Night Charge switches to GRID mode instead of waiting for sun.",
+          it: "Forecast PV del giorno successivo sotto cui Night Charge passa in modalita GRID anziche aspettare il sole.",
+          nl: "PV-voorspelling van morgen waaronder Night Charge naar GRID schakelt in plaats van op de zon te wachten.",
+        },
+        hint: { en: "Default 20 kWh", it: "Default 20 kWh", nl: "Standaard 20 kWh" } },
+      { entityKey: "nightAmperage", kind: "stepper",
+        name: { en: "Night Charge Amperage", it: "Amperaggio Night Charge", nl: "Nachtelijke stroom" },
+        desc: {
+          en: "Fixed current during nighttime charging in BATTERY or GRID mode.",
+          it: "Corrente fissa durante la ricarica notturna in modalita BATTERY o GRID.",
+          nl: "Vaste stroom tijdens nachtelijk laden in BATTERY- of GRID-modus.",
+        },
+        hint: { en: "Default 16 A", it: "Default 16 A", nl: "Standaard 16 A" } },
+      { entityKey: "preserveHomeBattery", kind: "toggle",
+        name: { en: "Preserve Home Battery", it: "Preserva batteria di casa", nl: "Thuisbatterij sparen" },
+        desc: {
+          en: "Skip overnight charging when the car does not need to be ready by morning, preserving home battery for daytime.",
+          it: "Salta la ricarica notturna quando l'auto non deve essere pronta al mattino, preservando la batteria di casa per il giorno.",
+          nl: "Sla nachtelijk laden over wanneer de auto 's ochtends niet klaar hoeft te zijn, om de thuisbatterij overdag te sparen.",
+        },
+        hint: { en: "Default off", it: "Default off", nl: "Standaard uit" } },
+    ],
+  },
+  {
+    id: "battery", iconClass: "bat", icon: "🔋",
+    name: { en: "Home Battery Support", it: "Supporto batteria di casa", nl: "Thuisbatterij-ondersteuning" },
+    desc: {
+      en: "Fallback on home battery when solar surplus is insufficient",
+      it: "Fallback su batteria di casa quando il surplus solare e insufficiente",
+      nl: "Terugval op thuisbatterij wanneer overschot onvoldoende is",
+    },
+    items: [
+      { entityKey: "useHomeBattery", kind: "toggle",
+        name: { en: "Use Home Battery", it: "Usa batteria di casa", nl: "Thuisbatterij gebruiken" },
+        desc: {
+          en: "When solar surplus is below 6 A and Priority Balancer is in EV mode, drain home battery to top up the EV.",
+          it: "Quando il surplus e sotto 6 A e Priority Balancer e in PRIORITY_EV, scarica la batteria di casa per integrare la ricarica EV.",
+          nl: "Wanneer het overschot onder 6 A is en Priority Balancer in EV-stand staat, gebruik thuisbatterij om de EV bij te laden.",
+        },
+        hint: { en: "Default on", it: "Default on", nl: "Standaard aan" } },
+      { entityKey: "homeBatteryMinSoc", kind: "stepper",
+        name: { en: "Min SOC Reserve", it: "Riserva SOC minimo", nl: "Minimale SOC-reserve" },
+        desc: {
+          en: "Home battery level below which support automatically disables to preserve reserve.",
+          it: "Livello batteria di casa sotto il quale il supporto si disattiva automaticamente per preservare la riserva.",
+          nl: "Niveau van de thuisbatterij waaronder ondersteuning automatisch wordt uitgeschakeld om reserve te behouden.",
+        },
+        hint: { en: "Default 20 %", it: "Default 20 %", nl: "Standaard 20 %" } },
+      { entityKey: "batterySupportAmperage", kind: "stepper",
+        name: { en: "Battery Support Amperage", it: "Amperaggio supporto batteria", nl: "Stroom thuisbatterij-ondersteuning" },
+        desc: {
+          en: "Current used when battery support is active and solar surplus is below 6 A.",
+          it: "Corrente usata quando il battery support e attivo e il surplus solare non basta.",
+          nl: "Stroom die wordt gebruikt wanneer thuisbatterij-ondersteuning actief is en het overschot onder 6 A is.",
+        },
+        hint: { en: "Default 16 A", it: "Default 16 A", nl: "Standaard 16 A" } },
+      { entityKey: "batterySupportSunsetBuffer", kind: "stepper",
+        name: { en: "Sunset Buffer", it: "Buffer tramonto", nl: "Zonsondergangbuffer" },
+        desc: {
+          en: "Minutes before sunset in which battery support is blocked to avoid draining the home in the evening.",
+          it: "Minuti prima del tramonto in cui il battery support viene bloccato per evitare di drenare la casa quando il sole sta finendo.",
+          nl: "Minuten voor zonsondergang waarin ondersteuning wordt geblokkeerd om de woning 's avonds niet leeg te trekken.",
+        },
+        hint: { en: "Default 60 min · 0 = disable", it: "Default 60 min · 0 = disabilita", nl: "Standaard 60 min · 0 = uitschakelen" } },
+    ],
+  },
+  {
+    id: "hybrid", iconClass: "hyb", icon: "⚡",
+    name: { en: "Hybrid Inverter Mode", it: "Hybrid Inverter Mode", nl: "Hybride-omvormermodus" },
+    desc: {
+      en: "Curtailment discovery for zero-export hybrid inverters (Deye, Sunsynk, Solis…)",
+      it: "Curtailment discovery per inverter ibridi zero-export (Deye, Sunsynk, Solis…)",
+      nl: "Curtailment-detectie voor hybride zero-export-omvormers (Deye, Sunsynk, Solis…)",
+    },
+    items: [
+      { entityKey: "hybridMode", kind: "toggle",
+        name: { en: "Enable Hybrid Mode", it: "Abilita Hybrid Mode", nl: "Hybride-modus inschakelen" },
+        desc: {
+          en: "Empirical 6 A probing to discover hidden PV capacity in zero-export hybrid systems. Opt-in.",
+          it: "Probing empirico a 6 A per scoprire capacita PV nascosta in sistemi hybrid zero-export. Opt-in.",
+          nl: "Empirisch probing op 6 A om verborgen PV-capaciteit te ontdekken in zero-export hybride systemen. Opt-in.",
+        },
+        hint: { en: "Default off", it: "Default off", nl: "Standaard uit" } },
+      { entityKey: "hybridBatteryFullThreshold", kind: "stepper",
+        name: { en: "Battery Full Threshold", it: "Soglia batteria piena", nl: "Drempel batterij vol" },
+        desc: {
+          en: "Home battery SOC above which the system considers the inverter in curtailment and attempts probing.",
+          it: "SOC batteria di casa sopra il quale il sistema considera l'inverter in curtailment e tenta il probing.",
+          nl: "SOC van de thuisbatterij waarboven het systeem aanneemt dat de omvormer terugregelt en probing start.",
+        },
+        hint: { en: "Default 95 % · Range 80–100", it: "Default 95 % · Range 80–100", nl: "Standaard 95 % · Bereik 80–100" } },
+      { entityKey: "hybridProbeDuration", kind: "stepper",
+        name: { en: "Probe Duration", it: "Durata probing", nl: "Probing-duur" },
+        desc: {
+          en: "Total probing window length at 6 A. Below this threshold the probe is too short to be significant.",
+          it: "Durata totale della finestra di test a 6 A. Sotto questa soglia il probing e troppo breve per essere significativo.",
+          nl: "Totale duur van het probing-venster op 6 A. Korter dan dit is het probing-resultaat niet betekenisvol.",
+        },
+        hint: { en: "Default 60 s · Range 30–180", it: "Default 60 s · Range 30–180", nl: "Standaard 60 s · Bereik 30–180" } },
+      { entityKey: "hybridMaxImportDuration", kind: "stepper",
+        name: { en: "Max Import Duration", it: "Durata max import", nl: "Max. importduur" },
+        desc: {
+          en: "Maximum grid-import time tolerated during probing before aborting and entering cooldown.",
+          it: "Tempo massimo di import dalla rete tollerato durante probing prima di abortire e tornare in cooldown.",
+          nl: "Maximale netinvoertijd tijdens probing voordat wordt afgebroken en in cooldown wordt gegaan.",
+        },
+        hint: { en: "Default 60 s · Range 30–120", it: "Default 60 s · Range 30–120", nl: "Standaard 60 s · Bereik 30–120" } },
+      { entityKey: "hybridMaxFailedProbes", kind: "stepper",
+        name: { en: "Max Failed Probes", it: "Probing falliti max", nl: "Max. mislukte probings" },
+        desc: {
+          en: "Maximum failed probes in a 30-minute window before entering long cooldown (15 min).",
+          it: "Numero massimo di probe falliti in una finestra di 30 minuti prima di entrare in cooldown lungo (15 min).",
+          nl: "Maximaal aantal mislukte probings binnen 30 minuten voordat een lange cooldown (15 min) ingaat.",
+        },
+        hint: { en: "Default 5 · Range 1–10", it: "Default 5 · Range 1–10", nl: "Standaard 5 · Bereik 1–10" } },
+    ],
+  },
+  {
+    id: "boost", iconClass: "boost", icon: "⏱",
+    name: { en: "Boost Schedule", it: "Programmazione Boost", nl: "Boost-planning" },
+    desc: {
+      en: "Automatic Boost activation in a daily time window",
+      it: "Attivazione automatica del Boost in una finestra oraria giornaliera",
+      nl: "Automatische activering van Boost in een dagelijks tijdvenster",
+    },
+    items: [
+      { entityKey: "boostScheduleEnabled", kind: "toggle",
+        name: { en: "Schedule Enabled", it: "Programmazione attiva", nl: "Planning ingeschakeld" },
+        desc: {
+          en: "Activate Boost automatically at the start time and stop it at the end time every day.",
+          it: "Attiva il Boost automaticamente all'orario di inizio e lo ferma a quello di fine, ogni giorno.",
+          nl: "Activeer Boost automatisch op starttijd en stop op eindtijd, elke dag.",
+        },
+        hint: { en: "Default off", it: "Default off", nl: "Standaard uit" } },
+      { entityKey: "boostScheduleStartTime", kind: "time",
+        name: { en: "Schedule Start", it: "Inizio programmato", nl: "Geplande start" },
+        desc: {
+          en: "Time at which automatic Boost begins.",
+          it: "Ora di inizio del Boost automatico.",
+          nl: "Tijdstip waarop automatische Boost begint.",
+        },
+        hint: { en: "—", it: "—", nl: "—" } },
+      { entityKey: "boostScheduleEndTime", kind: "time",
+        name: { en: "Schedule End", it: "Fine programmata", nl: "Geplande einde" },
+        desc: {
+          en: "Time at which automatic Boost stops.",
+          it: "Ora di fine del Boost automatico.",
+          nl: "Tijdstip waarop automatische Boost stopt.",
+        },
+        hint: { en: "—", it: "—", nl: "—" } },
+    ],
+  },
+  {
+    id: "notif", iconClass: "bell", icon: "🔔",
+    name: { en: "Notifications", it: "Notifiche", nl: "Notificaties" },
+    desc: {
+      en: "Mobile alerts with presence-based filtering",
+      it: "Avvisi mobile con filtro per presenza del proprietario",
+      nl: "Mobiele meldingen met aanwezigheidsfilter",
+    },
+    items: [
+      { entityKey: "notifySmartBlocker", kind: "toggle",
+        name: { en: "Smart Blocker Alerts", it: "Avvisi Smart Blocker", nl: "Smart Blocker-meldingen" },
+        desc: {
+          en: "Send push when Smart Blocker prevents an unexpected charging session.",
+          it: "Invia push quando Smart Blocker blocca una sessione di ricarica inattesa.",
+          nl: "Stuur push wanneer Smart Blocker een onverwachte laadsessie blokkeert.",
+        },
+        hint: { en: "Filtered by owner presence", it: "Filtrate per presenza del proprietario", nl: "Gefilterd op aanwezigheid eigenaar" } },
+      { entityKey: "notifyPriorityBalancer", kind: "toggle",
+        name: { en: "Priority Balancer Alerts", it: "Avvisi Priority Balancer", nl: "Priority Balancer-meldingen" },
+        desc: {
+          en: "Notify when the priority engine switches between EV / Home / EV-Free.",
+          it: "Notifica quando il motore priorita passa tra EV / Home / EV-Free.",
+          nl: "Melden wanneer de prioriteit-engine wisselt tussen EV / Home / EV-Free.",
+        },
+        hint: { en: "Filtered by owner presence", it: "Filtrate per presenza del proprietario", nl: "Gefilterd op aanwezigheid eigenaar" } },
+      { entityKey: "notifyNightCharge", kind: "toggle",
+        name: { en: "Night Charge Alerts", it: "Avvisi Night Charge", nl: "Night Charge-meldingen" },
+        desc: {
+          en: "Notify when Night Smart Charge starts a session (BATTERY or GRID).",
+          it: "Notifica quando Night Smart Charge avvia una sessione (BATTERY o GRID).",
+          nl: "Melden wanneer Night Smart Charge een sessie start (BATTERY of GRID).",
+        },
+        hint: { en: "Filtered by owner presence", it: "Filtrate per presenza del proprietario", nl: "Gefilterd op aanwezigheid eigenaar" } },
+    ],
+  },
+  {
+    id: "log", iconClass: "log", icon: "📊",
+    name: { en: "Logging & Diagnostics", it: "Logging e diagnostica", nl: "Logging & diagnose" },
+    desc: {
+      en: "Date-organized log files for troubleshooting",
+      it: "File di log organizzati per data per il troubleshooting",
+      nl: "Op datum geordende logbestanden voor probleemoplossing",
+    },
+    items: [
+      { entityKey: "traceLogging", kind: "toggle",
+        name: { en: "Trace Logging", it: "Trace logging", nl: "Trace-logging" },
+        desc: {
+          en: "Verbose diagnostic logging for in-depth debugging.",
+          it: "Logging diagnostico verboso per debug approfondito.",
+          nl: "Uitgebreide diagnostische logging voor diepgaande foutopsporing.",
+        },
+        hint: { en: "Default off", it: "Default off", nl: "Standaard uit" } },
+      { entityKey: "enableFileLogging", kind: "toggle",
+        name: { en: "Enable File Logging", it: "Abilita file di log", nl: "Bestand-logging inschakelen" },
+        desc: {
+          en: "Write a dedicated log file under /config/.../logs/<year>/<month>/<day>.log. Useful for sharing with the community.",
+          it: "Scrive un file di log dedicato in /config/.../logs/<anno>/<mese>/<giorno>.log. Utile per condividere i log con la community.",
+          nl: "Schrijft een toegewijd logbestand in /config/.../logs/<jaar>/<maand>/<dag>.log. Handig om logs met de community te delen.",
+        },
+        hint: { en: "Default off", it: "Default off", nl: "Standaard uit" } },
+      { entityKey: "logFilePath", kind: "info",
+        name: { en: "Log File Path", it: "Percorso file di log", nl: "Pad logbestand" },
+        desc: {
+          en: "Current path of today's log file (read-only, exposed as sensor).",
+          it: "Percorso corrente del file di log di oggi (sola lettura, esposto come sensore).",
+          nl: "Huidig pad van het logbestand van vandaag (alleen-lezen, blootgesteld als sensor).",
+        },
+        hint: { en: "—", it: "—", nl: "—" } },
+    ],
+  },
+];
+
+const STATIC_LABELS = {
+  en: {
+    nav_dashboard: "Dashboard", nav_settings: "Settings",
+    settings_title: "Settings", settings_intro: "Automation module configuration. Click a category to expand its parameters.",
+    weekly_title: "Weekly Planner", weekly_desc: "Daily SOC targets · Car ready toggle per day",
+    weekly_ev: "EV target", weekly_home: "Home target", weekly_car: "Car ready",
+    weekly_info: "When active, Night Smart Charge falls back to grid if the home battery is insufficient. When inactive, charging is skipped pending solar surplus.",
+    night_start: "Start", night_car_ready: "Car Ready", night_enabled: "Enabled", night_card_title: "Night Smart Charge", night_card_sub: "Forecast driven",
+    hero_ev: "EV", hero_charging: "CHARGING",
+    profile_label: "Charging Profile", profile_hint: "Strategy mode selection",
+    override_title: "Override & Boost", override_hint: "Manual intervention — bypass automations",
+  },
+  it: {
+    nav_dashboard: "Dashboard", nav_settings: "Impostazioni",
+    settings_title: "Impostazioni", settings_intro: "Configurazione dei moduli di automazione. Clicca su una categoria per espandere i parametri.",
+    weekly_title: "Pianificatore settimanale", weekly_desc: "Target SOC giornalieri · Toggle Car Ready per giorno",
+    weekly_ev: "Target EV", weekly_home: "Target casa", weekly_car: "Car ready",
+    weekly_info: "Quando attivo, Night Smart Charge fa fallback su rete se la batteria di casa non basta. Quando inattivo la ricarica viene saltata in attesa del surplus solare.",
+    night_start: "Inizio", night_car_ready: "Auto pronta", night_enabled: "Attivo", night_card_title: "Night Smart Charge", night_card_sub: "Guidato dal forecast",
+    hero_ev: "EV", hero_charging: "IN CARICA",
+    profile_label: "Profilo di ricarica", profile_hint: "Selezione strategia",
+    override_title: "Override e Boost", override_hint: "Intervento manuale — bypass automazioni",
+  },
+  nl: {
+    nav_dashboard: "Dashboard", nav_settings: "Instellingen",
+    settings_title: "Instellingen", settings_intro: "Configuratie van de automatiseringsmodules. Klik op een categorie om de parameters uit te vouwen.",
+    weekly_title: "Weekplanner", weekly_desc: "Dagelijkse SOC-doelen · Car Ready-schakelaar per dag",
+    weekly_ev: "EV-doel", weekly_home: "Thuisdoel", weekly_car: "Auto klaar",
+    weekly_info: "Indien actief schakelt Night Smart Charge naar het net als de thuisbatterij onvoldoende is. Indien inactief wordt het laden overgeslagen in afwachting van zonneoverschot.",
+    night_start: "Start", night_car_ready: "Auto klaar", night_enabled: "Actief", night_card_title: "Slim nachtelijk laden", night_card_sub: "Op verwachting gestuurd",
+    hero_ev: "EV", hero_charging: "LADEN",
+    profile_label: "Laadprofiel", profile_hint: "Strategiekeuze",
+    override_title: "Override & Boost", override_hint: "Handmatige interventie — automatiseringen overslaan",
+  },
+};
+
 const DEFAULT_LOCALE = "en";
 const FRONTEND_LOCALES = {
   "en": {
@@ -525,6 +883,11 @@ class EvSmartChargerDashboard extends HTMLElement {
     this._discoveryDone = false;
     this._lastRenderHash = "";
 
+    // v1.10.0: view state (Dashboard / Settings) and accordion open set.
+    // Preserved across re-renders so HA state ticks do not reset the UI.
+    if (!this._view) this._view = "dashboard";
+    if (!this._openAccordions) this._openAccordions = new Set(["solar"]);
+
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
     }
@@ -646,6 +1009,26 @@ class EvSmartChargerDashboard extends HTMLElement {
   _t(key) {
     const locale = FRONTEND_LOCALES[this._language()] || FRONTEND_LOCALES[DEFAULT_LOCALE];
     return locale[key] || FRONTEND_LOCALES[DEFAULT_LOCALE][key] || key;
+  }
+
+  /**
+   * v1.10.0: pick a translation from an inline {en, it, nl} object — the
+   * pattern used by SETTINGS_CATALOG. Falls back to English when the
+   * detected language is unsupported.
+   */
+  _loc(obj) {
+    if (!obj) return "";
+    const lang = this._language();
+    return obj[lang] || obj.en || Object.values(obj)[0] || "";
+  }
+
+  /**
+   * v1.10.0: pick a static UI label from STATIC_LABELS for the detected
+   * language. Falls back to English.
+   */
+  _label(key) {
+    const lang = this._language();
+    return (STATIC_LABELS[lang] || STATIC_LABELS.en)[key] || STATIC_LABELS.en[key] || key;
   }
 
   _displayValue(entityId, fallback) {
@@ -865,6 +1248,31 @@ class EvSmartChargerDashboard extends HTMLElement {
     root.querySelectorAll("[data-select][data-option]").forEach((node) => {
       node.addEventListener("click", () => {
         this._setSelect(node.dataset.select, node.dataset.option);
+      });
+    });
+
+    // v1.10.0: tab switching (Dashboard / Settings)
+    root.querySelectorAll("[data-view]").forEach((node) => {
+      node.addEventListener("click", () => {
+        const next = node.dataset.view;
+        if (this._view === next) return;
+        this._view = next;
+        this._lastRenderHash = ""; // force re-render past anti-flicker hash check
+        this.render();
+      });
+    });
+
+    // v1.10.0: accordion open/close (Settings categories)
+    root.querySelectorAll("[data-accordion]").forEach((node) => {
+      node.addEventListener("click", () => {
+        const id = node.dataset.accordion;
+        if (this._openAccordions.has(id)) {
+          this._openAccordions.delete(id);
+        } else {
+          this._openAccordions.add(id);
+        }
+        this._lastRenderHash = "";
+        this.render();
       });
     });
   }
@@ -1100,6 +1508,274 @@ class EvSmartChargerDashboard extends HTMLElement {
     `;
   }
 
+  // ============================================================
+  // v1.10.0: split-view rendering — Dashboard / Settings
+  // ============================================================
+
+  _renderTabs() {
+    const isDashboard = this._view !== "settings";
+    return `
+      <div class="evsc-tabs">
+        <button class="evsc-tab ${isDashboard ? "active" : ""}" data-view="dashboard">
+          <span class="evsc-tab-dot"></span>${this._label("nav_dashboard")}
+        </button>
+        <button class="evsc-tab ${!isDashboard ? "active" : ""}" data-view="settings">${this._label("nav_settings")}</button>
+      </div>
+    `;
+  }
+
+  /**
+   * Bento-style Night Smart Charge card with crescent illustration,
+   * two time pills and the enable toggle. Replaces the verbose
+   * 6-row module from the original dashboard.
+   */
+  _renderNightCardV2() {
+    const enabledId = this._entityId("nightEnabled");
+    const enabled = this._isOn(enabledId);
+    const startTime = (this._stateObj(this._entityId("nightTime"))?.state || "01:00").slice(0, 5);
+    const carReadyTime = (this._stateObj(this._entityId("carReadyTime"))?.state || "08:00").slice(0, 5);
+    const forecast = this._displayValue(this._config.pv_forecast_entity, "");
+
+    return `
+      <section class="evsc-night-card">
+        <div class="evsc-night-head">
+          <span class="evsc-night-eyebrow">${this._label("night_card_title")}</span>
+          <span class="evsc-night-sub">${this._label("night_card_sub")}</span>
+        </div>
+        <div class="evsc-night-illu" aria-hidden="true">
+          <div class="evsc-night-moon"></div>
+        </div>
+        <div class="evsc-night-times">
+          <div class="evsc-night-time">
+            <div class="lbl">${this._label("night_start")}</div>
+            <div class="vv">${startTime}</div>
+          </div>
+          <div class="evsc-night-time">
+            <div class="lbl">${this._label("night_car_ready")}</div>
+            <div class="vv">${carReadyTime}</div>
+          </div>
+        </div>
+        <div class="evsc-night-enable">
+          <div>
+            <div class="t">${this._label("night_enabled")}</div>
+            ${forecast ? `<div class="s">${forecast}</div>` : ""}
+          </div>
+          <button class="evsc-set-toggle violet ${enabled ? "on" : ""}" data-toggle="${enabledId}" aria-label="${this._label("night_enabled")}"></button>
+        </div>
+      </section>
+    `;
+  }
+
+  /**
+   * Weekly planner — 7 columns × 3 rows (EV target, Home target, Car ready).
+   * Inline stepper controls for SOC targets, mini iOS toggle for car-ready.
+   * Today's column is highlighted with a blue tint.
+   */
+  _renderWeeklyPlannerV2() {
+    const locale = this._language();
+    const initials = DAY_INITIALS_BY_LOCALE[locale] || DAY_INITIALS_BY_LOCALE[DEFAULT_LOCALE];
+    const todayIdx = (new Date().getDay() + 6) % 7; // 0 = Mon … 6 = Sun
+
+    const headers = initials
+      .map((init, i) => `<div class="evsc-wp-header ${i === todayIdx ? "today" : ""}">${init}</div>`)
+      .join("");
+
+    const evRow = DAYS.map((day, i) => {
+      const ent = this._entityId(`evMinSoc_${day}`);
+      const v = this._stateObj(ent)?.state ?? "—";
+      return `
+        <div class="evsc-wp-cell ${i === todayIdx ? "today" : ""}">
+          <div class="evsc-wp-soc-row">
+            <button class="evsc-wp-mini" data-number="${ent}" data-direction="-1">−</button>
+            <span class="evsc-wp-soc ev">${v}<small>%</small></span>
+            <button class="evsc-wp-mini" data-number="${ent}" data-direction="1">+</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    const homeRow = DAYS.map((day, i) => {
+      const ent = this._entityId(`homeMinSoc_${day}`);
+      const v = this._stateObj(ent)?.state ?? "—";
+      return `
+        <div class="evsc-wp-cell ${i === todayIdx ? "today" : ""}">
+          <div class="evsc-wp-soc-row">
+            <button class="evsc-wp-mini" data-number="${ent}" data-direction="-1">−</button>
+            <span class="evsc-wp-soc home">${v}<small>%</small></span>
+            <button class="evsc-wp-mini" data-number="${ent}" data-direction="1">+</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    const carRow = DAYS.map((day, i) => {
+      const ent = this._entityId(`carReady_${day}`);
+      const enabled = this._isOn(ent);
+      return `
+        <div class="evsc-wp-cell ${i === todayIdx ? "today" : ""}">
+          <button class="evsc-wp-tog ${enabled ? "on" : ""}" data-toggle="${ent}" aria-label="${this._label("weekly_car")}"></button>
+        </div>
+      `;
+    }).join("");
+
+    return `
+      <section class="evsc-weekly">
+        <div class="evsc-wp-head">
+          <div>
+            <span class="evsc-wp-eyebrow">${this._label("weekly_title")}</span>
+            <span class="evsc-wp-sub">${this._label("weekly_desc")}</span>
+          </div>
+        </div>
+        <div class="evsc-wp-grid">
+          <div></div>${headers}
+          <div class="evsc-wp-row-label">${this._label("weekly_ev")}</div>${evRow}
+          <div class="evsc-wp-row-label">${this._label("weekly_home")}</div>${homeRow}
+          <div class="evsc-wp-row-label">${this._label("weekly_car")}</div>${carRow}
+        </div>
+        <div class="evsc-wp-info">${this._label("weekly_info")}</div>
+      </section>
+    `;
+  }
+
+  /**
+   * Render one accordion (category) for the Settings view. Items are
+   * rendered from SETTINGS_CATALOG via _renderSettingItemFromCatalog.
+   */
+  _renderAccordion(cat) {
+    const open = this._openAccordions.has(cat.id);
+    const itemsHtml = cat.items.map((item) => this._renderSettingItemFromCatalog(item)).join("");
+    return `
+      <div class="evsc-acc ${open ? "open" : ""}">
+        <div class="evsc-acc-head" data-accordion="${cat.id}">
+          <div class="evsc-acc-ico ${cat.iconClass}">${cat.icon}</div>
+          <div class="evsc-acc-title">
+            <h3>${this._loc(cat.name)}</h3>
+            <p>${this._loc(cat.desc)}</p>
+          </div>
+          <div class="evsc-acc-count">${cat.items.length}</div>
+          <svg class="evsc-acc-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+            <polyline points="9 6 15 12 9 18"/>
+          </svg>
+        </div>
+        <div class="evsc-acc-body">
+          <div class="evsc-acc-body-inner">${itemsHtml}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderSettingItemFromCatalog(item) {
+    const entityId = this._entityId(item.entityKey);
+    const suffix = DOMAIN_SUFFIXES[item.entityKey]?.[1] || "";
+    let control = "";
+    if (item.kind === "toggle") {
+      const enabled = this._isOn(entityId);
+      control = `<button class="evsc-set-toggle ${enabled ? "on" : ""}" data-toggle="${entityId}" aria-label="${this._loc(item.name)}"></button>`;
+    } else if (item.kind === "stepper") {
+      const stateObj = this._stateObj(entityId);
+      const unit = stateObj?.attributes?.unit_of_measurement || "";
+      const value = stateObj?.state ?? "—";
+      control = `
+        <div class="evsc-set-stepper">
+          <button class="evsc-set-step" data-number="${entityId}" data-direction="-1">−</button>
+          <span class="evsc-set-val">${value}<small>${unit}</small></span>
+          <button class="evsc-set-step" data-number="${entityId}" data-direction="1">+</button>
+        </div>
+      `;
+    } else if (item.kind === "time") {
+      const v = (this._stateObj(entityId)?.state || "--:--").slice(0, 5);
+      control = `
+        <div class="evsc-set-stepper">
+          <button class="evsc-set-step" data-time="${entityId}" data-minutes="-15">−</button>
+          <span class="evsc-set-val">${v}</span>
+          <button class="evsc-set-step" data-time="${entityId}" data-minutes="15">+</button>
+        </div>
+      `;
+    } else {
+      const v = this._stateObj(entityId)?.state || this._t("common.unavailable");
+      control = `<span class="evsc-set-info">${v}</span>`;
+    }
+    return `
+      <div class="evsc-set-item">
+        <div>
+          <h4>${this._loc(item.name)}${suffix ? ` <span class="evsc-set-key">${suffix}</span>` : ""}</h4>
+          <p>${this._loc(item.desc)}</p>
+          ${item.hint ? `<div class="evsc-set-hint">${this._loc(item.hint)}</div>` : ""}
+        </div>
+        <div class="evsc-set-ctrl">${control}</div>
+      </div>
+    `;
+  }
+
+  _renderSettingsView() {
+    return `
+      <div class="evsc-settings-hero">
+        <h2>${this._label("settings_title")}</h2>
+        <p>${this._label("settings_intro")}</p>
+      </div>
+      <div class="evsc-settings-list">
+        ${SETTINGS_CATALOG.map((cat) => this._renderAccordion(cat)).join("")}
+      </div>
+    `;
+  }
+
+  /**
+   * Dashboard view — operational only. Hero ring (with charging pill BELOW
+   * the ring + "EV" label inside), Override + Boost, Weekly Planner, Night
+   * Smart Charge bento card, Charging Profile chips. Configuration knobs
+   * live in the Settings view.
+   */
+  _renderDashboardView(ids, displayValues, priorityState) {
+    const overrideStack = `
+      ${this._renderToggle(ids.forceChargeId, this._t("control.force_charge"), this._t("control.override_all"), "rose")}
+      ${this._renderToggle(ids.boostEnabledId, this._t("control.boost_session"), this._t("control.high_priority"), "amber")}
+      ${this._renderStepper(ids.boostAmperageId, this._t("control.boost_amperage"), this._t("control.output"), "amber")}
+      ${this._renderStepper(ids.boostTargetSocId, this._t("control.boost_target_soc"), this._t("control.auto_stop"), "lime")}
+    `;
+
+    return `
+      <div class="evsc-dash-grid">
+        <div class="evsc-stack">
+          <header class="evsc-hero-v2">
+            ${this._renderHeroRing()}
+            <div class="evsc-hero-body">
+              ${this._renderPriorityPill(priorityState)}
+              <h1>${this._config.title || this._t("title.default")}</h1>
+              <p class="evsc-hero-sub">${this._t("hero.description")}</p>
+              <div class="evsc-metric-row">
+                ${this._renderMetric(this._t("metric.solar_power"), displayValues.solarPower, "amber", this._labelFor(this._config.solar_power_entity, this._t("metric.pv_feed")))}
+                ${this._renderMetric(this._t("metric.grid_import"), displayValues.gridImport, "rose", this._labelFor(this._config.grid_import_entity, this._t("metric.import_threshold")))}
+                ${this._renderMetric(this._t("metric.charge_current"), displayValues.chargerCurrent, "teal", this._labelFor(this._config.current_entity, this._t("metric.wallbox_current")))}
+                ${this._renderMetric(this._t("metric.charging_power"), displayValues.chargingPower, "cyan", this._labelFor(this._config.charging_power_entity, this._t("metric.live_power")))}
+              </div>
+            </div>
+          </header>
+
+          <section class="evsc-card evsc-override-card">
+            <div class="evsc-card-head">
+              <span class="evsc-card-title">${this._label("override_title")}</span>
+              <span class="evsc-card-eyebrow">${this._label("override_hint")}</span>
+            </div>
+            <div class="evsc-stack-inner">${overrideStack}</div>
+          </section>
+        </div>
+
+        <div class="evsc-stack">
+          ${this._renderWeeklyPlannerV2()}
+          ${this._renderNightCardV2()}
+
+          <section class="evsc-card">
+            <div class="evsc-card-head">
+              <span class="evsc-card-title">${this._label("profile_label")}</span>
+              <span class="evsc-card-eyebrow">${this._label("profile_hint")}</span>
+            </div>
+            ${this._renderSelectChips(ids.chargingProfileId, this._t("control.charging_profile"), this._t("control.mode_strategy"))}
+          </section>
+        </div>
+      </div>
+    `;
+  }
+
   render() {
     if (!this.shadowRoot || !this._config) {
       return;
@@ -1174,6 +1850,21 @@ class EvSmartChargerDashboard extends HTMLElement {
     const gridImport = this._displayValue(this._config.grid_import_entity, this._t("fallback.grid_import_entity"));
     const chargerCurrent = this._displayValue(this._config.current_entity, this._t("fallback.current_entity"));
 
+    // v1.10.0: dispatch into Dashboard or Settings view depending on _view.
+    const ids = {
+      forceChargeId, boostEnabledId, boostAmperageId, boostTargetSocId,
+      chargingProfileId, nightEnabledId, nightTimeId, carReadyTimeId,
+    };
+    const displayValues = { chargingPower, solarPower, gridImport, chargerCurrent };
+
+    const viewHtml = this._view === "settings"
+      ? this._renderSettingsView()
+      : this._renderDashboardView(ids, displayValues, priorityState);
+
+    const diagnosticsHtml = this._view === "settings"
+      ? this._renderDiagnostics(diagnostic, solarDiagnostic, hybridDiagnostic, cachedEvSoc)
+      : "";
+
     const html = `
       <ha-card>
         <div class="dashboard-shell">
@@ -1181,163 +1872,29 @@ class EvSmartChargerDashboard extends HTMLElement {
           <div class="aurora aurora-b"></div>
           <div class="grain"></div>
 
-          <header class="hero-card">
-            ${this._renderHeroRing()}
-            <div class="hero-right">
-              <div class="hero-copy">
-                <span class="eyebrow">${this._t("hero.eyebrow")}</span>
-                <h1>${this._config.title || this._t("title.default")}</h1>
-                <p>${this._t("hero.description")}</p>
-              </div>
-              <div class="hero-grid">
-                ${this._renderMetric(this._t("metric.solar_power"), solarPower, "amber", this._labelFor(this._config.solar_power_entity, this._t("metric.pv_feed")))}
-                ${this._renderMetric(this._t("metric.grid_import"), gridImport, "rose", this._labelFor(this._config.grid_import_entity, this._t("metric.import_threshold")))}
-                ${this._renderMetric(this._t("metric.charge_current"), chargerCurrent, "teal", this._labelFor(this._config.current_entity, this._t("metric.wallbox_current")))}
-                ${this._renderMetric(this._t("metric.charging_power"), chargingPower, "cyan", this._labelFor(this._config.charging_power_entity, this._t("metric.live_power")))}
-              </div>
-            </div>
-          </header>
-
-          <section class="spotlight-panel">
-            <div class="spotlight-main">
-              <span class="eyebrow">${this._t("spotlight.priority_engine")}</span>
-              ${this._renderPriorityPill(priorityState)}
-              <span class="metric-sub">${this._t("spotlight.description")}</span>
-            </div>
-            <div class="spotlight-side">
-              <div class="target-chip">
-                <span class="eyebrow">${this._t("spotlight.today_ev_target")}</span>
-                <strong>${todayEvTarget?.state || "--"}</strong>
-              </div>
-              <div class="target-chip">
-                <span class="eyebrow">${this._t("spotlight.today_home_target")}</span>
-                <strong>${todayHomeTarget?.state || "--"}</strong>
-              </div>
-            </div>
-          </section>
-
-          <section class="module-grid">
-            <section class="module-panel">
-              <div class="module-header">
-                <span class="kicker">${this._t("module.override_layer")}</span>
-                <h2>${this._t("module.main_controls")}</h2>
-              </div>
-              ${this._renderToggle(forceChargeId, this._t("control.force_charge"), this._t("control.override_all"), "rose")}
-              ${this._renderSelectChips(chargingProfileId, this._t("control.charging_profile"), this._t("control.mode_strategy"))}
-            </section>
-
-            <section class="module-panel">
-              <div class="module-header">
-                <span class="kicker">${this._t("module.fast_override")}</span>
-                <h2>${this._t("module.boost_charge")}</h2>
-              </div>
-              ${this._renderToggle(boostEnabledId, this._t("control.boost_session"), this._t("control.high_priority"), "amber")}
-              ${this._renderStepper(boostAmperageId, this._t("control.boost_amperage"), this._t("control.output"), "amber")}
-              ${this._renderStepper(boostTargetSocId, this._t("control.boost_target_soc"), this._t("control.auto_stop"), "lime")}
-            </section>
-
-            <section class="module-panel">
-              <div class="module-header">
-                <span class="kicker">${this._t("module.daily_window")}</span>
-                <h2>${this._t("module.boost_schedule")}</h2>
-              </div>
-              ${this._renderToggle(boostScheduleEnabledId, this._t("control.schedule_boost"), this._t("control.daily_schedule"), "amber")}
-              ${this._renderTimeControl(boostScheduleStartId, this._t("control.schedule_start"), this._t("control.schedule"))}
-              ${this._renderTimeControl(boostScheduleEndId, this._t("control.schedule_end"), this._t("control.schedule"))}
-            </section>
-
-            <section class="module-panel">
-              <div class="module-header">
-                <span class="kicker">${this._t("module.forecast_driven")}</span>
-                <h2>${this._t("module.night_smart_charge")}</h2>
-              </div>
-              ${this._renderToggle(nightEnabledId, this._t("control.enable_night_smart_charge"), this._t("control.night_window"), "violet")}
-              ${this._renderToggle(preserveHomeBatteryId, this._t("control.preserve_home_battery"), this._t("control.skip_when_not_required"), "lime")}
-              ${this._renderTimeControl(nightTimeId, this._t("control.start_time"), this._t("control.schedule"))}
-              ${this._renderTimeControl(carReadyTimeId, this._t("control.car_ready_time"), this._t("control.morning_deadline"))}
-              ${this._renderStepper(minSolarForecastId, this._t("control.min_solar_forecast"), this._t("control.tomorrow_threshold"), "cyan")}
-              ${this._renderStepper(nightAmperageId, this._t("control.night_charge_amperage"), this._t("control.overnight_current"), "teal")}
-            </section>
-
-            <section class="module-panel">
-              <div class="module-header">
-                <span class="kicker">${this._t("module.weekly_planner")}</span>
-                <h2>${this._t("module.car_ready")}</h2>
-              </div>
-              ${this._renderDayToggleGrid(this._t("module.car_ready"), this._t("control.car_ready_grid_hint"), "carReady", "violet")}
-            </section>
-
-            <section class="module-panel">
-              <div class="module-header">
-                <span class="kicker">${this._t("module.target_planner")}</span>
-                <h2>${this._t("module.daily_targets")}</h2>
-              </div>
-              ${this._renderDaySocGrid(this._t("control.ev_targets_label"), this._t("spotlight.today_ev_target"), "evMinSoc", "cyan")}
-              ${this._renderDaySocGrid(this._t("control.home_targets_label"), this._t("spotlight.today_home_target"), "homeMinSoc", "lime")}
-            </section>
-
-            <section class="module-panel">
-              <div class="module-header">
-                <span class="kicker">${this._t("module.adaptive_curve")}</span>
-                <h2>${this._t("module.solar_surplus")}</h2>
-              </div>
-              ${this._renderStepper(checkIntervalId, this._t("control.check_interval"), this._t("control.polling"), "cyan")}
-              ${this._renderStepper(gridImportThresholdId, this._t("control.grid_import_threshold"), this._t("control.clamp"), "rose")}
-              ${this._renderStepper(gridImportDelayId, this._t("control.grid_import_delay"), this._t("control.debounce"), "violet")}
-              ${this._renderStepper(surplusDropDelayId, this._t("control.surplus_drop_delay"), this._t("control.cloud_filter"), "amber")}
-              ${this._renderStepper(solarMaxAmperageId, this._t("control.solar_max_amperage"), this._t("control.wallbox_ceiling"), "teal")}
-              ${this._renderToggle(useHomeBatteryId, this._t("control.use_home_battery"), this._t("control.fallback_reserve"), "lime")}
-              ${this._renderStepper(homeBatteryMinSocId, this._t("control.home_battery_min_soc"), this._t("control.reserve_floor"), "lime")}
-              ${this._renderStepper(batterySupportAmperageId, this._t("control.battery_support_amperage"), this._t("control.assist_output"), "teal")}
-              ${this._renderStepper(batterySupportSunsetBufferId, this._t("control.battery_support_sunset_buffer"), this._t("control.protect_evening_battery"), "rose")}
-            </section>
-
-            <section class="module-panel">
-              <div class="module-header">
-                <span class="kicker">${this._t("module.curtailment_discovery")}</span>
-                <h2>${this._t("module.hybrid_inverter")}</h2>
-              </div>
-              ${this._renderToggle(hybridModeId, this._t("control.hybrid_enabled"), this._t("control.opt_in_probing"), "teal")}
-              ${this._renderStepper(hybridBatteryFullThresholdId, this._t("control.hybrid_battery_full_threshold"), this._t("control.curtailment_trigger"), "lime")}
-              ${this._renderStepper(hybridProbeDurationId, this._t("control.hybrid_probe_duration"), this._t("control.test_window"), "cyan")}
-              ${this._renderStepper(hybridMaxImportDurationId, this._t("control.hybrid_max_import_duration"), this._t("control.backoff_window"), "amber")}
-              ${this._renderStepper(hybridMaxFailedProbesId, this._t("control.hybrid_max_failed_probes"), this._t("control.sliding_window"), "rose")}
-            </section>
-
-            <section class="module-panel">
-              <div class="module-header">
-                <span class="kicker">${this._t("module.safety_nets")}</span>
-                <h2>${this._t("module.protection_layer")}</h2>
-              </div>
-              ${this._renderToggle(priorityBalancerId, this._t("control.priority_balancer"), this._t("control.target_arbitration"), "cyan")}
-              ${this._renderToggle(smartBlockerId, this._t("control.smart_charger_blocker"), this._t("control.nighttime_lockout"), "rose")}
-            </section>
-
-            <section class="module-panel">
-              <div class="module-header">
-                <span class="kicker">${this._t("module.mobile_alerts")}</span>
-                <h2>${this._t("module.notifications")}</h2>
-              </div>
-              ${this._renderToggle(notifySmartBlockerId, this._t("control.notify_smart_blocker"), this._t("control.alert_channel"), "rose")}
-              ${this._renderToggle(notifyPriorityBalancerId, this._t("control.notify_priority_balancer"), this._t("control.alert_channel"), "cyan")}
-              ${this._renderToggle(notifyNightChargeId, this._t("control.notify_night_charge"), this._t("control.alert_channel"), "violet")}
-            </section>
-
-            <section class="module-panel">
-              <div class="module-header">
-                <span class="kicker">${this._t("module.observability")}</span>
-                <h2>${this._t("module.logging")}</h2>
-              </div>
-              ${this._renderToggle(traceLoggingId, this._t("control.trace_logging"), this._t("control.deep_diagnostics"), "amber")}
-              ${this._renderToggle(enableFileLoggingId, this._t("control.enable_file_logging"), this._t("control.daily_log_files"), "teal")}
-              ${this._renderInfoCard(this._t("log.file_path_label"), logFilePath?.state || this._t("common.unavailable"), this._t("control.daily_log_files"), "teal")}
-            </section>
-          </section>
-
-          ${this._renderDiagnostics(diagnostic, solarDiagnostic, hybridDiagnostic, cachedEvSoc)}
+          ${this._renderTabs()}
+          ${viewHtml}
+          ${diagnosticsHtml}
         </div>
       </ha-card>
-      <style>
+      <style>${this._inlineStyles()}</style>
+    `;
+
+    // Anti-flicker guard: HA fires `set hass(hass)` on every state change,
+    // which triggers render(). We rewrite the shadow DOM only when the HTML
+    // string actually changes.
+    const newHash = this._cheapHash(html);
+    if (newHash === this._lastRenderHash) {
+      return;
+    }
+    this._lastRenderHash = newHash;
+    this.shadowRoot.innerHTML = html;
+
+    this._bindEvents();
+  }
+
+  _inlineStyles() {
+    return `
         /* ============================================================
          * EV Smart Charger — Liquid Glass iOS 18
          * Palette: Apple System colors. Adaptive light/dark via
@@ -2139,21 +2696,633 @@ class EvSmartChargerDashboard extends HTMLElement {
           .hero-ring { width: 160px; height: 160px; }
           .hero-ring-center .ring-headline { font-size: 1.8rem; }
         }
-      </style>
+
+        /* ============================================================
+         * v1.10.0 — Split-view (Dashboard / Settings) additions
+         * ============================================================ */
+
+        /* Top tab bar */
+        .evsc-tabs {
+          display: inline-flex;
+          align-items: center;
+          padding: 4px;
+          background: var(--evsc-surface);
+          backdrop-filter: var(--evsc-blur);
+          -webkit-backdrop-filter: var(--evsc-blur);
+          border: 1px solid var(--evsc-stroke);
+          border-radius: 999px;
+          box-shadow: var(--evsc-shadow-soft);
+          margin: 0 auto 8px;
+          width: max-content;
+        }
+        .evsc-tab {
+          appearance: none;
+          border: none;
+          background: transparent;
+          color: var(--evsc-fg-mid);
+          font: inherit;
+          font-size: 13px;
+          font-weight: 600;
+          letter-spacing: -0.005em;
+          padding: 9px 18px;
+          border-radius: 999px;
+          cursor: pointer;
+          transition: all 280ms var(--evsc-spring);
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .evsc-tab.active {
+          background: var(--evsc-surface-strong);
+          color: var(--evsc-fg);
+          box-shadow: 0 1px 0 rgba(255, 255, 255, 0.5) inset,
+                      0 6px 14px -6px rgba(15, 17, 40, 0.18);
+        }
+        .evsc-tab-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--evsc-sys-green);
+          box-shadow: 0 0 8px var(--evsc-sys-green);
+        }
+
+        /* Two-column dashboard grid */
+        .evsc-dash-grid {
+          display: grid;
+          grid-template-columns: 1.15fr 1fr;
+          gap: 18px;
+          animation: evsc-fade-in 500ms var(--evsc-spring) backwards;
+        }
+        @media (max-width: 980px) {
+          .evsc-dash-grid { grid-template-columns: 1fr; }
+        }
+        .evsc-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+        }
+        .evsc-card {
+          position: relative;
+          background: var(--evsc-surface);
+          backdrop-filter: var(--evsc-blur);
+          -webkit-backdrop-filter: var(--evsc-blur);
+          border: 1px solid var(--evsc-stroke);
+          border-radius: var(--evsc-radius-lg);
+          box-shadow: var(--evsc-shadow-soft);
+          padding: 22px;
+          overflow: hidden;
+        }
+        .evsc-card-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+        .evsc-card-title {
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--evsc-fg-low);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .evsc-card-eyebrow {
+          font-size: 11px;
+          color: var(--evsc-fg-low);
+          font-weight: 500;
+        }
+        .evsc-stack-inner {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        /* Revised hero — status pill BELOW the ring, EV label inside */
+        .evsc-hero-v2 {
+          background: var(--evsc-surface);
+          backdrop-filter: var(--evsc-blur);
+          -webkit-backdrop-filter: var(--evsc-blur);
+          border: 1px solid var(--evsc-stroke);
+          border-radius: var(--evsc-radius-lg);
+          box-shadow: var(--evsc-shadow-soft);
+          padding: 26px;
+          display: grid;
+          grid-template-columns: auto 1fr;
+          gap: 26px;
+          align-items: center;
+        }
+        @media (max-width: 720px) {
+          .evsc-hero-v2 {
+            grid-template-columns: 1fr;
+            text-align: left;
+            gap: 22px;
+            padding: 22px;
+          }
+        }
+        .evsc-hero-body h1 {
+          margin: 8px 0 4px;
+          font-size: clamp(20px, 3vw, 26px);
+          font-weight: 700;
+          letter-spacing: -0.02em;
+        }
+        .evsc-hero-sub {
+          color: var(--evsc-fg-low);
+          font-size: 14px;
+          margin: 0 0 18px;
+        }
+        .evsc-metric-row {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+        }
+
+        /* Weekly Planner card */
+        .evsc-weekly {
+          background: var(--evsc-surface);
+          backdrop-filter: var(--evsc-blur);
+          -webkit-backdrop-filter: var(--evsc-blur);
+          border: 1px solid var(--evsc-stroke);
+          border-radius: var(--evsc-radius-lg);
+          box-shadow: var(--evsc-shadow-soft);
+          padding: 22px;
+        }
+        .evsc-wp-head { margin-bottom: 14px; }
+        .evsc-wp-eyebrow {
+          display: block;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--evsc-fg-low);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .evsc-wp-sub {
+          display: block;
+          font-size: 11px;
+          color: var(--evsc-fg-low);
+          margin-top: 2px;
+        }
+        .evsc-wp-grid {
+          display: grid;
+          grid-template-columns: 70px repeat(7, 1fr);
+          gap: 6px;
+          align-items: center;
+        }
+        @media (max-width: 600px) {
+          .evsc-wp-grid { grid-template-columns: 54px repeat(7, 1fr); }
+        }
+        .evsc-wp-header {
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--evsc-fg-low);
+          font-weight: 700;
+          text-align: center;
+          padding: 4px 0;
+        }
+        .evsc-wp-header.today {
+          color: var(--evsc-sys-blue);
+        }
+        .evsc-wp-row-label {
+          font-size: 12px;
+          color: var(--evsc-fg-mid);
+          font-weight: 600;
+          padding-right: 6px;
+        }
+        .evsc-wp-cell {
+          padding: 6px 2px;
+          border-radius: 12px;
+          background: color-mix(in srgb, var(--evsc-fg) 4%, transparent);
+          border: 1px solid var(--evsc-stroke);
+          text-align: center;
+        }
+        .evsc-wp-cell.today {
+          background: color-mix(in srgb, var(--evsc-sys-blue) 14%, transparent);
+          border-color: color-mix(in srgb, var(--evsc-sys-blue) 35%, transparent);
+        }
+        .evsc-wp-soc-row {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 2px;
+        }
+        .evsc-wp-soc {
+          min-width: 28px;
+          font-size: 13px;
+          font-weight: 700;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: -0.01em;
+        }
+        .evsc-wp-soc.ev { color: var(--evsc-sys-blue); }
+        .evsc-wp-soc.home { color: var(--evsc-sys-green); }
+        .evsc-wp-soc small {
+          font-size: 9px;
+          color: var(--evsc-fg-low);
+          font-weight: 600;
+          margin-left: 1px;
+        }
+        .evsc-wp-mini {
+          appearance: none;
+          border: none;
+          background: transparent;
+          width: 18px;
+          height: 18px;
+          border-radius: 5px;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--evsc-fg-mid);
+          cursor: pointer;
+          line-height: 1;
+        }
+        .evsc-wp-mini:hover {
+          background: color-mix(in srgb, var(--evsc-fg) 8%, transparent);
+        }
+        .evsc-wp-tog {
+          appearance: none;
+          width: 38px;
+          height: 22px;
+          border: none;
+          border-radius: 999px;
+          background: rgba(120, 120, 128, 0.32);
+          position: relative;
+          cursor: pointer;
+          transition: background 240ms var(--evsc-spring);
+          margin: 0 auto;
+          padding: 0;
+        }
+        .evsc-wp-tog::after {
+          content: "";
+          width: 18px;
+          height: 18px;
+          background: #fff;
+          border-radius: 50%;
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          transition: transform 240ms var(--evsc-spring);
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+        }
+        .evsc-wp-tog.on { background: var(--evsc-sys-purple); }
+        .evsc-wp-tog.on::after { transform: translateX(16px); }
+        .evsc-wp-info {
+          margin-top: 14px;
+          padding: 12px 14px;
+          border-radius: 12px;
+          background: color-mix(in srgb, var(--evsc-fg) 5%, transparent);
+          border: 1px solid var(--evsc-stroke);
+          font-size: 12px;
+          line-height: 1.5;
+          color: var(--evsc-fg-mid);
+        }
+
+        /* Night Smart Charge — bento illustration card */
+        .evsc-night-card {
+          background:
+            radial-gradient(80% 60% at 100% 0%, color-mix(in srgb, var(--evsc-sys-indigo) 20%, transparent), transparent 60%),
+            var(--evsc-surface);
+          backdrop-filter: var(--evsc-blur);
+          -webkit-backdrop-filter: var(--evsc-blur);
+          border: 1px solid var(--evsc-stroke);
+          border-radius: var(--evsc-radius-lg);
+          box-shadow: var(--evsc-shadow-soft);
+          padding: 22px;
+        }
+        .evsc-night-head { margin-bottom: 16px; }
+        .evsc-night-eyebrow {
+          display: block;
+          font-size: 13px;
+          color: var(--evsc-sys-purple);
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .evsc-night-sub {
+          display: block;
+          font-size: 11px;
+          color: var(--evsc-fg-low);
+          margin-top: 2px;
+        }
+        .evsc-night-illu {
+          height: 90px;
+          background: radial-gradient(60% 100% at 50% 100%, color-mix(in srgb, var(--evsc-sys-purple) 35%, transparent), transparent 70%);
+          border-radius: 14px;
+          position: relative;
+          margin-bottom: 16px;
+          overflow: hidden;
+        }
+        .evsc-night-moon {
+          position: absolute;
+          top: 18px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          background: linear-gradient(140deg, #fff, #d1d5e0);
+          box-shadow: 0 8px 24px rgba(175, 82, 222, 0.6);
+        }
+        .evsc-night-moon::after {
+          content: "";
+          position: absolute;
+          inset: 4px;
+          background: radial-gradient(ellipse 60% 60% at 75% 35%, rgba(175, 82, 222, 0.20), transparent 60%);
+          border-radius: 50%;
+        }
+        .evsc-night-illu::before,
+        .evsc-night-illu::after {
+          content: "";
+          position: absolute;
+          border-radius: 50%;
+          background: var(--evsc-fg);
+          opacity: 0.5;
+        }
+        .evsc-night-illu::before { width: 3px; height: 3px; top: 22px; left: 30%; }
+        .evsc-night-illu::after  { width: 2px; height: 2px; top: 38px; right: 25%; }
+        .evsc-night-times {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-bottom: 14px;
+        }
+        .evsc-night-time {
+          background: color-mix(in srgb, var(--evsc-fg) 5%, transparent);
+          border: 1px solid var(--evsc-stroke);
+          border-radius: 12px;
+          padding: 10px 12px;
+        }
+        .evsc-night-time .lbl {
+          font-size: 9px;
+          color: var(--evsc-fg-low);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          font-weight: 700;
+        }
+        .evsc-night-time .vv {
+          font-size: 22px;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+          margin-top: 2px;
+          font-variant-numeric: tabular-nums;
+        }
+        .evsc-night-enable {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 14px;
+          background: color-mix(in srgb, var(--evsc-fg) 5%, transparent);
+          border: 1px solid var(--evsc-stroke);
+          border-radius: 12px;
+        }
+        .evsc-night-enable .t {
+          font-size: 13px;
+          font-weight: 700;
+          letter-spacing: -0.01em;
+        }
+        .evsc-night-enable .s {
+          font-size: 11px;
+          color: var(--evsc-fg-low);
+          margin-top: 2px;
+        }
+
+        /* Settings view — hero + accordion list */
+        .evsc-settings-hero {
+          background: var(--evsc-surface);
+          backdrop-filter: var(--evsc-blur);
+          -webkit-backdrop-filter: var(--evsc-blur);
+          border: 1px solid var(--evsc-stroke);
+          border-radius: var(--evsc-radius-lg);
+          padding: 26px 28px;
+          margin-bottom: 14px;
+          box-shadow: var(--evsc-shadow-soft);
+          animation: evsc-fade-in 500ms var(--evsc-spring) backwards;
+        }
+        .evsc-settings-hero h2 {
+          margin: 0;
+          font-size: 26px;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+        }
+        .evsc-settings-hero p {
+          margin: 6px 0 0;
+          color: var(--evsc-fg-mid);
+          font-size: 14px;
+          line-height: 1.55;
+          max-width: 640px;
+        }
+        .evsc-settings-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .evsc-acc {
+          background: var(--evsc-surface);
+          backdrop-filter: var(--evsc-blur);
+          -webkit-backdrop-filter: var(--evsc-blur);
+          border: 1px solid var(--evsc-stroke);
+          border-radius: var(--evsc-radius-lg);
+          box-shadow: var(--evsc-shadow-soft);
+          overflow: hidden;
+          animation: evsc-fade-in 500ms var(--evsc-spring) backwards;
+        }
+        .evsc-acc.open {
+          box-shadow: var(--evsc-shadow-soft),
+                      0 0 0 1px color-mix(in srgb, var(--evsc-sys-blue) 18%, transparent);
+        }
+        .evsc-acc-head {
+          display: grid;
+          grid-template-columns: 44px 1fr auto auto;
+          gap: 14px;
+          align-items: center;
+          padding: 18px 22px;
+          cursor: pointer;
+          transition: background 180ms ease;
+        }
+        .evsc-acc-head:hover {
+          background: color-mix(in srgb, var(--evsc-fg) 4%, transparent);
+        }
+        @media (max-width: 640px) {
+          .evsc-acc-head {
+            padding: 16px;
+            grid-template-columns: 40px 1fr auto auto;
+            gap: 12px;
+          }
+        }
+        .evsc-acc-ico {
+          width: 44px;
+          height: 44px;
+          border-radius: 13px;
+          display: grid;
+          place-items: center;
+          color: #fff;
+          font-size: 18px;
+          flex-shrink: 0;
+        }
+        .evsc-acc-ico.sun   { background: linear-gradient(135deg, var(--evsc-sys-orange), var(--evsc-sys-yellow)); }
+        .evsc-acc-ico.moon  { background: linear-gradient(135deg, var(--evsc-sys-indigo), var(--evsc-sys-purple)); }
+        .evsc-acc-ico.bat   { background: linear-gradient(135deg, var(--evsc-sys-green), var(--evsc-sys-teal)); }
+        .evsc-acc-ico.hyb   { background: linear-gradient(135deg, var(--evsc-sys-teal), var(--evsc-sys-blue)); }
+        .evsc-acc-ico.boost { background: linear-gradient(135deg, var(--evsc-sys-orange), var(--evsc-sys-pink)); }
+        .evsc-acc-ico.bell  { background: linear-gradient(135deg, var(--evsc-sys-pink), var(--evsc-sys-orange)); }
+        .evsc-acc-ico.log   { background: linear-gradient(135deg, var(--evsc-fg-mid), var(--evsc-fg-low)); }
+        .evsc-acc-title h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 700;
+          letter-spacing: -0.015em;
+        }
+        .evsc-acc-title p {
+          margin: 2px 0 0;
+          font-size: 12px;
+          color: var(--evsc-fg-low);
+        }
+        .evsc-acc-count {
+          font-size: 11px;
+          color: var(--evsc-fg-low);
+          font-weight: 600;
+          font-variant-numeric: tabular-nums;
+          background: color-mix(in srgb, var(--evsc-fg) 6%, transparent);
+          padding: 4px 9px;
+          border-radius: 999px;
+        }
+        .evsc-acc-chev {
+          width: 22px;
+          height: 22px;
+          color: var(--evsc-fg-low);
+          transition: transform 280ms var(--evsc-spring);
+        }
+        .evsc-acc.open .evsc-acc-chev {
+          transform: rotate(90deg);
+          color: var(--evsc-sys-blue);
+        }
+        .evsc-acc-body {
+          max-height: 0;
+          overflow: hidden;
+          transition: max-height 380ms var(--evsc-spring);
+        }
+        .evsc-acc.open .evsc-acc-body { max-height: 2400px; }
+        .evsc-acc-body-inner {
+          padding: 4px 28px 22px;
+          border-top: 1px solid var(--evsc-stroke);
+        }
+        @media (max-width: 640px) {
+          .evsc-acc-body-inner { padding: 4px 18px 18px; }
+        }
+        .evsc-set-item {
+          padding: 18px 0;
+          border-bottom: 1px solid var(--evsc-stroke);
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 18px;
+          align-items: start;
+        }
+        .evsc-set-item:last-child { border-bottom: none; }
+        @media (max-width: 520px) {
+          .evsc-set-item { grid-template-columns: 1fr; }
+        }
+        .evsc-set-item h4 {
+          margin: 0 0 4px;
+          font-size: 15px;
+          font-weight: 600;
+          letter-spacing: -0.01em;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .evsc-set-key {
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          font-size: 10px;
+          background: color-mix(in srgb, var(--evsc-fg) 6%, transparent);
+          color: var(--evsc-fg-low);
+          padding: 2px 6px;
+          border-radius: 5px;
+          font-weight: 500;
+        }
+        .evsc-set-item p {
+          margin: 0;
+          font-size: 13px;
+          color: var(--evsc-fg-mid);
+          line-height: 1.55;
+          max-width: 580px;
+        }
+        .evsc-set-hint {
+          margin-top: 8px;
+          font-size: 11px;
+          color: var(--evsc-fg-low);
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .evsc-set-toggle {
+          appearance: none;
+          width: 51px;
+          height: 31px;
+          border: none;
+          border-radius: 999px;
+          background: rgba(120, 120, 128, 0.32);
+          position: relative;
+          cursor: pointer;
+          transition: background 280ms var(--evsc-spring);
+          padding: 0;
+          flex-shrink: 0;
+        }
+        .evsc-set-toggle::after {
+          content: "";
+          width: 27px;
+          height: 27px;
+          border-radius: 50%;
+          background: #fff;
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          transition: transform 280ms var(--evsc-spring);
+          box-shadow: 0 3px 8px rgba(0, 0, 0, 0.18);
+        }
+        .evsc-set-toggle.on { background: var(--evsc-sys-green); }
+        .evsc-set-toggle.on.violet { background: var(--evsc-sys-purple); }
+        .evsc-set-toggle.on::after { transform: translateX(20px); }
+        .evsc-set-stepper {
+          display: inline-flex;
+          align-items: center;
+          padding: 2px;
+          background: color-mix(in srgb, var(--evsc-fg) 8%, transparent);
+          border-radius: 10px;
+        }
+        .evsc-set-step {
+          appearance: none;
+          width: 28px;
+          height: 28px;
+          border: none;
+          background: transparent;
+          font-size: 15px;
+          color: var(--evsc-fg);
+          cursor: pointer;
+          font-weight: 600;
+          border-radius: 8px;
+        }
+        .evsc-set-step:hover {
+          background: color-mix(in srgb, var(--evsc-fg) 6%, transparent);
+        }
+        .evsc-set-val {
+          min-width: 46px;
+          text-align: center;
+          font-variant-numeric: tabular-nums;
+          font-weight: 600;
+          font-size: 14px;
+        }
+        .evsc-set-val small {
+          color: var(--evsc-fg-low);
+          font-weight: 500;
+          font-size: 11px;
+          margin-left: 2px;
+        }
+        .evsc-set-info {
+          font-size: 12px;
+          color: var(--evsc-fg-low);
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          max-width: 220px;
+          word-break: break-all;
+          text-align: right;
+        }
     `;
-
-    // Anti-flicker guard: HA calls `set hass(hass)` on every state change in
-    // the entire system, which triggers render(). Without this guard, we
-    // rewrite the entire shadow DOM each time → visible flicker. With it,
-    // we only repaint when the HTML output actually changed.
-    const newHash = this._cheapHash(html);
-    if (newHash === this._lastRenderHash) {
-      return;
-    }
-    this._lastRenderHash = newHash;
-    this.shadowRoot.innerHTML = html;
-
-    this._bindEvents();
   }
 }
 
