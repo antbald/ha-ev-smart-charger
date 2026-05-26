@@ -1735,11 +1735,22 @@ class EvSmartChargerDashboard extends HTMLElement {
    * live in the Settings view.
    */
   _renderDashboardView(ids, displayValues, priorityState) {
+    // v1.10.2: Boost group — toggle + amperage + target SOC are
+    // semantically one control, so render them inside a single visual
+    // container with internal dividers instead of three sibling cards.
+    const boostGroup = `
+      <div class="evsc-boost-group">
+        ${this._renderToggle(ids.boostEnabledId, this._t("control.boost_session"), this._t("control.high_priority"), "amber")}
+        <div class="evsc-boost-subitems">
+          ${this._renderStepper(ids.boostAmperageId, this._t("control.boost_amperage"), this._t("control.output"), "amber")}
+          ${this._renderStepper(ids.boostTargetSocId, this._t("control.boost_target_soc"), this._t("control.auto_stop"), "lime")}
+        </div>
+      </div>
+    `;
+
     const overrideStack = `
       ${this._renderToggle(ids.forceChargeId, this._t("control.force_charge"), this._t("control.override_all"), "rose")}
-      ${this._renderToggle(ids.boostEnabledId, this._t("control.boost_session"), this._t("control.high_priority"), "amber")}
-      ${this._renderStepper(ids.boostAmperageId, this._t("control.boost_amperage"), this._t("control.output"), "amber")}
-      ${this._renderStepper(ids.boostTargetSocId, this._t("control.boost_target_soc"), this._t("control.auto_stop"), "lime")}
+      ${boostGroup}
     `;
 
     return `
@@ -2672,27 +2683,18 @@ class EvSmartChargerDashboard extends HTMLElement {
           vertical-align: middle;
         }
 
-        /* Section entrance animation */
+        /* v1.10.2: entrance animations disabled.
+           Reason: the dashboard re-renders on every Home Assistant state
+           update (SOC tick, solar reading, status change, …). With
+           innerHTML replacement, the DOM is rebuilt and CSS entrance
+           animations replay from scratch — causing a visible flicker
+           every few seconds. Keeping only the aurora floatGlow on the
+           ::before pseudo-element (which survives innerHTML swaps) and
+           the live charging-pulse dot. */
         @keyframes evsc-fade-in {
           from { opacity: 0; transform: translateY(8px); }
           to   { opacity: 1; transform: translateY(0); }
         }
-        .hero-card,
-        .spotlight-panel,
-        .module-panel,
-        .diagnostic-panel > * {
-          animation: evsc-fade-in 500ms var(--evsc-spring) backwards;
-        }
-        .hero-card { animation-delay: 40ms; }
-        .spotlight-panel { animation-delay: 100ms; }
-        .module-grid .module-panel:nth-child(1) { animation-delay: 160ms; }
-        .module-grid .module-panel:nth-child(2) { animation-delay: 200ms; }
-        .module-grid .module-panel:nth-child(3) { animation-delay: 240ms; }
-        .module-grid .module-panel:nth-child(4) { animation-delay: 280ms; }
-        .module-grid .module-panel:nth-child(5) { animation-delay: 320ms; }
-        .module-grid .module-panel:nth-child(n+6) { animation-delay: 360ms; }
-        .diagnostic-panel > *:nth-child(2) { animation-delay: 80ms; }
-        .diagnostic-panel > *:nth-child(3) { animation-delay: 120ms; }
 
         /* Reduced motion */
         @media (prefers-reduced-motion: reduce) {
@@ -2776,7 +2778,6 @@ class EvSmartChargerDashboard extends HTMLElement {
           display: grid;
           grid-template-columns: 1.15fr 1fr;
           gap: 18px;
-          animation: evsc-fade-in 500ms var(--evsc-spring) backwards;
         }
         @media (max-width: 980px) {
           .evsc-dash-grid { grid-template-columns: 1fr; }
@@ -2890,6 +2891,139 @@ class EvSmartChargerDashboard extends HTMLElement {
           margin-top: 2px;
           letter-spacing: 0.16em;
           opacity: 0.65;
+        }
+
+        /* v1.10.2: Boost group — merge boost toggle + amperage + target SOC
+           into one visual card. Internal items lose their own surface and
+           rely on the parent group's background + dividers. */
+        .evsc-boost-group {
+          background: var(--evsc-surface-strong);
+          border: 1px solid var(--evsc-stroke);
+          border-radius: var(--evsc-radius);
+          box-shadow: var(--evsc-shadow-soft);
+          overflow: hidden;
+          backdrop-filter: var(--evsc-blur-light);
+          -webkit-backdrop-filter: var(--evsc-blur-light);
+        }
+        .evsc-boost-group > .control-card,
+        .evsc-boost-group > .control-toggle {
+          background: transparent !important;
+          border: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          margin: 0 !important;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+        }
+        .evsc-boost-subitems {
+          border-top: 1px solid var(--evsc-stroke);
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0;
+        }
+        .evsc-boost-subitems .control-card {
+          background: transparent !important;
+          border: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          margin: 0 !important;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+        }
+        .evsc-boost-subitems .control-card:first-child {
+          border-right: 1px solid var(--evsc-stroke);
+        }
+        @media (max-width: 600px) {
+          .evsc-boost-subitems {
+            grid-template-columns: 1fr;
+          }
+          .evsc-boost-subitems .control-card:first-child {
+            border-right: none;
+            border-bottom: 1px solid var(--evsc-stroke);
+          }
+        }
+
+        /* v1.10.2: aggressive mobile responsive — targets iOS HA Companion
+           app where the dashboard renders in a WebView at the device width.
+           Previous breakpoints (980 / 720 / 540) were too coarse and let
+           the hero ring overflow the viewport. */
+        @media (max-width: 920px) {
+          .evsc-dash-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 780px) {
+          .dashboard-shell {
+            padding: 14px !important;
+            max-width: 100% !important;
+          }
+          .evsc-hero-v2 {
+            grid-template-columns: 1fr;
+            text-align: center;
+            gap: 18px;
+            padding: 20px 18px;
+          }
+          .evsc-hero-v2 .hero-ring-wrap,
+          .evsc-hero-v2 .hero-ring {
+            width: min(200px, 55vw) !important;
+            height: auto !important;
+            aspect-ratio: 1 / 1;
+            margin: 0 auto;
+          }
+          .evsc-hero-v2 .hero-ring svg {
+            width: 100% !important;
+            height: 100% !important;
+          }
+          .evsc-hero-body {
+            text-align: left;
+          }
+          .evsc-metric-row {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
+        @media (max-width: 480px) {
+          .evsc-hero-v2 .hero-ring-wrap,
+          .evsc-hero-v2 .hero-ring {
+            width: 160px !important;
+          }
+          .evsc-metric-row {
+            grid-template-columns: 1fr;
+          }
+          .evsc-card {
+            padding: 16px !important;
+          }
+          .evsc-weekly,
+          .evsc-night-card {
+            padding: 16px !important;
+          }
+          .evsc-wp-grid {
+            grid-template-columns: 42px repeat(7, 1fr) !important;
+            gap: 3px !important;
+          }
+          .evsc-wp-soc {
+            font-size: 11px !important;
+          }
+          .evsc-wp-mini {
+            width: 14px !important;
+            height: 14px !important;
+            font-size: 11px !important;
+          }
+          .evsc-tabs {
+            margin: 0 auto 6px;
+          }
+          .evsc-tab {
+            padding: 8px 14px;
+            font-size: 12px;
+          }
+        }
+
+        /* v1.10.2: prevent horizontal scroll on any viewport */
+        :host {
+          overflow-x: hidden;
+        }
+        ha-card {
+          overflow-x: hidden;
+        }
+        .dashboard-shell {
+          overflow-x: hidden;
         }
 
         /* Weekly Planner card */
@@ -3149,7 +3283,6 @@ class EvSmartChargerDashboard extends HTMLElement {
           padding: 26px 28px;
           margin-bottom: 14px;
           box-shadow: var(--evsc-shadow-soft);
-          animation: evsc-fade-in 500ms var(--evsc-spring) backwards;
         }
         .evsc-settings-hero h2 {
           margin: 0;
@@ -3177,7 +3310,6 @@ class EvSmartChargerDashboard extends HTMLElement {
           border-radius: var(--evsc-radius-lg);
           box-shadow: var(--evsc-shadow-soft);
           overflow: hidden;
-          animation: evsc-fade-in 500ms var(--evsc-spring) backwards;
         }
         .evsc-acc.open {
           box-shadow: var(--evsc-shadow-soft),
