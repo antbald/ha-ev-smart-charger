@@ -1179,16 +1179,22 @@ class EvSmartChargerDashboard extends HTMLElement {
         <circle class="ring-track" cx="110" cy="110" r="${rInner}" stroke-width="13"/>
         <circle class="ring-progress" cx="110" cy="110" r="${rInner}" stroke-width="13"
                 style="color: var(--evsc-sys-purple); stroke: var(--evsc-sys-purple);"
-                stroke-dasharray="${cInner}" stroke-dashoffset="${cInner * (1 - homeFrac)}"/>`
+                stroke-dasharray="${cInner}" stroke-dashoffset="${cInner * (1 - homeFrac)}"
+                data-live-attr-id="ring.homeOffset"/>`
       : "";
 
+    const legendHomeText = homePct != null
+      ? `${this._t("metric.home_battery")} ${Math.round(homePct)}%`
+      : "";
     const legendHome = homePct != null
-      ? `<div style="color: var(--evsc-sys-purple);"><span class="ring-dot"></span><span>${this._t("metric.home_battery")} ${Math.round(homePct)}%</span></div>`
+      ? `<div style="color: var(--evsc-sys-purple);"><span class="ring-dot"></span><span data-live="legend.home">${legendHomeText}</span></div>`
       : "";
 
     const chargingDot = isCharging
       ? `<span class="charging-pulse" title="${this._t("metric.charging_power")}"></span>`
       : "";
+
+    const legendEvText = `${this._t("metric.ev_soc")}${evPct != null ? " " + Math.round(evPct) + "%" : ""}`;
 
     return `
       <div class="hero-ring-wrap">
@@ -1197,16 +1203,17 @@ class EvSmartChargerDashboard extends HTMLElement {
             <circle class="ring-track" cx="110" cy="110" r="${rOuter}" stroke-width="13"/>
             <circle class="ring-progress" cx="110" cy="110" r="${rOuter}" stroke-width="13"
                     style="color: var(--evsc-sys-green); stroke: var(--evsc-sys-green);"
-                    stroke-dasharray="${cOuter}" stroke-dashoffset="${cOuter * (1 - evFrac)}"/>
+                    stroke-dasharray="${cOuter}" stroke-dashoffset="${cOuter * (1 - evFrac)}"
+                    data-live-attr-id="ring.evOffset"/>
             ${inner}
           </svg>
           <div class="hero-ring-center">
-            <div class="ring-headline">${chargingDot}${headline}</div>
-            <div class="ring-sub">${sub}</div>
+            <div class="ring-headline">${chargingDot}<span data-live="ring.headline">${headline}</span></div>
+            <div class="ring-sub" data-live="ring.sub">${sub}</div>
           </div>
         </div>
         <div class="hero-ring-legend">
-          <div style="color: var(--evsc-sys-green);"><span class="ring-dot"></span><span>${this._t("metric.ev_soc")}${evPct != null ? " " + Math.round(evPct) + "%" : ""}</span></div>
+          <div style="color: var(--evsc-sys-green);"><span class="ring-dot"></span><span data-live="legend.ev">${legendEvText}</span></div>
           ${legendHome}
         </div>
       </div>
@@ -1361,11 +1368,15 @@ class EvSmartChargerDashboard extends HTMLElement {
     `;
   }
 
-  _renderMetric(label, value, tone, sublabel) {
+  _renderMetric(label, value, tone, sublabel, liveKey) {
+    // v1.10.4: liveKey marks the dynamic value span for in-place DOM
+    // mutation by _updateLiveValues(). When set, this <strong> can be
+    // updated without rebuilding the entire DOM tree.
+    const liveAttr = liveKey ? ` data-live="${liveKey}"` : "";
     return `
       <div class="metric-card tone-${tone}">
         <span class="eyebrow">${label}</span>
-        <strong>${value}</strong>
+        <strong${liveAttr}>${value}</strong>
         <span class="metric-sub">${sublabel}</span>
       </div>
     `;
@@ -1763,10 +1774,10 @@ class EvSmartChargerDashboard extends HTMLElement {
               <h1>${this._config.title || this._t("title.default")}</h1>
               <p class="evsc-hero-sub">${this._t("hero.description")}</p>
               <div class="evsc-metric-row">
-                ${this._renderMetric(this._t("metric.solar_power"), displayValues.solarPower, "amber", this._labelFor(this._config.solar_power_entity, this._t("metric.pv_feed")))}
-                ${this._renderMetric(this._t("metric.grid_import"), displayValues.gridImport, "rose", this._labelFor(this._config.grid_import_entity, this._t("metric.import_threshold")))}
-                ${this._renderMetric(this._t("metric.charge_current"), displayValues.chargerCurrent, "teal", this._labelFor(this._config.current_entity, this._t("metric.wallbox_current")))}
-                ${this._renderMetric(this._t("metric.charging_power"), displayValues.chargingPower, "cyan", this._labelFor(this._config.charging_power_entity, this._t("metric.live_power")))}
+                ${this._renderMetric(this._t("metric.solar_power"), displayValues.solarPower, "amber", this._labelFor(this._config.solar_power_entity, this._t("metric.pv_feed")), "metric.solarPower")}
+                ${this._renderMetric(this._t("metric.grid_import"), displayValues.gridImport, "rose", this._labelFor(this._config.grid_import_entity, this._t("metric.import_threshold")), "metric.gridImport")}
+                ${this._renderMetric(this._t("metric.charge_current"), displayValues.chargerCurrent, "teal", this._labelFor(this._config.current_entity, this._t("metric.wallbox_current")), "metric.chargerCurrent")}
+                ${this._renderMetric(this._t("metric.charging_power"), displayValues.chargingPower, "cyan", this._labelFor(this._config.charging_power_entity, this._t("metric.live_power")), "metric.chargingPower")}
               </div>
             </div>
           </header>
@@ -1893,6 +1904,27 @@ class EvSmartChargerDashboard extends HTMLElement {
     };
     const displayValues = { chargingPower, solarPower, gridImport, chargerCurrent };
 
+    // v1.10.4: collect live values (sensor-driven, change frequently) for
+    // in-place DOM mutation when only sensors changed since last render.
+    const liveSnapshot = this._collectLiveValues(displayValues, priorityState);
+
+    // v1.10.4: structural key — everything that, when changed, requires a
+    // full DOM rebuild. Live sensor values are EXCLUDED so frequent sensor
+    // ticks don't trigger a full rewrite (which would cause visible flicker).
+    const structuralKey = this._computeStructuralKey();
+
+    // Fast path: structure unchanged AND shadow DOM already populated →
+    // mutate live values in place, no innerHTML rewrite, no flicker.
+    if (
+      structuralKey === this._lastStructuralKey
+      && this.shadowRoot.childNodes.length > 0
+    ) {
+      this._updateLiveValues(liveSnapshot);
+      return;
+    }
+
+    // Slow path: structure changed (view switch, toggle flip, accordion
+    // open, profile change, …) → full innerHTML replacement.
     const viewHtml = this._view === "settings"
       ? this._renderSettingsView()
       : this._renderDashboardView(ids, displayValues, priorityState);
@@ -1916,17 +1948,140 @@ class EvSmartChargerDashboard extends HTMLElement {
       <style>${this._inlineStyles()}</style>
     `;
 
-    // Anti-flicker guard: HA fires `set hass(hass)` on every state change,
-    // which triggers render(). We rewrite the shadow DOM only when the HTML
-    // string actually changes.
-    const newHash = this._cheapHash(html);
-    if (newHash === this._lastRenderHash) {
-      return;
-    }
-    this._lastRenderHash = newHash;
+    this._lastStructuralKey = structuralKey;
     this.shadowRoot.innerHTML = html;
-
     this._bindEvents();
+  }
+
+  /**
+   * v1.10.4: Compute a deterministic JSON key that hashes ONLY the
+   * structural state — view, accordions, toggles, selects, numbers, times,
+   * priority state, charger status. Sensor values that change every few
+   * seconds (kW, W, A, %) are EXCLUDED so they don't force re-renders.
+   */
+  _computeStructuralKey() {
+    const states = this._hass?.states || {};
+    const toggles = {};
+    const numbers = {};
+    const times = {};
+    let select = "";
+
+    for (const key of Object.keys(DOMAIN_SUFFIXES)) {
+      const [domain] = DOMAIN_SUFFIXES[key];
+      const entityId = this._entityId(key);
+      const state = states[entityId]?.state;
+      if (domain === "switch") {
+        toggles[key] = state === "on" ? 1 : 0;
+      } else if (domain === "number") {
+        numbers[key] = state ?? "";
+      } else if (domain === "time") {
+        times[key] = (state || "").slice(0, 5);
+      } else if (domain === "select" && key === "chargingProfile") {
+        select = state || "";
+      }
+    }
+
+    const chargerStatus = this._stateObj(this._config.charger_status_entity)?.state || "";
+    const priorityState = this._integrationState("priorityState")?.state || "";
+
+    return JSON.stringify({
+      view: this._view,
+      acc: [...(this._openAccordions || [])].sort(),
+      tg: toggles,
+      nm: numbers,
+      tm: times,
+      sel: select,
+      pfx: this._resolvedPrefix || "",
+      lang: this._language(),
+      hb: !!this._config.home_battery_soc_entity,
+      cs: chargerStatus,
+      ps: priorityState,
+    });
+  }
+
+  /**
+   * v1.10.4: Collect a snapshot of live sensor values keyed by data-live
+   * id. Consumed by _updateLiveValues() which performs targeted text /
+   * attribute updates on the existing DOM without rebuilding it.
+   */
+  _collectLiveValues(displayValues, priorityState) {
+    const evPct = this._numericState(this._config.ev_soc_entity);
+    const homePct = this._numericState(this._config.home_battery_soc_entity);
+    const chargingPowerObj = this._stateObj(this._config.charging_power_entity);
+    const chargerStatus = this._stateObj(this._config.charger_status_entity)?.state;
+    const isCharging =
+      chargerStatus === "charger_charging" ||
+      (chargingPowerObj && Number(chargingPowerObj.state) > 0.05);
+
+    // Ring geometry — must match _renderHeroRing() exactly.
+    const rOuter = 96;
+    const rInner = 76;
+    const cOuter = 2 * Math.PI * rOuter;
+    const cInner = 2 * Math.PI * rInner;
+    const clamp01 = (n) => Math.max(0, Math.min(1, n));
+    const evFrac = evPct != null ? clamp01(evPct / 100) : 0;
+    const homeFrac = homePct != null ? clamp01(homePct / 100) : 0;
+
+    let ringHeadline = "—";
+    let ringSub = this._t("metric.ev_soc");
+    if (isCharging && chargingPowerObj) {
+      const unit = chargingPowerObj.attributes?.unit_of_measurement || "";
+      ringHeadline = `${chargingPowerObj.state}${unit ? " " + unit : ""}`;
+      ringSub = this._t("metric.charging_power");
+    } else if (evPct != null) {
+      ringHeadline = `${Math.round(evPct)}%`;
+    }
+
+    const legendEvText = `${this._t("metric.ev_soc")}${evPct != null ? " " + Math.round(evPct) + "%" : ""}`;
+    const legendHomeText = homePct != null
+      ? `${this._t("metric.home_battery")} ${Math.round(homePct)}%`
+      : "";
+
+    return {
+      text: {
+        "metric.solarPower": displayValues.solarPower,
+        "metric.gridImport": displayValues.gridImport,
+        "metric.chargerCurrent": displayValues.chargerCurrent,
+        "metric.chargingPower": displayValues.chargingPower,
+        "ring.headline": ringHeadline,
+        "ring.sub": ringSub,
+        "legend.ev": legendEvText,
+        "legend.home": legendHomeText,
+      },
+      attrs: {
+        "ring.evOffset": {
+          attr: "stroke-dashoffset",
+          value: String(cOuter * (1 - evFrac)),
+        },
+        "ring.homeOffset": {
+          attr: "stroke-dashoffset",
+          value: String(cInner * (1 - homeFrac)),
+        },
+      },
+    };
+  }
+
+  /**
+   * v1.10.4: Apply live value updates via targeted DOM mutation. No
+   * innerHTML, no reflow on the parent tree — only the matched elements'
+   * textContent / attribute changes. Eliminates flicker on sensor ticks.
+   */
+  _updateLiveValues(snapshot) {
+    const root = this.shadowRoot;
+    if (!root) return;
+
+    for (const [key, value] of Object.entries(snapshot.text)) {
+      const el = root.querySelector(`[data-live="${key}"]`);
+      if (el && el.textContent !== String(value)) {
+        el.textContent = value;
+      }
+    }
+    for (const [key, { attr, value }] of Object.entries(snapshot.attrs)) {
+      const el = root.querySelector(`[data-live-attr-id="${key}"]`);
+      if (el && el.getAttribute(attr) !== value) {
+        el.setAttribute(attr, value);
+      }
+    }
   }
 
   _inlineStyles() {
@@ -1937,7 +2092,15 @@ class EvSmartChargerDashboard extends HTMLElement {
          * prefers-color-scheme + HA --primary-background-color hooks.
          * ============================================================ */
         :host {
+          /* v1.10.4: shadow DOM box model reset — explicit, NOT inherited
+             from light DOM. min-width:0 allows the host to shrink inside
+             any flex/grid parent without overflowing the viewport. */
           display: block;
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          overflow-x: hidden;
+          box-sizing: border-box;
           --evsc-font: -apple-system, "SF Pro Display", "SF Pro Text",
             BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
 
@@ -1993,11 +2156,19 @@ class EvSmartChargerDashboard extends HTMLElement {
           }
         }
 
-        * {
+        /* v1.10.4: explicit box-sizing reset for all descendants, including
+           pseudo-elements. Shadow DOM does NOT inherit box-sizing from the
+           light DOM, so this MUST be re-declared inside the shadow root. */
+        *, *::before, *::after {
           box-sizing: border-box;
         }
 
         ha-card {
+          /* v1.10.4: ha-card has implicit min-width (~280-360px) per HA
+             community findings — must be overridden explicitly. */
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
           overflow: hidden;
           border: 0 !important;
           border-radius: 0;
@@ -2776,11 +2947,16 @@ class EvSmartChargerDashboard extends HTMLElement {
         /* Two-column dashboard grid */
         .evsc-dash-grid {
           display: grid;
-          grid-template-columns: 1.15fr 1fr;
+          /* v1.10.4: minmax(0, …) prevents the implicit auto min-width
+             that would let grid tracks expand to fit overflowing content. */
+          grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
           gap: 18px;
         }
+        .evsc-dash-grid > * {
+          min-width: 0;
+        }
         @media (max-width: 980px) {
-          .evsc-dash-grid { grid-template-columns: 1fr; }
+          .evsc-dash-grid { grid-template-columns: minmax(0, 1fr); }
         }
         .evsc-stack {
           display: flex;
@@ -2833,13 +3009,18 @@ class EvSmartChargerDashboard extends HTMLElement {
           box-shadow: var(--evsc-shadow-soft);
           padding: 26px;
           display: grid;
-          grid-template-columns: auto 1fr;
+          /* v1.10.4: minmax(0, …) on both tracks prevents the auto track
+             from blowing past viewport. */
+          grid-template-columns: minmax(0, auto) minmax(0, 1fr);
           gap: 26px;
           align-items: center;
         }
+        .evsc-hero-v2 > * {
+          min-width: 0;
+        }
         @media (max-width: 720px) {
           .evsc-hero-v2 {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
             text-align: left;
             gap: 22px;
             padding: 22px;
@@ -2858,13 +3039,19 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
         .evsc-metric-row {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
+          /* v1.10.4: always 2×2 — user explicit request "tutti e quattro
+             i box devono entrare in una matrice 2x2". minmax(0, 1fr)
+             prevents column blowout from long sub-labels. */
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 10px;
+        }
+        .evsc-metric-row > * {
+          min-width: 0;
         }
 
         /* v1.10.1: center the metric-card content for visual symmetry.
-           The legacy .metric-card uses left-aligned text; in the new dashboard
-           grid we want the eyebrow / value / sublabel stacked and centered. */
+           v1.10.4: also override legacy min-height: 92px which was making
+           the tiles unnecessarily tall on mobile, and prevent text overflow. */
         .evsc-metric-row .metric-card {
           text-align: center;
           display: flex;
@@ -2872,6 +3059,11 @@ class EvSmartChargerDashboard extends HTMLElement {
           align-items: center;
           justify-content: center;
           gap: 6px;
+          min-height: 0;
+          min-width: 0;
+          padding: 12px 14px;
+          word-break: break-word;
+          overflow-wrap: anywhere;
         }
         .evsc-metric-row .metric-card .eyebrow,
         .evsc-metric-row .metric-card .metric-sub,
@@ -2918,8 +3110,11 @@ class EvSmartChargerDashboard extends HTMLElement {
         .evsc-boost-subitems {
           border-top: 1px solid var(--evsc-stroke);
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
           gap: 0;
+        }
+        .evsc-boost-subitems > * {
+          min-width: 0;
         }
         .evsc-boost-subitems .control-card {
           background: transparent !important;
@@ -2943,68 +3138,106 @@ class EvSmartChargerDashboard extends HTMLElement {
           }
         }
 
-        /* v1.10.2: aggressive mobile responsive — targets iOS HA Companion
-           app where the dashboard renders in a WebView at the device width.
-           Previous breakpoints (980 / 720 / 540) were too coarse and let
-           the hero ring overflow the viewport. */
-        @media (max-width: 920px) {
-          .evsc-dash-grid { grid-template-columns: 1fr; }
+        /* v1.10.4: hero ring container — explicit styling so the SVG
+           scales fluidly with the viewport. .hero-ring-wrap was previously
+           unstyled (root cause #2 of the mobile overflow). */
+        .evsc-hero-v2 .hero-ring-wrap {
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 12px;
         }
-        @media (max-width: 780px) {
+        .evsc-hero-v2 .hero-ring {
+          width: min(220px, 60vw);
+          aspect-ratio: 1 / 1;
+          height: auto;
+          max-width: 100%;
+          min-width: 0;
+          margin: 0;
+        }
+        .evsc-hero-v2 .hero-ring svg {
+          width: 100%;
+          height: 100%;
+          display: block;
+        }
+
+        /* v1.10.4: responsive breakpoint ladder.
+             ≤920 px → main grid collapses to 1 column
+             ≤600 px → hero collapses to 1 column (ring on top, body below)
+             ≤480 px → compact metric tiles, smaller fonts, padding shrink */
+        @media (max-width: 920px) {
+          .evsc-dash-grid { grid-template-columns: minmax(0, 1fr); }
+        }
+        @media (max-width: 600px) {
           .dashboard-shell {
             padding: 14px !important;
             max-width: 100% !important;
           }
           .evsc-hero-v2 {
-            grid-template-columns: 1fr;
+            grid-template-columns: minmax(0, 1fr);
             text-align: center;
-            gap: 18px;
-            padding: 20px 18px;
-          }
-          .evsc-hero-v2 .hero-ring-wrap,
-          .evsc-hero-v2 .hero-ring {
-            width: min(200px, 55vw) !important;
-            height: auto !important;
-            aspect-ratio: 1 / 1;
-            margin: 0 auto;
-          }
-          .evsc-hero-v2 .hero-ring svg {
-            width: 100% !important;
-            height: 100% !important;
+            gap: 16px;
+            padding: 18px;
           }
           .evsc-hero-body {
             text-align: left;
           }
-          .evsc-metric-row {
-            grid-template-columns: 1fr 1fr;
+          .evsc-hero-v2 .hero-ring {
+            width: min(200px, 55vw);
           }
         }
         @media (max-width: 480px) {
-          .evsc-hero-v2 .hero-ring-wrap,
+          .dashboard-shell {
+            padding: 12px !important;
+          }
           .evsc-hero-v2 .hero-ring {
-            width: 160px !important;
+            width: min(180px, 50vw);
           }
+          /* Metric tiles stay 2×2 but compact — user explicit request. */
           .evsc-metric-row {
-            grid-template-columns: 1fr;
+            gap: 8px;
           }
-          .evsc-card {
-            padding: 16px !important;
+          .evsc-metric-row .metric-card {
+            padding: 10px 8px;
+            gap: 4px;
           }
+          .evsc-metric-row .metric-card .eyebrow {
+            font-size: 9px;
+          }
+          .evsc-metric-row .metric-card strong {
+            font-size: 15px;
+          }
+          .evsc-metric-row .metric-card .metric-sub {
+            font-size: 10px;
+          }
+          .evsc-card,
           .evsc-weekly,
-          .evsc-night-card {
-            padding: 16px !important;
+          .evsc-night-card,
+          .evsc-settings-hero,
+          .evsc-acc {
+            padding: 14px;
+            border-radius: 18px;
+          }
+          .evsc-acc-head {
+            padding: 14px;
+          }
+          .evsc-acc-body-inner {
+            padding: 4px 14px 14px;
           }
           .evsc-wp-grid {
-            grid-template-columns: 42px repeat(7, 1fr) !important;
-            gap: 3px !important;
+            grid-template-columns: 42px repeat(7, minmax(0, 1fr));
+            gap: 3px;
           }
           .evsc-wp-soc {
-            font-size: 11px !important;
+            font-size: 11px;
           }
           .evsc-wp-mini {
-            width: 14px !important;
-            height: 14px !important;
-            font-size: 11px !important;
+            width: 14px;
+            height: 14px;
+            font-size: 11px;
           }
           .evsc-tabs {
             margin: 0 auto 6px;
@@ -3015,13 +3248,10 @@ class EvSmartChargerDashboard extends HTMLElement {
           }
         }
 
-        /* v1.10.2: prevent horizontal scroll on any viewport */
-        :host {
-          overflow-x: hidden;
-        }
-        ha-card {
-          overflow-x: hidden;
-        }
+        /* Belt-and-braces overflow guard. The :host already declares
+           overflow-x: hidden in the reset block above; .dashboard-shell
+           also gets it here so any pathological child (e.g. a long
+           friendly_name with no spaces) is clipped, not scrolled. */
         .dashboard-shell {
           overflow-x: hidden;
         }
@@ -3053,12 +3283,15 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
         .evsc-wp-grid {
           display: grid;
-          grid-template-columns: 70px repeat(7, 1fr);
+          grid-template-columns: 70px repeat(7, minmax(0, 1fr));
           gap: 6px;
           align-items: center;
         }
+        .evsc-wp-grid > * {
+          min-width: 0;
+        }
         @media (max-width: 600px) {
-          .evsc-wp-grid { grid-template-columns: 54px repeat(7, 1fr); }
+          .evsc-wp-grid { grid-template-columns: 54px repeat(7, minmax(0, 1fr)); }
         }
         .evsc-wp-header {
           font-size: 10px;
@@ -3229,7 +3462,7 @@ class EvSmartChargerDashboard extends HTMLElement {
         .evsc-night-illu::after  { width: 2px; height: 2px; top: 38px; right: 25%; }
         .evsc-night-times {
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
           gap: 10px;
           margin-bottom: 14px;
         }
