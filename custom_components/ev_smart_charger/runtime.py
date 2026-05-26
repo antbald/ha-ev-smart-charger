@@ -26,6 +26,7 @@ class EVSCRuntimeData:
     boost_charge: Any | None = None
     smart_blocker: Any | None = None
     solar_surplus: Any | None = None
+    hybrid_mode: Any | None = None  # Hybrid Inverter Mode (v1.8.0 — issue #20)
     log_manager: Any | None = None
     diagnostic_manager: Any | None = None
 

@@ -13,6 +13,7 @@ from homeassistant.const import STATE_ON
 from .const import (
     DEFAULT_CAR_READY_WEEKDAY,
     DEFAULT_CAR_READY_WEEKEND,
+    HELPER_HYBRID_INVERTER_MODE_SUFFIX,
     HELPER_PRESERVE_HOME_BATTERY_SUFFIX,
     HELPER_TRACE_LOGGING_ENABLED_SUFFIX,
     HELPER_USE_HOME_BATTERY_SUFFIX,
@@ -47,6 +48,8 @@ async def async_setup_entry(
         ("evsc_priority_balancer_enabled", "Priority Balancer", "mdi:scale-balance", False),
         ("evsc_night_smart_charge_enabled", "Night Smart Charge", "mdi:moon-waning-crescent", False),
         (HELPER_PRESERVE_HOME_BATTERY_SUFFIX, "Preserve Home Battery", "mdi:battery-heart-variant", False),
+        # Hybrid Inverter Mode (v1.8.0 — issue #20: zero-export systems)
+        (HELPER_HYBRID_INVERTER_MODE_SUFFIX, "Hybrid Inverter Mode", "mdi:solar-power-variant-outline", False),
         # Notification switches (default ON)
         ("evsc_notify_smart_blocker_enabled", "Notify Smart Blocker", "mdi:bell-outline", True),
         ("evsc_notify_priority_balancer_enabled", "Notify Priority Balancer", "mdi:bell-outline", True),

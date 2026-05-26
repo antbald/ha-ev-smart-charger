@@ -13,7 +13,12 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import CONF_SOC_CAR, has_home_battery
+from .const import (
+    CONF_SOC_CAR,
+    HELPER_HYBRID_DIAGNOSTIC_SUFFIX,
+    HYBRID_STATE_IDLE,
+    has_home_battery,
+)
 from .entity_base import EVSCEntityMixin
 from .runtime import EVSCRuntimeData, get_runtime_data
 
@@ -74,6 +79,13 @@ async def async_setup_entry(
             "evsc_cached_ev_soc",
             "EVSC Cached EV SOC",
             "mdi:car-battery",
+        ),
+        EVSCHybridInverterDiagnosticSensor(
+            runtime_data,
+            entry.entry_id,
+            HELPER_HYBRID_DIAGNOSTIC_SUFFIX,
+            "EVSC Hybrid Inverter Diagnostic",
+            "mdi:solar-power-variant-outline",
         ),
     ]
 
@@ -370,6 +382,47 @@ class EVSCTodayTargetSensor(EVSCBaseSensor):
                 )
             except (ValueError, TypeError):
                 self._attr_native_value = None
+            self._attr_extra_state_attributes = dict(last_state.attributes)
+
+
+class EVSCHybridInverterDiagnosticSensor(EVSCBaseSensor):
+    """Hybrid Inverter Mode diagnostic sensor (v1.8.0 — issue #20).
+
+    Exposes the state of the curtailment-discovery state machine so users can
+    observe what the probing/riding-edge loop is doing in real time. State
+    string is human-readable (e.g., "PROBING (45/60s)", "RIDING_EDGE @ 10A",
+    "COOLDOWN_LONG (8m left)"). Attributes carry the full diagnostic snapshot
+    from HybridInverterMode.get_diagnostic_snapshot().
+    """
+
+    def __init__(
+        self,
+        runtime_data: EVSCRuntimeData,
+        entry_id: str,
+        suffix: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        """Initialize the hybrid inverter diagnostic sensor."""
+        super().__init__(
+            runtime_data,
+            entry_id,
+            suffix,
+            name,
+            icon,
+            native_value=HYBRID_STATE_IDLE,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+        _LOGGER.info(
+            "✅ Hybrid Inverter Diagnostic sensor registered: %s (unique_id: %s)",
+            self.entity_id,
+            self.unique_id,
+        )
+        if (last_state := await self.async_get_last_state()) is not None:
+            self._attr_native_value = last_state.state
             self._attr_extra_state_attributes = dict(last_state.attributes)
 
 

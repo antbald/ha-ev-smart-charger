@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.7.0
+**Current Version:** 1.8.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -826,6 +826,124 @@ The integration can now run in **PV-only mode** for users who do not have a home
 - [manifest.json](custom_components/ev_smart_charger/manifest.json): `version = "1.7.0"`
 
 **Upgrade Priority**: 🟢 RECOMMENDED — Enables PV-only deployments. Existing installations with `soc_home` configured see no behavior change (`has_home_battery(config)` is True, all current logic paths preserved).
+
+---
+
+### v1.8.0 (2026-05-26)
+**FEATURE: Hybrid Inverter Mode — curtailment discovery for zero-export systems (issue #20)**
+
+**Problem solved**:
+Reported by user DJm00n in [issue #20](https://github.com/antbald/ha-ev-smart-charger/issues/20). In hybrid zero-export inverter systems (Deye, Sunsynk, Solis, Growatt, Goodwe, etc.) with a full home battery, the inverter actively **curtails** PV production to avoid grid export. The `fv_production` sensor then reports a value matching `home_consumption` (e.g. both ≈ 800 W), and Solar Surplus computes `surplus = production − consumption ≈ 0`. The integration concludes there is no headroom and never starts the EV charger — even though several kilowatts of PV capacity are sitting idle, ready to ramp up the moment any load is applied.
+
+**Solution — empirical probing strategy**:
+Since the only reliable signal in zero-export curtailment is `grid_import`, Hybrid Mode starts the EV charger at the minimum 6 A as a "test load" and observes the grid:
+- If the inverter ramps up PV in response and `grid_import` stays near zero → headroom confirmed, continue and "ride the edge" of the import limit by stepping amperage up/down.
+- If `grid_import` rises and persists → no headroom, stop and enter cooldown.
+
+This works on any hybrid inverter without brand-specific integration, because it uses only the two sensors the user already configured: `grid_import` and `soc_home`.
+
+**State machine**:
+```
+IDLE
+  └─ entry conditions met → start_charger(6A) + notify_once → PROBING
+
+PROBING (60s, two-phase)
+  ├─ Phase A (0-20s "transient grace"): grid_import ignored (inverter ramp time)
+  ├─ Phase B (20-60s "steady-state"): grid > threshold for max_import_duration → FAIL
+  ├─ completes OK → RIDING_EDGE
+  └─ FAIL → stop_charger + COOLDOWN_SHORT + append to sliding window
+
+RIDING_EDGE
+  ├─ grid stable for 60s & < cap → step amperage up (6 → 8 → 10 → 13 → 16 → ...)
+  ├─ grid > threshold for max_import_duration → step amperage down
+  ├─ at 6A and grid still high → STOP + COOLDOWN_SHORT (counts as FAIL)
+  ├─ sustained ≥ 5 min without fail → reset failure window
+  └─ exit condition (toggle off, sunset, plug out, ...) → IDLE (graceful, not a fail)
+
+COOLDOWN_SHORT (2 min) → IDLE
+COOLDOWN_LONG (15 min) → IDLE  (entered when ≥5 fails in 30-min sliding window)
+HARD_EXIT (until next sunrise)  (entered after 3 long cooldowns in one day)
+```
+
+**Worst-case grid cost is bounded at ≤ 350 Wh/day** (well under one tenth of a kWh) by:
+- Sliding window: max 5 failed probes per 30-minute rolling window
+- Daily cap: max 3 long cooldowns per day, then HARD_EXIT until sunrise
+- Successful RIDING_EDGE sustained ≥ 5 min resets the failure counter
+
+**Configurable parameters** (all opt-in, default OFF):
+| Entity | Default | Range | Purpose |
+|---|---|---|---|
+| `switch.evsc_hybrid_inverter_mode` | OFF | — | Master opt-in toggle |
+| `number.evsc_hybrid_battery_full_threshold` | 95 % | 80-100 | SOC required to consider battery "full" |
+| `number.evsc_hybrid_probe_duration` | 60 s | 30-180 | Total probe window length |
+| `number.evsc_hybrid_max_import_duration` | 60 s | 30-120 | Max sustained import before backoff |
+| `number.evsc_hybrid_max_failed_probes` | 5 | 1-10 | Sliding window threshold for long cooldown |
+| `sensor.evsc_hybrid_inverter_diagnostic` | — | — | Real-time state machine status |
+
+**Internal (non-user-configurable) constants**: `HYBRID_TRANSIENT_GRACE_SECONDS = 20`, `HYBRID_SUNSET_BUFFER_MIN = 90`, `HYBRID_HEADROOM_STABLE_SECONDS = 60`, `HYBRID_GRID_ENTRY_SMOOTH_SECONDS = 60`, `HYBRID_FAILURE_WINDOW_SECONDS = 1800`, `HYBRID_RIDING_EDGE_SUCCESS_DURATION = 300`, `HYBRID_MAX_DAILY_LONG_COOLDOWNS = 3`, `HYBRID_MAX_NEGATIVE_SURPLUS_W = -500`.
+
+**Entry conditions** (all must hold simultaneously when state == IDLE):
+1. `evsc_hybrid_inverter_mode` switch ON
+2. Daytime (sun above horizon)
+3. ≥ 90 min before sunset (no probing in late-afternoon fading PV)
+4. `soc_home ≥ battery_full_threshold` (default 95 %)
+5. `surplus_amps < SURPLUS_STOP_THRESHOLD` (5.5 A — strictly inside the dead-band, no overlap with opportunistic dead-band start)
+6. `surplus_watts ≥ -500W` (6 A floor protection: don't probe when home consumption dwarfs PV ceiling)
+7. Charger OFF and plugged in (status NOT in `[charger_free, charger_end]`)
+8. `grid_import < threshold/2` smoothly for ≥ 60 s (avoid trigger on Shelly/CT oscillations)
+9. Priority Balancer NOT in HOME state. EV_FREE override is allowed only when `soc_home == 100%` (strict, prevents late-afternoon battery drain)
+10. Not in cooldown and not in HARD_EXIT
+
+When state ≠ IDLE, `is_relevant()` always returns True so `tick()` can handle graceful exit if any condition becomes false.
+
+**Edge cases handled** (verified during adversarial review):
+1. `grid_import` sensor unavailable → stop + COOLDOWN_SHORT
+2. Toggle disabled mid-RIDING_EDGE → graceful exit
+3. Forza Ricarica activated → `async_force_exit` called by Solar Surplus Section 1
+4. Charger unplugged → `async_force_exit` called by Section 7
+5. Night Smart Charge takes over → via `_handle_control_loss`
+6. Boost Charge activated → `async_force_exit` called by Section 2
+7. HA restart mid-PROBING → IDLE unconditionally; let next tick decide (avoid interrupting legitimate Solar Surplus deadband charging)
+8. PRIORITY_HOME mid-RIDING_EDGE → graceful exit
+9. Sunset reached → graceful exit (NOT counted as fail) + HARD_EXIT lockout until sunrise
+10. Profile changed → `async_force_exit` called by Section 6
+11. Battery SOC drops below threshold mid-RIDING_EDGE → graceful exit
+12. Slow-ramp inverter (≥30 s deadband) → Phase A grace ignores grid_import for first 20 s, `max_import_duration` configurable up to 120 s
+13. Low home consumption + curtailed PV (6A floor problem) → entry condition #6 blocks
+14. Late afternoon EV_FREE drain → strict SOC=100% + 90-min sunset buffer
+15. Grid sensor oscillation (Shelly/CT) → 60 s smoothing window for entry
+16. Opportunistic dead-band overlap → entry uses `< SURPLUS_STOP_THRESHOLD` not start threshold
+17. User changes parameters mid-RIDING_EDGE → every tick re-reads all entities, graceful exit if invalid
+18. Worst-case failure thrashing → sliding window + daily cap = ≤350 Wh/day bound
+19. EV already full (`charger_end` status) → entry condition #7 blocks
+
+**Architecture**:
+- New module `hybrid_inverter_mode.py` (~700 lines) with full state machine
+- Driven exclusively by Solar Surplus periodic ticks — no internal timer, no race conditions
+- Control acquisition through Solar Surplus's `_acquire_control` / `_release_control` (coordinator-aware, integrates with Night Charge preemption)
+- Back-reference injection pattern: hybrid_mode created in Phase 6.5, Solar Surplus created in Phase 7, then `hybrid_mode.set_solar_surplus_owner(solar_surplus)` called to wire the back-link
+- Dedicated diagnostic sensor `EVSCHybridInverterDiagnosticSensor` (mirrors pattern of `EVSCSolarSurplusDiagnosticSensor`)
+- One-shot notification per day (sunrise→sunset session), filtered by `_is_car_owner_home()`, no enable toggle (single-shot = low spam risk)
+
+**Files modified**:
+- **NEW**: [hybrid_inverter_mode.py](custom_components/ev_smart_charger/hybrid_inverter_mode.py) — full state machine module
+- [const.py](custom_components/ev_smart_charger/const.py): VERSION 1.7.0 → 1.8.0, TOTAL_INTEGRATION_ENTITIES 58 → 64 (and TOTAL_INTEGRATION_ENTITIES_NO_BATTERY 45 → 51), 6 new `HELPER_HYBRID_*_SUFFIX`, 4 new `DEFAULT_HYBRID_*`, 10 new internal constants, 6 new `HYBRID_STATE_*` strings
+- [switch.py](custom_components/ev_smart_charger/switch.py): added `evsc_hybrid_inverter_mode` to `_SWITCH_DEFS`
+- [number.py](custom_components/ev_smart_charger/number.py): added 4 new tuples for hybrid parameters in `_NUMBER_DEFS`
+- [sensor.py](custom_components/ev_smart_charger/sensor.py): added `EVSCHybridInverterDiagnosticSensor` class + entity registration
+- [solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py): new `hybrid_mode` constructor param, Section 10b hook between surplus calculation and battery support, `async_force_exit` calls in 5 early-return branches (Forza Ricarica, Boost, Night Charge, Profile, Charger Free), and in `_handle_control_loss`
+- [__init__.py](custom_components/ev_smart_charger/__init__.py): new Phase 6.5 instantiating `HybridInverterMode` before Solar Surplus, back-reference injection after, cleanup order updated
+- [runtime.py](custom_components/ev_smart_charger/runtime.py): added `hybrid_mode: Any | None = None` field
+- [utils/mobile_notification_service.py](custom_components/ev_smart_charger/utils/mobile_notification_service.py): new `send_hybrid_mode_started_notification()` method
+- [localization.py](custom_components/ev_smart_charger/localization.py): new `mobile.hybrid_mode_started.message` translation key in EN, IT, NL
+- [README.md](README.md): new "Hybrid Inverter Mode (zero-export systems)" section with full user-facing documentation (problem, who needs it, how it works, tuning, troubleshooting)
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): version 1.8.0
+
+**Upgrade priority**:
+- 🟢 **RECOMMENDED for users with hybrid zero-export inverters** — solves a real "PV is wasted because charger never starts" scenario
+- ⚪ **NO-OP for everyone else** — opt-in toggle defaults to OFF; existing users see zero behavioural change
+
+**Beta testing welcome**: please report your experience (success, failure modes, inverter brand/model) in [issue #20](https://github.com/antbald/ha-ev-smart-charger/issues/20). The probing strategy is inverter-agnostic by design but real-world feedback from different brands will help refine the default parameters.
 
 ---
 

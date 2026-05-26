@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -166,6 +166,14 @@ HELPER_TODAY_EV_TARGET_SUFFIX = "evsc_today_ev_target"  # v1.3.26
 HELPER_TODAY_HOME_TARGET_SUFFIX = "evsc_today_home_target"  # v1.3.26
 HELPER_CACHED_EV_SOC_SUFFIX = "evsc_cached_ev_soc"  # v1.4.0
 
+# Hybrid Inverter Mode (v1.8.0 — issue #20)
+HELPER_HYBRID_INVERTER_MODE_SUFFIX = "evsc_hybrid_inverter_mode"
+HELPER_HYBRID_BATTERY_FULL_THRESHOLD_SUFFIX = "evsc_hybrid_battery_full_threshold"
+HELPER_HYBRID_PROBE_DURATION_SUFFIX = "evsc_hybrid_probe_duration"
+HELPER_HYBRID_MAX_IMPORT_DURATION_SUFFIX = "evsc_hybrid_max_import_duration"
+HELPER_HYBRID_MAX_FAILED_PROBES_SUFFIX = "evsc_hybrid_max_failed_probes"
+HELPER_HYBRID_DIAGNOSTIC_SUFFIX = "evsc_hybrid_inverter_diagnostic"
+
 # ========== DEFAULT VALUES - SOLAR SURPLUS ==========
 DEFAULT_CHECK_INTERVAL = 1  # minutes
 DEFAULT_GRID_IMPORT_THRESHOLD = 50  # watts
@@ -241,14 +249,45 @@ SERVICE_CALL_TIMEOUT = 10  # seconds for service calls
 # ========== EV SOC MONITOR SETTINGS (v1.4.0) ==========
 EV_SOC_MONITOR_INTERVAL = 5  # seconds - polling frequency for cloud sensor reliability
 
+# ========== HYBRID INVERTER MODE (v1.8.0 — issue #20) ==========
+# User-configurable defaults
+DEFAULT_HYBRID_BATTERY_FULL_THRESHOLD = 95  # percent — minimum home SOC to consider "battery full"
+DEFAULT_HYBRID_PROBE_DURATION = 60  # seconds — total probing window length
+DEFAULT_HYBRID_MAX_IMPORT_DURATION = 60  # seconds — max sustained grid import before backoff
+DEFAULT_HYBRID_MAX_FAILED_PROBES = 5  # sliding window count before COOLDOWN_LONG
+
+# Internal constants (not user-configurable)
+HYBRID_COOLDOWN_SHORT_SECONDS = 120  # 2 min after a failed probe
+HYBRID_COOLDOWN_LONG_SECONDS = 900   # 15 min after N consecutive fails (sliding window)
+HYBRID_FAILURE_WINDOW_SECONDS = 1800  # 30 min sliding window for failure counting
+HYBRID_HEADROOM_STABLE_SECONDS = 60  # how long grid_import must stay low before stepping up
+HYBRID_SUNSET_BUFFER_MIN = 90  # minutes before sunset — do not probe when sun is too low
+HYBRID_TRANSIENT_GRACE_SECONDS = 20  # first N seconds of PROBING: ignore grid_import (inverter ramp)
+HYBRID_GRID_ENTRY_SMOOTH_SECONDS = 60  # how long grid_import must stay low BEFORE entering PROBING
+HYBRID_RIDING_EDGE_SUCCESS_DURATION = 300  # 5 min sustained RIDING_EDGE → reset failure window
+HYBRID_MAX_DAILY_LONG_COOLDOWNS = 3  # after 3 long cooldowns, HARD_EXIT until next sunrise
+HYBRID_MAX_NEGATIVE_SURPLUS_W = -500  # entry blocked if surplus is below this (house >> PV ceiling)
+HYBRID_PROBE_AMPERAGE = 6  # initial probing amperage (always the minimum charger level)
+
+# State string constants
+HYBRID_STATE_IDLE = "IDLE"
+HYBRID_STATE_PROBING = "PROBING"
+HYBRID_STATE_RIDING_EDGE = "RIDING_EDGE"
+HYBRID_STATE_COOLDOWN_SHORT = "COOLDOWN_SHORT"
+HYBRID_STATE_COOLDOWN_LONG = "COOLDOWN_LONG"
+HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
+
 # ========== ENTITY REGISTRATION ==========
-# Verified count (v1.7.0): 58 entities when home battery is configured.
-TOTAL_INTEGRATION_ENTITIES = 58
-# Verified count (v1.7.0): 45 entities when running in PV-only mode (no home battery).
+# Verified count (v1.8.0): 64 entities when home battery is configured.
+# v1.7.0 set the with-battery baseline to 58. v1.8.0 adds 6 Hybrid Inverter
+# Mode entities (1 switch + 4 numbers + 1 sensor).
+TOTAL_INTEGRATION_ENTITIES = 64
+# Verified count (v1.8.0): 51 entities when running in PV-only mode.
 # Skipped helpers (13): 2 switches (use_home_battery, preserve_home_battery),
 # 3 numbers (home_battery_min_soc, battery_support_amperage, battery_support_sunset_buffer),
 # 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).
-TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 45
+# Hybrid Mode entities are still created in PV-only mode but stay IDLE (requires soc_home).
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 51
 
 
 def has_home_battery(config: dict) -> bool:

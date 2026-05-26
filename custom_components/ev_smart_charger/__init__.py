@@ -37,6 +37,7 @@ from .priority_balancer import PriorityBalancer
 from .night_smart_charge import NightSmartCharge
 from .boost_charge import BoostCharge
 from .automations import SmartChargerBlocker
+from .hybrid_inverter_mode import HybridInverterMode
 from .solar_surplus import SolarSurplusAutomation
 from .log_manager import LogManager
 from .diagnostic_manager import DiagnosticManager
@@ -79,6 +80,7 @@ async def _async_cleanup_partial_setup(runtime_data: EVSCRuntimeData) -> None:
     """Clean up partially initialized runtime services after setup failures."""
     cleanup_order = [
         ("solar_surplus", "Solar Surplus automation"),
+        ("hybrid_mode", "Hybrid Inverter Mode"),
         ("smart_blocker", "Smart Charger Blocker"),
         ("boost_charge", "Boost Charge"),
         ("night_smart_charge", "Night Smart Charge"),
@@ -260,6 +262,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.exception("Smart Blocker setup error details:")
             smart_blocker = None
 
+        # ========== PHASE 6.5: CREATE HYBRID INVERTER MODE (v1.8.0 — issue #20) ==========
+        # Curtailment discovery sub-module driven by Solar Surplus ticks. Must be
+        # created BEFORE SolarSurplusAutomation so we can pass the reference in,
+        # then injected with a back-reference to Solar Surplus immediately after.
+        _LOGGER.info("🧪 Phase 6.5: Creating Hybrid Inverter Mode")
+        hybrid_mode = HybridInverterMode(
+            hass,
+            entry.entry_id,
+            entry.data,
+            charger_controller=charger_controller,
+            priority_balancer=priority_balancer,
+            runtime_data=runtime_data,
+            coordinator=coordinator,
+        )
+        try:
+            await hybrid_mode.async_setup()
+            _LOGGER.info("✅ Hybrid Inverter Mode setup complete")
+            runtime_data.hybrid_mode = hybrid_mode
+        except Exception as e:
+            _LOGGER.error(f"❌ Failed to set up Hybrid Inverter Mode: {e}")
+            _LOGGER.exception("Hybrid Inverter Mode setup error details:")
+            hybrid_mode = None
+
         # ========== PHASE 7: CREATE SOLAR SURPLUS (depends on Priority Balancer & Charger Controller) ==========
         _LOGGER.info("☀️  Phase 7: Creating Solar Surplus automation")
         solar_surplus = SolarSurplusAutomation(
@@ -272,6 +297,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             night_smart_charge=night_smart_charge,
             coordinator=coordinator,
             boost_charge=boost_charge,
+            hybrid_mode=hybrid_mode,
         )
         try:
             await solar_surplus.async_setup()
@@ -281,6 +307,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error(f"❌ Failed to set up Solar Surplus: {e}")
             _LOGGER.exception("Solar Surplus setup error details:")
             solar_surplus = None
+
+        # Inject back-reference into Hybrid Mode (needed for _acquire_control)
+        if hybrid_mode is not None and solar_surplus is not None:
+            hybrid_mode.set_solar_surplus_owner(solar_surplus)
 
         if boost_charge:
             boost_charge.set_related_automations(
@@ -305,6 +335,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             evsc_loggers.append(solar_surplus.logger)
         if boost_charge:
             evsc_loggers.append(boost_charge.logger)
+        if hybrid_mode:
+            evsc_loggers.append(hybrid_mode.logger)
         evsc_loggers.append(telemetry_logger)
 
         # Setup log manager with toggle listener
@@ -329,6 +361,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime_data.boost_charge = boost_charge
     runtime_data.smart_blocker = smart_blocker
     runtime_data.solar_surplus = solar_surplus
+    runtime_data.hybrid_mode = hybrid_mode
     runtime_data.log_manager = log_manager
     runtime_data.diagnostic_manager = diagnostic_manager
 
@@ -418,6 +451,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if solar_surplus:
         _LOGGER.info("🗑️  Removing Solar Surplus automation")
         await solar_surplus.async_remove()
+
+    hybrid_mode = runtime_data.hybrid_mode
+    if hybrid_mode:
+        _LOGGER.info("🗑️  Removing Hybrid Inverter Mode")
+        await hybrid_mode.async_remove()
 
     smart_blocker = runtime_data.smart_blocker
     if smart_blocker:

@@ -26,6 +26,14 @@ from .const import (
     DEFAULT_NIGHT_CHARGE_AMPERAGE,
     DEFAULT_BOOST_CHARGE_AMPERAGE,
     DEFAULT_BOOST_TARGET_SOC,
+    DEFAULT_HYBRID_BATTERY_FULL_THRESHOLD,
+    DEFAULT_HYBRID_PROBE_DURATION,
+    DEFAULT_HYBRID_MAX_IMPORT_DURATION,
+    DEFAULT_HYBRID_MAX_FAILED_PROBES,
+    HELPER_HYBRID_BATTERY_FULL_THRESHOLD_SUFFIX,
+    HELPER_HYBRID_PROBE_DURATION_SUFFIX,
+    HELPER_HYBRID_MAX_IMPORT_DURATION_SUFFIX,
+    HELPER_HYBRID_MAX_FAILED_PROBES_SUFFIX,
 )
 from .entity_base import EVSCEntityMixin
 from .runtime import get_runtime_data
@@ -62,6 +70,11 @@ async def async_setup_entry(
         # Boost Charge
         ("evsc_boost_charge_amperage", "EVSC Boost Charge Amperage", "mdi:flash", 6, 32, 2, DEFAULT_BOOST_CHARGE_AMPERAGE, "A"),
         ("evsc_boost_target_soc", "EVSC Boost Target SOC", "mdi:battery-charging-90", 0, 100, 1, DEFAULT_BOOST_TARGET_SOC, "%"),
+        # Hybrid Inverter Mode (v1.8.0 — issue #20)
+        (HELPER_HYBRID_BATTERY_FULL_THRESHOLD_SUFFIX, "EVSC Hybrid Battery Full Threshold", "mdi:battery-high", 80, 100, 1, DEFAULT_HYBRID_BATTERY_FULL_THRESHOLD, "%"),
+        (HELPER_HYBRID_PROBE_DURATION_SUFFIX, "EVSC Hybrid Probe Duration", "mdi:timer-sand", 30, 180, 10, DEFAULT_HYBRID_PROBE_DURATION, "s"),
+        (HELPER_HYBRID_MAX_IMPORT_DURATION_SUFFIX, "EVSC Hybrid Max Import Duration", "mdi:transmission-tower-import", 30, 120, 10, DEFAULT_HYBRID_MAX_IMPORT_DURATION, "s"),
+        (HELPER_HYBRID_MAX_FAILED_PROBES_SUFFIX, "EVSC Hybrid Max Failed Probes", "mdi:alert-circle-outline", 1, 10, 1, DEFAULT_HYBRID_MAX_FAILED_PROBES, "count"),
     ]
 
     # v1.7.0: skip home-battery-specific numbers in PV-only mode

@@ -63,6 +63,13 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "Reason: {reason}\n"
             "Returning to automatic mode."
         ),
+        "mobile.hybrid_mode_started.message": (
+            "🧪 Hybrid Inverter Mode: probing for hidden solar headroom\n\n"
+            "Your home battery looks full and grid import is low. Testing if "
+            "the inverter is curtailing PV production by starting the charger "
+            "at 6A and observing the grid.\n\n"
+            "Time: {time}"
+        ),
         "boost.reason.manual_stop": "Boost manually disabled",
         "boost.reason.schedule_end_time": "Scheduled end time reached",
         "boost.reason.schedule_disabled": "Schedule Boost Charge disabled mid-session",
@@ -169,6 +176,13 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "Target Boost: {target_soc_label}\n"
             "Motivo: {reason}\n"
             "Ritorno alla modalita' automatica in corso."
+        ),
+        "mobile.hybrid_mode_started.message": (
+            "🧪 Hybrid Inverter Mode: cerco PV nascosto nell'inverter\n\n"
+            "La batteria di casa sembra piena e l'import dalla rete e' basso. "
+            "Testo se l'inverter sta limitando la produzione PV avviando il "
+            "charger a 6A e osservando la rete.\n\n"
+            "Ora: {time}"
         ),
         "boost.reason.manual_stop": "Boost disattivato manualmente",
         "boost.reason.schedule_end_time": "Orario di fine schedulato raggiunto",
@@ -278,6 +292,13 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "Boostdoel: {target_soc_label}\n"
             "Reden: {reason}\n"
             "Terugkeer naar automatische modus."
+        ),
+        "mobile.hybrid_mode_started.message": (
+            "🧪 Hybrid Inverter Mode: zoekt verborgen zonne-overschot\n\n"
+            "De thuisbatterij lijkt vol en netimport is laag. Testen of de "
+            "omvormer PV-productie afknijpt door de lader op 6A te starten "
+            "en het net te observeren.\n\n"
+            "Tijd: {time}"
         ),
         "boost.reason.manual_stop": "Boost handmatig uitgeschakeld",
         "boost.reason.schedule_end_time": "Gepland eindtijdstip bereikt",
