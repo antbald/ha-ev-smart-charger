@@ -756,6 +756,81 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.11.0 (2026-05-26)
+**FEATURE: "Liquid Aurora" — editorial typography redesign of the auto-dashboard**
+
+A full design pass on the bundled Lovelace card. Same information architecture, same entities, same data flow — but a distinct aesthetic identity that pulls the dashboard out of generic "AI-assistant glass card" territory.
+
+**Direction**:
+Liquid Glass surfaces stay (aurora blobs, blurred panels, iOS toggles) but get re-anchored around two new typographic axes:
+
+- **Instrument Serif italic** for display moments — the SOC ring percentage, the hero `<h1>`, the Night Smart Charge START / CAR READY times, and the day names in the Weekly Planner mobile cards. A serif italic on a sans dashboard reads as a deliberate editorial choice, not a default.
+- **JetBrains Mono** for technical readouts — every metric card value (kW, A, W), every stepper value, every eyebrow micro-cap, the priority pill label, the ring legend numbers, and the day-card kind labels (EV / HOME). Tabular numerics keep digit slots aligned when `+ / −` taps nudge a value.
+
+System sans (SF Pro stack) remains for body copy.
+
+Both fonts load from Bunny Fonts (privacy-friendly Google Fonts mirror) via a single `@import` at the top of the inline stylesheet, with `display=swap` so the dashboard never blocks on the network. Georgia / system mono fallbacks ensure full functionality on air-gapped HA instances.
+
+**Color**:
+New aurora accent palette layered on top of Apple System Colors:
+```
+--evsc-aurora-green:  #00d35a   (live charging arc, charging pulse)
+--evsc-aurora-cyan:   #00d4ff   (background aurora blob a)
+--evsc-aurora-violet: #b794ff   (home battery arc, background aurora blob b)
+--evsc-aurora-amber:  #ffb84d   (reserved for solar warnings, future)
+```
+Used sparingly for "live" / saturated moments while the rest of the surface stays in the muted Apple system palette.
+
+**Motion**:
+- Aurora blobs: 18 s → 28–36 s (slower, more atmospheric, less screen-saver feel)
+- Priority pill dot: new `evsc-pulse-slow` 3.2 s breath cycle with expanding glow halo
+- Charging pulse dot: aurora-green with doubled glow halo
+
+**Weekly Planner mobile (v1.10.5 → v1.11.0)**:
+The v1.10.5 fix flattened 7×3 desktop grid cells into 21 stacked rows — functional but verbose. v1.11.0 replaces that with a **day-grouped card layout**: 7 self-contained day cards, each one a small editorial spread:
+- Header: full weekday name in Instrument Serif italic (`Monday` / `Mercoledì` / `Maandag`), plus a "TODAY" pill in mono caps when applicable, plus the Car Ready toggle on the right.
+- Body: two rows for EV and Home targets, with kind labels (`EV` / `HOME`) on the left and the existing stepper on the right.
+- Today's card gets a blue accent border + glow.
+
+Render-wise, this is implemented as a **second DOM payload** (`.evsc-wp-mobile`) that lives next to the desktop `.evsc-wp-grid` in the same `<section>`. CSS swaps which one is visible at the 768 px breakpoint. Two separate DOM trees rendered, one is `display: none` at any given viewport — cleaner than reflowing one grid into multiple breakpoints with `display: contents` gymnastics, and the `data-number` / `data-toggle` bindings are simple per-payload (no double-binding).
+
+**Files Modified**:
+- [frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js): font `@import` + new `--evsc-font-display` / `--evsc-font-mono` / `--evsc-aurora-*` variables; typography applied to hero `<h1>`, `.ring-headline`, `.ring-sub`, `.ring-legend`, `.metric-card strong`, `.eyebrow`, `.stepper-value`, `.priority-pill`, `.evsc-night-time .vv`; SOC ring arcs switched to aurora accents; `_renderWeeklyPlannerV2()` emits both desktop grid and mobile day cards; new `DAY_FULL_NAMES_BY_LOCALE` constant; new `weekly_today_badge` translation key in EN/IT/NL; CSS for `.evsc-wp-day-card`, `.evsc-wp-day-head`, `.evsc-wp-day-name`, `.evsc-wp-today-badge`, `.evsc-wp-day-row`, `.evsc-wp-day-kind`; `@media (max-width: 768px)` block rewritten to swap desktop ↔ mobile payloads
+- [const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.11.0"` (also bumps the `?v=` cache-buster on the Lovelace resource URL — users get the new JS + new fonts on next reload)
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): `version = "1.11.0"`
+
+**Backward compatibility**:
+Zero schema / entity / API changes. The card config block (`type: custom:ev-smart-charger-dashboard`) is identical. Users who installed manually keep working. The auto-dashboard (v1.9.0+) rebinds the resource URL via the new `?v=1.11.0` and reloads automatically.
+
+**Network footprint**:
+One external `@import` to `fonts.bunny.net` (~50 KB total for both font families, both weights). Cached aggressively by Bunny CDN. Users on air-gapped HA setups see the fallback stack (Georgia + system mono) and lose none of the layout.
+
+**Upgrade priority**: 🟢 RECOMMENDED — purely visual. The v1.10.5 functional fixes carry over intact. New users see a distinctively designed dashboard out of the box; existing users see their dashboard transform on first reload after upgrading.
+
+---
+
+### v1.10.5 (2026-05-26)
+**FIX: Dashboard polish — SOC ring centering, Charging Power copy, stepper alignment, mobile Weekly Planner**
+
+Four UI fixes against the Liquid Glass dashboard, all reported by the user on iPhone/tablet:
+
+1. **SOC ring center misalignment** — The "70%" headline appeared in the upper half of the ring instead of dead-center. Root cause: `.hero-ring-center` used `display: grid; place-items: center`, but `place-items` centers items *within* implicit rows that still stack from the top — `align-content` was never set, so the headline + sub stack appeared at the top of the container. The v1.10.1 `padding-bottom: 6px` patch was a workaround in the wrong direction. Fix: switch the inner container to `display: flex; flex-direction: column; align-items: center; justify-content: center`, drop the padding hack.
+2. **Charging Power card showed "Live feed optional" + entity name** — Card displayed the fallback string as the main value and the entity's friendly name as a sublabel, which was noise. Fix in [frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js):
+   - `_renderMetric()` now skips the `<span class="metric-sub">` when the sublabel is empty. All 4 hero metric cards (Solar Power, Grid Import, Charge Current, Charging Power) now pass `""` as sublabel — cleaner, more compact look.
+   - Charging Power value logic rewritten with explicit priority: EV SOC ≥ 100 OR `charger_end` → "Completamente carica"; `charger_free` OR power ≤ 0.05 W OR sensor null → "Non in carica"; `charger_wait` → "In attesa"; otherwise live kW. The translation strings already existed in EN/IT/NL (from v1.10.1) — no new keys, just smarter dispatch.
+   - Same logic mirrored in the SOC ring center: headline shows live kW only when *actually* drawing power, otherwise falls back to the EV % so the ring stays informative (no more "0.0 W" flashing in the center).
+3. **Stepper value not vertically centered** — Boost Amperage / Target SOC / time controls showed the number sitting on its text baseline (≈ 4–6 px above center of the 44 px tall pill). Fix: change `.stepper-value, .time-value` from `align-items: baseline` to `align-items: center`. One CSS line.
+4. **Weekly Planner unusable on mobile** — The 8-column desktop grid (label + 7 days × 3 rows of `− / value / +`) crammed the steppers into ≈ 40 px columns on phones, overlapping the buttons and making single-day edits impossible. Fix: at `≤ 768 px` the grid collapses to a single vertical column of 21 full-width cards (7 days × {EV / Home / Car}). Each card shows the day initial, a kind label ("EV" / "Home" / "Car" — colored to match the desktop palette) and the existing stepper / toggle on the right. Touch targets enlarged: `−` / `+` buttons go from 18 → 28 px. The day-label + kind-label spans are rendered server-side but hidden on desktop via `display: none` — no separate render branch, all `data-number` / `data-toggle` bindings preserved, no `_computeStructuralKey()` churn.
+
+**Files Modified**:
+- [frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js): `_renderHeroRing()` + `_collectLiveValues()` (Fixes 1, 2c); `_renderMetric()` + 4 call sites (Fix 2a); `chargingPower` dispatch in main `render()` (Fix 2b); `_renderWeeklyPlannerV2()` injects day/kind labels (Fix 4); CSS for `.hero-ring-center`, `.stepper-value`, `.evsc-wp-*` plus new `@media (max-width: 768px)` block (Fixes 1, 3, 4)
+- [const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.10.5"` (also drives the `?v=` cache-buster on the Lovelace resource URL, so users get the new JS on next page reload)
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): `version = "1.10.5"`
+
+**Upgrade Priority**: 🟢 RECOMMENDED — Purely UI; no behavioral changes, no schema changes, no new entities. Users on a phone or tablet will feel the difference immediately.
+
+---
+
 ### v1.9.0 (2026-05-26)
 **FEATURE: Auto-generated Liquid Glass dashboard — zero-config sidebar UI**
 

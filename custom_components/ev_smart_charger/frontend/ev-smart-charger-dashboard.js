@@ -12,6 +12,14 @@ const DAY_INITIALS_BY_LOCALE = {
   it: ["L", "M", "M", "G", "V", "S", "D"],
   nl: ["M", "D", "W", "D", "V", "Z", "Z"],
 };
+/* v1.11.0: full weekday names for the day-grouped mobile cards. The
+   editorial italic display font really sings on "Wednesday" / "Mercoledì"
+   — far more characterful than a single-letter chip. */
+const DAY_FULL_NAMES_BY_LOCALE = {
+  en: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+  it: ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"],
+  nl: ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"],
+};
 const DOMAIN_SUFFIXES = {
   // ── Core controls
   forceCharge: ["switch", "evsc_forza_ricarica"],
@@ -406,6 +414,7 @@ const STATIC_LABELS = {
     settings_title: "Settings", settings_intro: "Automation module configuration. Click a category to expand its parameters.",
     weekly_title: "Weekly Planner", weekly_desc: "Daily SOC targets · Car ready toggle per day",
     weekly_ev: "EV target", weekly_home: "Home target", weekly_car: "Car ready",
+    weekly_today_badge: "Today",
     weekly_info: "When active, Night Smart Charge falls back to grid if the home battery is insufficient. When inactive, charging is skipped pending solar surplus.",
     night_start: "Start", night_car_ready: "Car Ready", night_enabled: "Enabled", night_card_title: "Night Smart Charge", night_card_sub: "Forecast driven",
     hero_ev: "EV", hero_charging: "CHARGING",
@@ -417,6 +426,7 @@ const STATIC_LABELS = {
     settings_title: "Impostazioni", settings_intro: "Configurazione dei moduli di automazione. Clicca su una categoria per espandere i parametri.",
     weekly_title: "Pianificatore settimanale", weekly_desc: "Target SOC giornalieri · Toggle Car Ready per giorno",
     weekly_ev: "Target EV", weekly_home: "Target casa", weekly_car: "Car ready",
+    weekly_today_badge: "Oggi",
     weekly_info: "Quando attivo, Night Smart Charge fa fallback su rete se la batteria di casa non basta. Quando inattivo la ricarica viene saltata in attesa del surplus solare.",
     night_start: "Inizio", night_car_ready: "Auto pronta", night_enabled: "Attivo", night_card_title: "Night Smart Charge", night_card_sub: "Guidato dal forecast",
     hero_ev: "EV", hero_charging: "IN CARICA",
@@ -428,6 +438,7 @@ const STATIC_LABELS = {
     settings_title: "Instellingen", settings_intro: "Configuratie van de automatiseringsmodules. Klik op een categorie om de parameters uit te vouwen.",
     weekly_title: "Weekplanner", weekly_desc: "Dagelijkse SOC-doelen · Car Ready-schakelaar per dag",
     weekly_ev: "EV-doel", weekly_home: "Thuisdoel", weekly_car: "Auto klaar",
+    weekly_today_badge: "Vandaag",
     weekly_info: "Indien actief schakelt Night Smart Charge naar het net als de thuisbatterij onvoldoende is. Indien inactief wordt het laden overgeslagen in afwachting van zonneoverschot.",
     night_start: "Start", night_car_ready: "Auto klaar", night_enabled: "Actief", night_card_title: "Slim nachtelijk laden", night_card_sub: "Op verwachting gestuurd",
     hero_ev: "EV", hero_charging: "LADEN",
@@ -1164,9 +1175,20 @@ class EvSmartChargerDashboard extends HTMLElement {
     const evFrac = evPct != null ? clamp01(evPct / 100) : 0;
     const homeFrac = homePct != null ? clamp01(homePct / 100) : 0;
 
+    // v1.10.5: same logic as _collectLiveValues to keep first-render and
+    // live-update output identical (avoids a one-frame flash).
+    const chargingPowerNum = chargingPowerObj
+      ? Number(chargingPowerObj.state)
+      : null;
+    const isActuallyCharging =
+      isCharging
+      && chargingPowerObj
+      && Number.isFinite(chargingPowerNum)
+      && chargingPowerNum > 0.05
+      && !(evPct != null && evPct >= 100);
     let headline = "—";
     let sub = this._t("metric.ev_soc");
-    if (isCharging && chargingPowerObj) {
+    if (isActuallyCharging) {
       const unit = chargingPowerObj.attributes?.unit_of_measurement || "";
       headline = `${chargingPowerObj.state}${unit ? " " + unit : ""}`;
       sub = this._t("metric.charging_power");
@@ -1174,11 +1196,13 @@ class EvSmartChargerDashboard extends HTMLElement {
       headline = `${Math.round(evPct)}%`;
     }
 
+    // v1.11.0: rings use aurora accents (more saturated, more electric)
+    // for the live arcs while keeping the track in the muted system gray.
     const inner = homePct != null
       ? `
         <circle class="ring-track" cx="110" cy="110" r="${rInner}" stroke-width="13"/>
         <circle class="ring-progress" cx="110" cy="110" r="${rInner}" stroke-width="13"
-                style="color: var(--evsc-sys-purple); stroke: var(--evsc-sys-purple);"
+                style="color: var(--evsc-aurora-violet); stroke: var(--evsc-aurora-violet);"
                 stroke-dasharray="${cInner}" stroke-dashoffset="${cInner * (1 - homeFrac)}"
                 data-live-attr-id="ring.homeOffset"/>`
       : "";
@@ -1187,7 +1211,7 @@ class EvSmartChargerDashboard extends HTMLElement {
       ? `${this._t("metric.home_battery")} ${Math.round(homePct)}%`
       : "";
     const legendHome = homePct != null
-      ? `<div style="color: var(--evsc-sys-purple);"><span class="ring-dot"></span><span data-live="legend.home">${legendHomeText}</span></div>`
+      ? `<div style="color: var(--evsc-aurora-violet);"><span class="ring-dot"></span><span data-live="legend.home">${legendHomeText}</span></div>`
       : "";
 
     const chargingDot = isCharging
@@ -1202,7 +1226,7 @@ class EvSmartChargerDashboard extends HTMLElement {
           <svg viewBox="0 0 220 220" aria-hidden="true">
             <circle class="ring-track" cx="110" cy="110" r="${rOuter}" stroke-width="13"/>
             <circle class="ring-progress" cx="110" cy="110" r="${rOuter}" stroke-width="13"
-                    style="color: var(--evsc-sys-green); stroke: var(--evsc-sys-green);"
+                    style="color: var(--evsc-aurora-green); stroke: var(--evsc-aurora-green);"
                     stroke-dasharray="${cOuter}" stroke-dashoffset="${cOuter * (1 - evFrac)}"
                     data-live-attr-id="ring.evOffset"/>
             ${inner}
@@ -1213,7 +1237,7 @@ class EvSmartChargerDashboard extends HTMLElement {
           </div>
         </div>
         <div class="hero-ring-legend">
-          <div style="color: var(--evsc-sys-green);"><span class="ring-dot"></span><span data-live="legend.ev">${legendEvText}</span></div>
+          <div style="color: var(--evsc-aurora-green);"><span class="ring-dot"></span><span data-live="legend.ev">${legendEvText}</span></div>
           ${legendHome}
         </div>
       </div>
@@ -1372,12 +1396,14 @@ class EvSmartChargerDashboard extends HTMLElement {
     // v1.10.4: liveKey marks the dynamic value span for in-place DOM
     // mutation by _updateLiveValues(). When set, this <strong> can be
     // updated without rebuilding the entire DOM tree.
+    // v1.10.5: sublabel rendered only when non-empty.
     const liveAttr = liveKey ? ` data-live="${liveKey}"` : "";
+    const subHtml = sublabel ? `<span class="metric-sub">${sublabel}</span>` : "";
     return `
       <div class="metric-card tone-${tone}">
         <span class="eyebrow">${label}</span>
         <strong${liveAttr}>${value}</strong>
-        <span class="metric-sub">${sublabel}</span>
+        ${subHtml}
       </div>
     `;
   }
@@ -1638,6 +1664,57 @@ class EvSmartChargerDashboard extends HTMLElement {
       `;
     }).join("");
 
+    // v1.11.0: day-grouped mobile layout — 7 cards, each containing the
+    // full editorial day spread (large italic day name, EV row, Home row,
+    // Car toggle). Replaces the v1.10.5 21-card flat stack, which was
+    // functional but verbose. Today's card gets a TODAY pill + accent
+    // border. The desktop grid above is hidden via CSS @ 768 px and
+    // this block takes over — single HTML payload, two render paths.
+    const dayFullNames = DAY_FULL_NAMES_BY_LOCALE[locale] || DAY_FULL_NAMES_BY_LOCALE[DEFAULT_LOCALE];
+    const dayCards = DAYS.map((day, i) => {
+      const evEnt = this._entityId(`evMinSoc_${day}`);
+      const homeEnt = this._entityId(`homeMinSoc_${day}`);
+      const carEnt = this._entityId(`carReady_${day}`);
+      const evV = this._stateObj(evEnt)?.state ?? "—";
+      const homeV = this._stateObj(homeEnt)?.state ?? "—";
+      const carOn = this._isOn(carEnt);
+      const isToday = i === todayIdx;
+      const todayBadge = isToday
+        ? `<span class="evsc-wp-today-badge">${this._label("weekly_today_badge")}</span>`
+        : "";
+      return `
+        <article class="evsc-wp-day-card ${isToday ? "today" : ""}">
+          <header class="evsc-wp-day-head">
+            <div class="evsc-wp-day-name-block">
+              <span class="evsc-wp-day-name">${dayFullNames[i]}</span>
+              ${todayBadge}
+            </div>
+            <button class="evsc-wp-tog ${carOn ? "on" : ""}"
+                    data-toggle="${carEnt}"
+                    aria-label="${this._label("weekly_car")}"></button>
+          </header>
+          <div class="evsc-wp-day-body">
+            <div class="evsc-wp-day-row">
+              <span class="evsc-wp-day-kind evsc-wp-kind-ev">${this._label("weekly_ev")}</span>
+              <div class="evsc-wp-soc-row">
+                <button class="evsc-wp-mini" data-number="${evEnt}" data-direction="-1">−</button>
+                <span class="evsc-wp-soc ev">${evV}<small>%</small></span>
+                <button class="evsc-wp-mini" data-number="${evEnt}" data-direction="1">+</button>
+              </div>
+            </div>
+            <div class="evsc-wp-day-row">
+              <span class="evsc-wp-day-kind evsc-wp-kind-home">${this._label("weekly_home")}</span>
+              <div class="evsc-wp-soc-row">
+                <button class="evsc-wp-mini" data-number="${homeEnt}" data-direction="-1">−</button>
+                <span class="evsc-wp-soc home">${homeV}<small>%</small></span>
+                <button class="evsc-wp-mini" data-number="${homeEnt}" data-direction="1">+</button>
+              </div>
+            </div>
+          </div>
+        </article>
+      `;
+    }).join("");
+
     return `
       <section class="evsc-weekly">
         <div class="evsc-wp-head">
@@ -1652,6 +1729,7 @@ class EvSmartChargerDashboard extends HTMLElement {
           <div class="evsc-wp-row-label">${this._label("weekly_home")}</div>${homeRow}
           <div class="evsc-wp-row-label">${this._label("weekly_car")}</div>${carRow}
         </div>
+        <div class="evsc-wp-mobile">${dayCards}</div>
         <div class="evsc-wp-info">${this._label("weekly_info")}</div>
       </section>
     `;
@@ -1774,10 +1852,10 @@ class EvSmartChargerDashboard extends HTMLElement {
               <h1>${this._config.title || this._t("title.default")}</h1>
               <p class="evsc-hero-sub">${this._t("hero.description")}</p>
               <div class="evsc-metric-row">
-                ${this._renderMetric(this._t("metric.solar_power"), displayValues.solarPower, "amber", this._labelFor(this._config.solar_power_entity, this._t("metric.pv_feed")), "metric.solarPower")}
-                ${this._renderMetric(this._t("metric.grid_import"), displayValues.gridImport, "rose", this._labelFor(this._config.grid_import_entity, this._t("metric.import_threshold")), "metric.gridImport")}
-                ${this._renderMetric(this._t("metric.charge_current"), displayValues.chargerCurrent, "teal", this._labelFor(this._config.current_entity, this._t("metric.wallbox_current")), "metric.chargerCurrent")}
-                ${this._renderMetric(this._t("metric.charging_power"), displayValues.chargingPower, "cyan", this._labelFor(this._config.charging_power_entity, this._t("metric.live_power")), "metric.chargingPower")}
+                ${this._renderMetric(this._t("metric.solar_power"), displayValues.solarPower, "amber", "", "metric.solarPower")}
+                ${this._renderMetric(this._t("metric.grid_import"), displayValues.gridImport, "rose", "", "metric.gridImport")}
+                ${this._renderMetric(this._t("metric.charge_current"), displayValues.chargerCurrent, "teal", "", "metric.chargerCurrent")}
+                ${this._renderMetric(this._t("metric.charging_power"), displayValues.chargingPower, "cyan", "", "metric.chargingPower")}
               </div>
             </div>
           </header>
@@ -1871,22 +1949,31 @@ class EvSmartChargerDashboard extends HTMLElement {
     const cachedEvSoc = this._integrationState("cachedEvSoc");
     const logFilePath = this._integrationState("logFilePath");
 
-    // v1.10.1: charging power label is conditional on charger status.
-    //   charger_free  → "Not Charging"     (cable unplugged)
-    //   charger_end   → "Fully Charged"    (session completed at 100%)
-    //   charger_wait  → "Waiting"          (plugged, waiting for trigger)
-    //   charger_charging → live kW reading (fall through to _displayValue)
-    //   anything else → fall through (sensor unavailable etc.)
+    // v1.10.5: charging power label gives a meaningful status string
+    // instead of "0.0 W" or "Live feed optional" when the car isn't
+    // actually drawing power. Priority order:
+    //   1. EV at 100% OR charger_end       → "Fully Charged"
+    //   2. charger_free / no power / null  → "Not Charging"
+    //   3. charger_wait                    → "Waiting"
+    //   4. otherwise                       → live kW reading
     const _chargerStatusState = this._stateObj(this._config.charger_status_entity)?.state;
+    const _chargingPowerNum = this._numericState(this._config.charging_power_entity);
+    const _evSocNum = this._numericState(this._config.ev_soc_entity);
     let chargingPower;
-    if (_chargerStatusState === "charger_free") {
-      chargingPower = this._t("charging_state.not_charging");
+    if (_evSocNum != null && _evSocNum >= 100) {
+      chargingPower = this._t("charging_state.fully_charged");
     } else if (_chargerStatusState === "charger_end") {
       chargingPower = this._t("charging_state.fully_charged");
+    } else if (
+      _chargerStatusState === "charger_free"
+      || _chargingPowerNum == null
+      || _chargingPowerNum <= 0.05
+    ) {
+      chargingPower = this._t("charging_state.not_charging");
     } else if (_chargerStatusState === "charger_wait") {
       chargingPower = this._t("charging_state.waiting");
     } else {
-      chargingPower = this._displayValue(this._config.charging_power_entity, this._t("fallback.live_feed_optional"));
+      chargingPower = this._displayValue(this._config.charging_power_entity, this._t("charging_state.not_charging"));
     }
     const evSoc = this._displayValue(this._config.ev_soc_entity, this._t("fallback.ev_soc_entity"));
     const homeBatterySoc = this._displayValue(
@@ -2022,9 +2109,21 @@ class EvSmartChargerDashboard extends HTMLElement {
     const evFrac = evPct != null ? clamp01(evPct / 100) : 0;
     const homeFrac = homePct != null ? clamp01(homePct / 100) : 0;
 
+    // v1.10.5: ring headline shows live kW only when actually drawing
+    // power. When the car is fully charged or idle, show the EV % so the
+    // ring stays informative instead of jumping to "0.0 W".
+    const chargingPowerNum = chargingPowerObj
+      ? Number(chargingPowerObj.state)
+      : null;
+    const isActuallyCharging =
+      isCharging
+      && chargingPowerObj
+      && Number.isFinite(chargingPowerNum)
+      && chargingPowerNum > 0.05
+      && !(evPct != null && evPct >= 100);
     let ringHeadline = "—";
     let ringSub = this._t("metric.ev_soc");
-    if (isCharging && chargingPowerObj) {
+    if (isActuallyCharging) {
       const unit = chargingPowerObj.attributes?.unit_of_measurement || "";
       ringHeadline = `${chargingPowerObj.state}${unit ? " " + unit : ""}`;
       ringSub = this._t("metric.charging_power");
@@ -2087,10 +2186,14 @@ class EvSmartChargerDashboard extends HTMLElement {
   _inlineStyles() {
     return `
         /* ============================================================
-         * EV Smart Charger — Liquid Glass iOS 18
-         * Palette: Apple System colors. Adaptive light/dark via
-         * prefers-color-scheme + HA --primary-background-color hooks.
+         * EV Smart Charger — Liquid Aurora (v1.11.0)
+         * Editorial typography (Instrument Serif italic display +
+         * JetBrains Mono technical readouts) on top of a refined
+         * Liquid Glass surface. Apple System Colors with aurora accent.
+         * Adaptive light/dark via prefers-color-scheme + HA hooks.
          * ============================================================ */
+        @import url('https://fonts.bunny.net/css?family=instrument-serif:400,400i&family=jetbrains-mono:500,600,700&display=swap');
+
         :host {
           /* v1.10.4: shadow DOM box model reset — explicit, NOT inherited
              from light DOM. min-width:0 allows the host to shrink inside
@@ -2103,6 +2206,10 @@ class EvSmartChargerDashboard extends HTMLElement {
           box-sizing: border-box;
           --evsc-font: -apple-system, "SF Pro Display", "SF Pro Text",
             BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+          --evsc-font-display: "Instrument Serif", "Georgia", "Times New Roman",
+            serif;
+          --evsc-font-mono: "JetBrains Mono", ui-monospace, "SF Mono",
+            "Menlo", "Consolas", monospace;
 
           --evsc-bg-1: #f2f2f7;
           --evsc-bg-2: #e5e5ea;
@@ -2125,6 +2232,15 @@ class EvSmartChargerDashboard extends HTMLElement {
           --evsc-sys-orange: #ff9500;
           --evsc-sys-yellow: #ffcc00;
           --evsc-sys-cyan: #32ade6;
+
+          /* v1.11.0: Aurora accents — saturated, electric, used sparingly
+             for "live" moments (active charging, today, priority change).
+             Distinct from the muted Apple System palette which carries
+             the rest of the surface. */
+          --evsc-aurora-green: #00d35a;
+          --evsc-aurora-cyan: #00d4ff;
+          --evsc-aurora-violet: #b794ff;
+          --evsc-aurora-amber: #ffb84d;
 
           --evsc-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.04),
             0 8px 24px rgba(0, 0, 0, 0.06);
@@ -2195,36 +2311,44 @@ class EvSmartChargerDashboard extends HTMLElement {
           margin: 0 auto;
         }
 
-        /* Soft accent blobs floating in the background. Subtle and slow. */
+        /* v1.11.0: aurora blobs — bigger, softer, slower. The radius
+           shifts on a long sine + a complementary scale wobble give the
+           impression of slow weather rather than a JS-driven loop. */
         .aurora {
           position: absolute;
           inset: auto;
-          filter: blur(80px);
+          filter: blur(96px);
           opacity: 0.55;
           pointer-events: none;
-          animation: floatGlow 18s ease-in-out infinite;
+          animation: floatGlow 28s ease-in-out infinite;
+          will-change: transform, opacity;
         }
 
         .aurora-a {
-          width: 360px;
-          height: 360px;
-          top: -90px;
-          right: -80px;
-          background: radial-gradient(circle, color-mix(in srgb, var(--evsc-sys-cyan) 35%, transparent), transparent 65%);
+          width: 440px;
+          height: 440px;
+          top: -120px;
+          right: -100px;
+          background: radial-gradient(circle,
+            color-mix(in srgb, var(--evsc-aurora-cyan) 38%, transparent),
+            transparent 65%);
         }
 
         .aurora-b {
-          width: 420px;
-          height: 420px;
-          bottom: 4%;
-          left: -120px;
-          background: radial-gradient(circle, color-mix(in srgb, var(--evsc-sys-purple) 30%, transparent), transparent 70%);
-          animation-delay: -7s;
+          width: 520px;
+          height: 520px;
+          bottom: -8%;
+          left: -160px;
+          background: radial-gradient(circle,
+            color-mix(in srgb, var(--evsc-aurora-violet) 32%, transparent),
+            transparent 70%);
+          animation-delay: -11s;
+          animation-duration: 36s;
         }
 
         @keyframes floatGlow {
-          0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.5; }
-          50%      { transform: translate3d(20px, -16px, 0) scale(1.08); opacity: 0.7; }
+          0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.48; }
+          50%      { transform: translate3d(28px, -22px, 0) scale(1.12); opacity: 0.72; }
         }
 
         .grain {
@@ -2310,23 +2434,48 @@ class EvSmartChargerDashboard extends HTMLElement {
           filter: drop-shadow(0 0 6px color-mix(in srgb, currentColor 50%, transparent));
         }
         .hero-ring-center {
-          position: absolute; inset: 0; display: grid; place-items: center; gap: 2px;
-          text-align: center;
+          position: absolute; inset: 0;
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          gap: 2px; text-align: center;
         }
         .hero-ring-center .ring-headline {
-          font-size: 2.2rem; font-weight: 700; letter-spacing: -0.04em;
+          /* v1.11.0: editorial-grade percentage. Instrument Serif italic
+             at a generous size — the single most distinctive moment in
+             the whole dashboard. Falls back to Georgia on networks that
+             can't reach Bunny Fonts. */
+          font-family: var(--evsc-font-display);
+          font-style: italic;
+          font-weight: 400;
+          font-size: 3rem;
+          line-height: 1;
+          letter-spacing: -0.02em;
           color: var(--evsc-fg);
+          /* the italic foot subtly drifts right — pull it back so it
+             sits dead-center optically (the optical center of italics is
+             slightly to the right of the geometric center). */
+          margin-left: -0.06em;
         }
         .hero-ring-center .ring-sub {
-          font-size: 0.78rem; color: var(--evsc-fg-mid);
-          letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600;
+          font-family: var(--evsc-font-mono);
+          font-size: 0.7rem;
+          color: var(--evsc-fg-mid);
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          font-weight: 500;
+          margin-top: 6px;
         }
         .hero-ring-legend {
-          display: flex; gap: 16px; justify-content: center; margin-top: 12px;
+          display: flex; gap: 16px; justify-content: center; margin-top: 14px;
         }
         .hero-ring-legend > div {
           display: flex; align-items: center; gap: 6px;
-          font-size: 0.78rem; color: var(--evsc-fg-mid);
+          font-family: var(--evsc-font-mono);
+          font-size: 0.72rem;
+          font-weight: 500;
+          letter-spacing: 0.04em;
+          color: var(--evsc-fg-mid);
+          font-variant-numeric: tabular-nums;
         }
         .ring-dot {
           width: 8px; height: 8px; border-radius: 50%;
@@ -2336,14 +2485,18 @@ class EvSmartChargerDashboard extends HTMLElement {
 
         .eyebrow,
         .kicker {
+          /* v1.11.0: eyebrow micro-caps in JetBrains Mono. Pairs with the
+             mono numbers below to anchor each card in technical lineage,
+             while leaving the serif italic free for the display moments. */
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          font-size: 0.7rem;
-          letter-spacing: 0.14em;
+          font-family: var(--evsc-font-mono);
+          font-size: 0.65rem;
+          letter-spacing: 0.18em;
           text-transform: uppercase;
           color: var(--evsc-fg-low);
-          font-weight: 600;
+          font-weight: 500;
         }
 
         /* ---------- Generic glass cards ---------- */
@@ -2394,7 +2547,10 @@ class EvSmartChargerDashboard extends HTMLElement {
         .metric-card strong,
         .spotlight-main strong,
         .target-chip strong {
-          font-size: clamp(1.2rem, 2vw, 1.7rem);
+          /* v1.11.0: technical readouts in JetBrains Mono — engineering
+             feel for live numbers. Falls back to system mono. */
+          font-family: var(--evsc-font-mono);
+          font-size: clamp(1.05rem, 1.8vw, 1.45rem);
           line-height: 1.05;
           letter-spacing: -0.02em;
           font-weight: 700;
@@ -2613,8 +2769,11 @@ class EvSmartChargerDashboard extends HTMLElement {
 
         .stepper-value,
         .time-value {
+          /* v1.11.0: technical readouts in JetBrains Mono — the digits
+             align in tabular columns so taps on −/+ visually nudge the
+             same character slot every time. */
           display: flex;
-          align-items: baseline;
+          align-items: center;
           justify-content: center;
           gap: 6px;
           min-height: 44px;
@@ -2622,16 +2781,19 @@ class EvSmartChargerDashboard extends HTMLElement {
           border-radius: 14px;
           background: var(--evsc-surface-strong);
           border: 1px solid var(--evsc-stroke);
-          font-weight: 700;
-          font-size: 1.1rem;
-          letter-spacing: -0.02em;
+          font-family: var(--evsc-font-mono);
+          font-weight: 600;
+          font-size: 1.05rem;
+          letter-spacing: -0.01em;
+          font-variant-numeric: tabular-nums;
           color: var(--evsc-fg);
         }
 
         .stepper-value small {
           color: var(--evsc-fg-mid);
-          font-size: 0.8rem;
+          font-size: 0.7rem;
           font-weight: 500;
+          letter-spacing: 0.05em;
         }
 
         .profile-row {
@@ -2821,20 +2983,29 @@ class EvSmartChargerDashboard extends HTMLElement {
         .tone-amber  { --evsc-tone: var(--evsc-sys-orange); color: var(--evsc-sys-orange); }
         .tone-teal   { --evsc-tone: var(--evsc-sys-teal);   color: var(--evsc-sys-teal); }
 
-        /* Priority state pill */
+        /* Priority state pill — v1.11.0: mono caps for engineering feel */
         .priority-pill {
-          display: inline-flex; align-items: center; gap: 8px;
-          padding: 6px 12px;
+          display: inline-flex; align-items: center; gap: 10px;
+          padding: 7px 14px;
           border-radius: var(--evsc-radius-pill);
-          font-size: 0.85rem; font-weight: 600;
+          font-family: var(--evsc-font-mono);
+          font-size: 0.7rem;
+          font-weight: 600;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
           background: var(--evsc-surface-strong);
           border: 1px solid var(--evsc-stroke);
           color: var(--evsc-fg);
         }
         .priority-pill::before {
-          content: ""; width: 8px; height: 8px; border-radius: 50%;
+          content: ""; width: 7px; height: 7px; border-radius: 50%;
           background: currentColor;
-          box-shadow: 0 0 8px currentColor;
+          box-shadow: 0 0 10px currentColor;
+          animation: evsc-pulse-slow 3.2s ease-in-out infinite;
+        }
+        @keyframes evsc-pulse-slow {
+          0%, 100% { opacity: 1; box-shadow: 0 0 10px currentColor; }
+          50%      { opacity: 0.55; box-shadow: 0 0 16px currentColor; }
         }
         .priority-pill.state-ev      { color: var(--evsc-sys-green);  }
         .priority-pill.state-home    { color: var(--evsc-sys-blue);   }
@@ -2846,11 +3017,16 @@ class EvSmartChargerDashboard extends HTMLElement {
           50%      { opacity: 0.55; transform: scale(0.85); }
         }
         .charging-pulse {
-          display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-          background: var(--evsc-sys-green);
-          box-shadow: 0 0 12px var(--evsc-sys-green);
+          /* v1.11.0: aurora-green for a more vivid "live" feel.
+             Slightly larger glow halo than before. */
+          display: inline-block;
+          width: 9px; height: 9px;
+          border-radius: 50%;
+          background: var(--evsc-aurora-green);
+          box-shadow: 0 0 14px var(--evsc-aurora-green),
+                      0 0 6px var(--evsc-aurora-green);
           animation: evsc-pulse 1.4s ease-in-out infinite;
-          margin-right: 6px;
+          margin-right: 8px;
           vertical-align: middle;
         }
 
@@ -3027,15 +3203,25 @@ class EvSmartChargerDashboard extends HTMLElement {
           }
         }
         .evsc-hero-body h1 {
-          margin: 8px 0 4px;
-          font-size: clamp(20px, 3vw, 26px);
-          font-weight: 700;
-          letter-spacing: -0.02em;
+          /* v1.11.0: editorial display title — Instrument Serif italic
+             keys the whole aesthetic. Mix-cased serif on top of clean
+             sans body creates the distinctive "magazine spread"
+             contrast. */
+          margin: 6px 0 8px;
+          font-family: var(--evsc-font-display);
+          font-style: italic;
+          font-weight: 400;
+          font-size: clamp(28px, 4vw, 40px);
+          line-height: 1.05;
+          letter-spacing: -0.015em;
+          color: var(--evsc-fg);
         }
         .evsc-hero-sub {
-          color: var(--evsc-fg-low);
-          font-size: 14px;
-          margin: 0 0 18px;
+          color: var(--evsc-fg-mid);
+          font-size: 13px;
+          line-height: 1.55;
+          margin: 0 0 20px;
+          max-width: 42ch;
         }
         .evsc-metric-row {
           display: grid;
@@ -3072,13 +3258,8 @@ class EvSmartChargerDashboard extends HTMLElement {
           width: 100%;
         }
 
-        /* v1.10.1: hero ring center — vertical balance.
-           When the small "EV" sub label is short, the SOC percentage can
-           appear slightly above the visual center. Adding a touch of bottom
-           offset to ring-headline restores the optical centroid. */
-        .evsc-hero-v2 .hero-ring-center {
-          padding-bottom: 6px;
-        }
+        /* v1.10.5: hero ring center is now flex-centered (see base rule).
+           Sub label keeps the wide-tracking, lowered-opacity treatment. */
         .evsc-hero-v2 .hero-ring-center .ring-sub {
           margin-top: 2px;
           letter-spacing: 0.16em;
@@ -3322,6 +3503,91 @@ class EvSmartChargerDashboard extends HTMLElement {
           background: color-mix(in srgb, var(--evsc-sys-blue) 14%, transparent);
           border-color: color-mix(in srgb, var(--evsc-sys-blue) 35%, transparent);
         }
+
+        /* v1.11.0: mobile day-card stack — hidden on desktop, shown ≤768px.
+           Each card is a self-contained editorial spread for one day. */
+        .evsc-wp-mobile { display: none; }
+        .evsc-wp-day-card {
+          padding: 16px 18px;
+          border-radius: var(--evsc-radius);
+          background: var(--evsc-surface);
+          border: 1px solid var(--evsc-stroke);
+          backdrop-filter: var(--evsc-blur-light);
+          -webkit-backdrop-filter: var(--evsc-blur-light);
+          box-shadow: var(--evsc-shadow-soft);
+          transition: transform 240ms var(--evsc-spring),
+                      box-shadow 240ms var(--evsc-spring);
+        }
+        .evsc-wp-day-card.today {
+          border-color: color-mix(in srgb, var(--evsc-sys-blue) 40%, var(--evsc-stroke));
+          box-shadow: var(--evsc-shadow-soft),
+                      0 0 0 1px color-mix(in srgb, var(--evsc-sys-blue) 22%, transparent),
+                      0 12px 30px color-mix(in srgb, var(--evsc-sys-blue) 14%, transparent);
+        }
+        .evsc-wp-day-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding-bottom: 12px;
+          margin-bottom: 12px;
+          border-bottom: 1px solid color-mix(in srgb, var(--evsc-fg) 6%, transparent);
+        }
+        .evsc-wp-day-name-block {
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+          min-width: 0;
+        }
+        .evsc-wp-day-name {
+          /* Display serif italic — the same editorial cue as the SOC
+             percentage and the hero h1. "Mercoledì" italic feels
+             considered, not generic. */
+          font-family: var(--evsc-font-display);
+          font-style: italic;
+          font-weight: 400;
+          font-size: 22px;
+          line-height: 1;
+          color: var(--evsc-fg);
+          letter-spacing: -0.01em;
+        }
+        .evsc-wp-day-card.today .evsc-wp-day-name {
+          color: var(--evsc-sys-blue);
+        }
+        .evsc-wp-today-badge {
+          display: inline-block;
+          padding: 3px 9px;
+          border-radius: var(--evsc-radius-pill);
+          background: var(--evsc-sys-blue);
+          color: #fff;
+          font-family: var(--evsc-font-mono);
+          font-size: 9px;
+          font-weight: 600;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          box-shadow: 0 4px 12px color-mix(in srgb, var(--evsc-sys-blue) 35%, transparent);
+        }
+        .evsc-wp-day-body {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .evsc-wp-day-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 12px;
+        }
+        .evsc-wp-day-kind {
+          font-family: var(--evsc-font-mono);
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--evsc-fg-mid);
+        }
+        .evsc-wp-day-row .evsc-wp-kind-ev   { color: var(--evsc-sys-blue);  }
+        .evsc-wp-day-row .evsc-wp-kind-home { color: var(--evsc-sys-green); }
         .evsc-wp-soc-row {
           display: flex;
           align-items: center;
@@ -3395,6 +3661,52 @@ class EvSmartChargerDashboard extends HTMLElement {
           font-size: 12px;
           line-height: 1.5;
           color: var(--evsc-fg-mid);
+        }
+
+        /* v1.11.0: at ≤768 px the desktop 8-column grid is swapped out for
+           the day-grouped mobile card stack. Two separate DOM payloads
+           rendered, only one is visible. Cleaner than reflowing one grid
+           into multiple breakpoints. */
+        @media (max-width: 768px) {
+          .evsc-weekly { padding: 18px; }
+          .evsc-wp-grid { display: none; }
+          .evsc-wp-mobile {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+          }
+          .evsc-wp-day-card .evsc-wp-soc-row {
+            justify-content: flex-end;
+            gap: 6px;
+          }
+          .evsc-wp-day-card .evsc-wp-mini {
+            width: 30px;
+            height: 30px;
+            font-size: 17px;
+            background: color-mix(in srgb, var(--evsc-fg) 6%, transparent);
+            border-radius: 9px;
+            font-weight: 500;
+          }
+          .evsc-wp-day-card .evsc-wp-mini:hover {
+            background: color-mix(in srgb, var(--evsc-sys-blue) 18%, transparent);
+            color: var(--evsc-sys-blue);
+          }
+          .evsc-wp-day-card .evsc-wp-soc {
+            font-family: var(--evsc-font-mono);
+            font-size: 16px;
+            font-weight: 600;
+            min-width: 42px;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+          }
+          .evsc-wp-day-card .evsc-wp-soc small {
+            font-size: 10px;
+            margin-left: 2px;
+            opacity: 0.7;
+          }
+          .evsc-wp-day-card .evsc-wp-tog {
+            margin: 0;
+          }
         }
 
         /* Night Smart Charge — bento illustration card */
@@ -3473,18 +3785,26 @@ class EvSmartChargerDashboard extends HTMLElement {
           padding: 10px 12px;
         }
         .evsc-night-time .lbl {
+          font-family: var(--evsc-font-mono);
           font-size: 9px;
           color: var(--evsc-fg-low);
           text-transform: uppercase;
-          letter-spacing: 0.08em;
-          font-weight: 700;
+          letter-spacing: 0.16em;
+          font-weight: 500;
         }
         .evsc-night-time .vv {
-          font-size: 22px;
-          font-weight: 800;
-          letter-spacing: -0.02em;
-          margin-top: 2px;
+          /* v1.11.0: night charge times in display serif italic — same
+             editorial cue as the SOC ring percentage. "01:00" rendered
+             italic feels deliberate, intentional, like a magazine pull
+             quote rather than a debug timer. */
+          font-family: var(--evsc-font-display);
+          font-style: italic;
+          font-size: 32px;
+          font-weight: 400;
+          letter-spacing: -0.01em;
+          margin-top: 4px;
           font-variant-numeric: tabular-nums;
+          color: var(--evsc-fg);
         }
         .evsc-night-enable {
           display: flex;
