@@ -965,6 +965,13 @@ class EvSmartChargerDashboard extends HTMLElement {
       grid_import_entity: config?.grid_import_entity,
       current_entity: config?.current_entity,
       charger_status_entity: config?.charger_status_entity,
+      // v1.11.13: pv_forecast_entity was added to the dashboard_manager
+      // mapping back in v1.9.0 (and consumed by _renderNightCardV2 since
+      // then), but setConfig's whitelist was never extended — so every
+      // call site that reads `this._config.pv_forecast_entity` (Night
+      // card forecast string + the new v1.11.10 forecast chip) silently
+      // got undefined. Fixed.
+      pv_forecast_entity: config?.pv_forecast_entity,
     };
 
     // v1.11.4: capture the build version injected by dashboard_manager.py.
