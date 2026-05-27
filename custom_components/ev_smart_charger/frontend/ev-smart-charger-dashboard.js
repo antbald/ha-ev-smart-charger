@@ -973,6 +973,18 @@ class EvSmartChargerDashboard extends HTMLElement {
     if (typeof window !== "undefined" && !window.__EVSC_BUILD_LOGGED__) {
       window.__EVSC_BUILD_LOGGED__ = true;
       console.info("[EVSC Dashboard] build version:", this._buildVersion);
+      // v1.11.12: one-shot diagnostic of the keys that affect the new
+      // forecast chip — instantly answers "is pv_forecast_entity in the
+      // card config?" / "is the sensor state readable?" without forcing
+      // users to dig through HA storage files.
+      console.info(
+        "[EVSC Dashboard] forecast chip diagnostic:",
+        {
+          pv_forecast_entity_in_card_config: config?.pv_forecast_entity || "(missing — reconfigure the integration's PV Forecast step or reload the integration)",
+          ev_soc_entity_in_card_config: config?.ev_soc_entity || "(missing)",
+          home_battery_soc_entity_in_card_config: config?.home_battery_soc_entity || "(missing)",
+        }
+      );
     }
 
     // Reset discovery and render caches — the configured prefix may have changed.
@@ -1583,15 +1595,18 @@ class EvSmartChargerDashboard extends HTMLElement {
    */
   _renderForecastPill() {
     const entityId = this._config.pv_forecast_entity;
+    // v1.11.12: high-visibility one-shot diagnostic — uses console.warn so
+    // it surfaces even with the default console filter on. Helps the
+    // maintainer triage "I configured the sensor but the chip is missing"
+    // reports from a single DevTools screenshot.
     if (!entityId) {
-      // Entity not mapped at all — log once so users can diagnose from the
-      // browser console without having to know the internal config shape.
       if (!window.__EVSC_NO_FORECAST_LOGGED__) {
         window.__EVSC_NO_FORECAST_LOGGED__ = true;
         // eslint-disable-next-line no-console
-        console.debug(
-          "[EVSC Dashboard] forecast chip omitted: pv_forecast_entity not in card config. "
-          + "Configure the PV Forecast step of the integration to surface the chip."
+        console.warn(
+          "[EVSC Dashboard] forecast chip omitted — pv_forecast_entity is NOT present in the card config. "
+          + "Open Settings → Devices & Services → EV Smart Charger → Configure → step 'Solar Forecast', "
+          + "map the sensor, then either restart HA or run 'Reload' from the integration's overflow menu."
         );
       }
       return "";
@@ -1600,14 +1615,17 @@ class EvSmartChargerDashboard extends HTMLElement {
     const label = this._t("hero.forecast_tomorrow");
     let value;
     if (!stateObj || !stateObj.state || stateObj.state === "unknown" || stateObj.state === "unavailable") {
-      // v1.11.11: render the chip even when momentarily unavailable so the
-      // user sees the integration *is* aware of the sensor — the dash is
-      // not silently broken. Also log so the diagnostic trail is obvious.
-      // eslint-disable-next-line no-console
-      console.debug(
-        `[EVSC Dashboard] forecast chip: entity ${entityId} state is `
-        + `${stateObj ? stateObj.state : "missing"} — showing placeholder.`
-      );
+      // v1.11.11/12: chip stays visible with a placeholder so the dash is
+      // never silently broken; warn once so the diagnostic is obvious.
+      if (!window.__EVSC_FORECAST_UNAVAIL_LOGGED__) {
+        window.__EVSC_FORECAST_UNAVAIL_LOGGED__ = true;
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[EVSC Dashboard] forecast chip placeholder — entity ${entityId} state is `
+          + `${stateObj ? `"${stateObj.state}"` : "missing from hass.states"}. `
+          + `If "missing", the entity ID may be wrong or the source integration is not loaded.`
+        );
+      }
       value = "—";
     } else {
       const unit = stateObj.attributes?.unit_of_measurement || "kWh";
