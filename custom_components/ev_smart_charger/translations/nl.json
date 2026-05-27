@@ -264,51 +264,137 @@
   },
   "entity": {
     "switch": {
-      "evsc_forza_ricarica": { "name": "Laad forceren" },
-      "evsc_boost_charge_enabled": { "name": "Boost laden" },
-      "evsc_smart_charger_blocker_enabled": { "name": "Slimme laadblokkering" },
-      "evsc_use_home_battery": { "name": "Thuisbatterij gebruiken" },
-      "evsc_priority_balancer_enabled": { "name": "Prioriteitsbalans" },
-      "evsc_night_smart_charge_enabled": { "name": "Slim nachtelijk laden" },
-      "evsc_preserve_home_battery": { "name": "Thuisbatterij sparen" },
-      "evsc_notify_smart_blocker_enabled": { "name": "Melding laadblokkering" },
-      "evsc_notify_priority_balancer_enabled": { "name": "Melding prioriteitsbalans" },
-      "evsc_notify_night_charge_enabled": { "name": "Melding nachtladen" },
-      "evsc_enable_file_logging": { "name": "Bestandslogging inschakelen" },
-      "evsc_trace_logging_enabled": { "name": "Trace-logging" },
-      "evsc_car_ready_monday": { "name": "Auto klaar maandag" },
-      "evsc_car_ready_tuesday": { "name": "Auto klaar dinsdag" },
-      "evsc_car_ready_wednesday": { "name": "Auto klaar woensdag" },
-      "evsc_car_ready_thursday": { "name": "Auto klaar donderdag" },
-      "evsc_car_ready_friday": { "name": "Auto klaar vrijdag" },
-      "evsc_car_ready_saturday": { "name": "Auto klaar zaterdag" },
-      "evsc_car_ready_sunday": { "name": "Auto klaar zondag" }
+      "evsc_forza_ricarica": {
+        "name": "Laad forceren"
+      },
+      "evsc_boost_charge_enabled": {
+        "name": "Boost laden"
+      },
+      "evsc_smart_charger_blocker_enabled": {
+        "name": "Slimme laadblokkering"
+      },
+      "evsc_use_home_battery": {
+        "name": "Thuisbatterij gebruiken"
+      },
+      "evsc_priority_balancer_enabled": {
+        "name": "Prioriteitsbalans"
+      },
+      "evsc_night_smart_charge_enabled": {
+        "name": "Slim nachtelijk laden"
+      },
+      "evsc_preserve_home_battery": {
+        "name": "Thuisbatterij sparen"
+      },
+      "evsc_notify_smart_blocker_enabled": {
+        "name": "Melding laadblokkering"
+      },
+      "evsc_notify_priority_balancer_enabled": {
+        "name": "Melding prioriteitsbalans"
+      },
+      "evsc_notify_night_charge_enabled": {
+        "name": "Melding nachtladen"
+      },
+      "evsc_enable_file_logging": {
+        "name": "Bestandslogging inschakelen"
+      },
+      "evsc_trace_logging_enabled": {
+        "name": "Trace-logging"
+      },
+      "evsc_car_ready_monday": {
+        "name": "Auto klaar maandag"
+      },
+      "evsc_car_ready_tuesday": {
+        "name": "Auto klaar dinsdag"
+      },
+      "evsc_car_ready_wednesday": {
+        "name": "Auto klaar woensdag"
+      },
+      "evsc_car_ready_thursday": {
+        "name": "Auto klaar donderdag"
+      },
+      "evsc_car_ready_friday": {
+        "name": "Auto klaar vrijdag"
+      },
+      "evsc_car_ready_saturday": {
+        "name": "Auto klaar zaterdag"
+      },
+      "evsc_car_ready_sunday": {
+        "name": "Auto klaar zondag"
+      }
     },
     "number": {
-      "evsc_check_interval": { "name": "Controle-interval" },
-      "evsc_grid_import_threshold": { "name": "Netafnamedrempel" },
-      "evsc_grid_import_delay": { "name": "Vertraging netafname" },
-      "evsc_surplus_drop_delay": { "name": "Vertraging surplusdaling" },
-      "evsc_home_battery_min_soc": { "name": "Min. SOC thuisbatterij" },
-      "evsc_battery_support_amperage": { "name": "Ondersteuningsstroom batterij" },
-      "evsc_ev_min_soc_monday": { "name": "Min. EV-SOC maandag" },
-      "evsc_ev_min_soc_tuesday": { "name": "Min. EV-SOC dinsdag" },
-      "evsc_ev_min_soc_wednesday": { "name": "Min. EV-SOC woensdag" },
-      "evsc_ev_min_soc_thursday": { "name": "Min. EV-SOC donderdag" },
-      "evsc_ev_min_soc_friday": { "name": "Min. EV-SOC vrijdag" },
-      "evsc_ev_min_soc_saturday": { "name": "Min. EV-SOC zaterdag" },
-      "evsc_ev_min_soc_sunday": { "name": "Min. EV-SOC zondag" },
-      "evsc_home_min_soc_monday": { "name": "Min. woning-SOC maandag" },
-      "evsc_home_min_soc_tuesday": { "name": "Min. woning-SOC dinsdag" },
-      "evsc_home_min_soc_wednesday": { "name": "Min. woning-SOC woensdag" },
-      "evsc_home_min_soc_thursday": { "name": "Min. woning-SOC donderdag" },
-      "evsc_home_min_soc_friday": { "name": "Min. woning-SOC vrijdag" },
-      "evsc_home_min_soc_saturday": { "name": "Min. woning-SOC zaterdag" },
-      "evsc_home_min_soc_sunday": { "name": "Min. woning-SOC zondag" },
-      "evsc_min_solar_forecast_threshold": { "name": "Minimale zonnedrempel verwachting" },
-      "evsc_night_charge_amperage": { "name": "Nachtlaadstroom" },
-      "evsc_boost_charge_amperage": { "name": "Boostlaadstroom" },
-      "evsc_boost_target_soc": { "name": "Boostdoel-SOC" }
+      "evsc_check_interval": {
+        "name": "Controle-interval"
+      },
+      "evsc_grid_import_threshold": {
+        "name": "Netafnamedrempel"
+      },
+      "evsc_grid_import_delay": {
+        "name": "Vertraging netafname"
+      },
+      "evsc_surplus_drop_delay": {
+        "name": "Vertraging surplusdaling"
+      },
+      "evsc_home_battery_min_soc": {
+        "name": "Min. SOC thuisbatterij"
+      },
+      "evsc_battery_support_amperage": {
+        "name": "Ondersteuningsstroom batterij"
+      },
+      "evsc_ev_min_soc_monday": {
+        "name": "Min. EV-SOC maandag"
+      },
+      "evsc_ev_min_soc_tuesday": {
+        "name": "Min. EV-SOC dinsdag"
+      },
+      "evsc_ev_min_soc_wednesday": {
+        "name": "Min. EV-SOC woensdag"
+      },
+      "evsc_ev_min_soc_thursday": {
+        "name": "Min. EV-SOC donderdag"
+      },
+      "evsc_ev_min_soc_friday": {
+        "name": "Min. EV-SOC vrijdag"
+      },
+      "evsc_ev_min_soc_saturday": {
+        "name": "Min. EV-SOC zaterdag"
+      },
+      "evsc_ev_min_soc_sunday": {
+        "name": "Min. EV-SOC zondag"
+      },
+      "evsc_home_min_soc_monday": {
+        "name": "Min. woning-SOC maandag"
+      },
+      "evsc_home_min_soc_tuesday": {
+        "name": "Min. woning-SOC dinsdag"
+      },
+      "evsc_home_min_soc_wednesday": {
+        "name": "Min. woning-SOC woensdag"
+      },
+      "evsc_home_min_soc_thursday": {
+        "name": "Min. woning-SOC donderdag"
+      },
+      "evsc_home_min_soc_friday": {
+        "name": "Min. woning-SOC vrijdag"
+      },
+      "evsc_home_min_soc_saturday": {
+        "name": "Min. woning-SOC zaterdag"
+      },
+      "evsc_home_min_soc_sunday": {
+        "name": "Min. woning-SOC zondag"
+      },
+      "evsc_min_solar_forecast_threshold": {
+        "name": "Minimale zonnedrempel verwachting"
+      },
+      "evsc_night_charge_amperage": {
+        "name": "Nachtlaadstroom"
+      },
+      "evsc_boost_charge_amperage": {
+        "name": "Boostlaadstroom"
+      },
+      "evsc_boost_target_soc": {
+        "name": "Boostdoel-SOC"
+      }
     },
     "select": {
       "evsc_charging_profile": {
@@ -320,24 +406,35 @@
       }
     },
     "sensor": {
-      "evsc_diagnostic": { "name": "Diagnosestatus" },
-      "evsc_priority_daily_state": {
-        "name": "Prioriteitsstatus vandaag",
-        "state": {
-          "EV": "EV",
-          "Home": "Woning",
-          "EV_Free": "EV Free"
-        }
+      "evsc_diagnostic": {
+        "name": "Diagnosestatus"
       },
-      "evsc_solar_surplus_diagnostic": { "name": "Diagnose zonne-overschot" },
-      "evsc_log_file_path": { "name": "Logbestandspad" },
-      "evsc_today_ev_target": { "name": "EV-doel vandaag" },
-      "evsc_today_home_target": { "name": "Woningdoel vandaag" },
-      "evsc_cached_ev_soc": { "name": "Gecachte EV-SOC" }
+      "evsc_priority_daily_state": {
+        "name": "Prioriteitsstatus vandaag"
+      },
+      "evsc_solar_surplus_diagnostic": {
+        "name": "Diagnose zonne-overschot"
+      },
+      "evsc_log_file_path": {
+        "name": "Logbestandspad"
+      },
+      "evsc_today_ev_target": {
+        "name": "EV-doel vandaag"
+      },
+      "evsc_today_home_target": {
+        "name": "Woningdoel vandaag"
+      },
+      "evsc_cached_ev_soc": {
+        "name": "Gecachte EV-SOC"
+      }
     },
     "time": {
-      "evsc_night_charge_time": { "name": "Starttijd nachtladen" },
-      "evsc_car_ready_time": { "name": "Tijd auto klaar" }
+      "evsc_night_charge_time": {
+        "name": "Starttijd nachtladen"
+      },
+      "evsc_car_ready_time": {
+        "name": "Tijd auto klaar"
+      }
     }
   }
 }
