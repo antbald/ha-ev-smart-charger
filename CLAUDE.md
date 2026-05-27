@@ -756,6 +756,55 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.11.6 (2026-05-27)
+**UX FIXES: 5 dashboard issues + new hero state visualization**
+
+Round of fixes against the v1.11.4 dashboard surface, all reported from real-world mobile use:
+
+**1. Boost Session (and every other) toggle no longer rimbalza OFF immediately after click.** The optimistic UI path introduced in v1.11.3 was being reverted whenever an unrelated sensor tick (solar / grid / soc) triggered `set hass()` → `render()` → fast-path → `_updateLiveValues()` *before* HA finished processing the `switch.toggle` service call. The live-update loop read `snapshot.toggles[entityId] = false` from the stale state and flipped the class back. Most prominent on Boost because it sits at the top of the operational panel where sensor traffic is densest.
+
+Fix: new `_pendingToggles` Map<entityId, {desired, expiresAt}> with 3 s TTL. `_optimisticToggleVisual()` records the desired state before flipping the class; `_updateLiveValues()` skips entries with a live optimistic pending value that doesn't match the snapshot yet (lets the visual stay put). HA confirmation clears the entry; the TTL guarantees recovery if the service call was silently dropped. The `_toggle()` `catch` branch clears the entry immediately so the visual snaps back to reality on service error.
+
+**2. Charging Power tile derives kW from amperage.** The integration's config flow does not expose a "live power in W" sensor — only the configured wallbox amperage. `_build_card_config()` (dashboard_manager.py) therefore never maps `charging_power_entity`, and the card was falling through to the "Not Charging" / friendly-name fallback even while the car was actively drawing power.
+
+Fix: new `_computeChargingPowerKw()` helper. Path 1 (advanced YAML users): if `charging_power_entity` is mapped AND yields > 0.05 → use it. Path 2 (auto-dashboard, production): if `charger_status_entity` is `charger_charging` AND `current_entity` reports a positive amperage → return `amps × 230 / 1000` rounded to 1 decimal. Both the hero ring center and the metric tile call the same helper to avoid a one-frame mismatch between first-render and live-update. New module-level constant `VOLTAGE_EU = 230` mirrors the same assumption baked into `solar_surplus.py`.
+
+**3. Weekly Planner mobile day cards: "Ready ☀️?" label next to the car-ready toggle.** v1.11.0 introduced day-grouped editorial cards on mobile, but the car-ready iOS pill at the right of each card header had only an `aria-label` — sighted users couldn't tell what the toggle controlled. New i18n key `weekly_car_ready_label` ("Ready ☀️?", identical in EN/IT/NL as requested). Wrapping `<div class="evsc-wp-day-ready">` keeps label and toggle aligned with `gap: 8px`.
+
+**4. Night Smart Charge card: stripped the redundant "Enabled / Unavailable" caption.** The card title already reads "NIGHT SMART CHARGE", so the inner toggle row had a useless duplicate label. Removed the `.t`/`.s` text block; the iOS pill stands alone, right-aligned via `justify-content: flex-end`. No new translation strings needed.
+
+**5. NEW — Hero card state visualization.** First card switches appearance live when override states are active:
+
+| State | Border | Top banner | Color | Motion |
+|---|---|---|---|---|
+| Normal | `1px solid var(--evsc-stroke)` | — | — | aurora background only |
+| Force Charging | `2px solid var(--evsc-sys-red)` + glow | "Force Charging in corso / Active / actief" | iOS system red `#ff3b30` | 2.2 s ease-in-out border-pulse |
+| Boost Session | `2px solid var(--evsc-deep-orange)` + glow | "Boost Session in corso / Active / actief" | Material 900 deep orange `#ff6b00` | 2.2 s ease-in-out border-pulse |
+
+Force takes precedence over Boost when both are on, matching `automation_coordinator.py` priority (`PRIORITY_OVERRIDE = 1 > PRIORITY_BOOST_CHARGE`). The header banner has a white pulsing dot for "live in progress" feel. `prefers-reduced-motion: reduce` neutralizes both the border pulse and the dot animation. New CSS variable `--evsc-deep-orange: #ff6b00` (`--evsc-sys-red` already existed). New i18n keys `hero.banner.force_charging` and `hero.banner.boost_session` in all three locales.
+
+`_computeStructuralKey()` now includes `forceCharge` and `boostEnabled` state (keys `fc`/`bo`) — transitions trigger a full innerHTML rebuild because the markup itself changes (banner appears/disappears, wrapper class changes). The rebuild is rare (manual user actions) so the fast-path live-update for ordinary sensor ticks is unaffected.
+
+**Files Modified**:
+- [frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js):
+  - i18n keys: `weekly_car_ready_label` (3 locales), `hero.banner.force_charging` + `hero.banner.boost_session` (3 locales)
+  - new `_pendingToggles` Map initialized in `setConfig`; updated `_toggle`, `_optimisticToggleVisual`, `_updateLiveValues`
+  - new module constant `VOLTAGE_EU = 230`; new method `_computeChargingPowerKw()`; updated dispatch in `render` and `_renderHeroRing` and `_collectLiveValues`
+  - weekly mobile branch wraps car toggle inside `.evsc-wp-day-ready` with label
+  - Night Smart Charge card `.evsc-night-enable` block now toggle-only
+  - new `.evsc-hero-wrap` outer wrapper + conditional `.evsc-hero-banner.banner-force` / `.banner-boost` + state classes + pulse keyframes; `--evsc-deep-orange: #ff6b00` added to `:root`
+  - `_computeStructuralKey` returns extra `fc` + `bo` flags
+- [const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.11.6"`
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): `"version": "1.11.6"`
+
+**Backward compatibility**: zero schema / entity / API changes. The card config block, the auto-dashboard provisioning, every existing manual `custom:ev-smart-charger-dashboard` card keep working unchanged. The new `_computeChargingPowerKw()` Path 1 honors the YAML-supplied `charging_power_entity` first, so advanced users with a real wallbox/CT power sensor keep seeing measured kW instead of derived kW.
+
+**Note on version numbering**: v1.11.5 was reserved by a no-op chore commit ("bump version to 1.11.5 for HACS default submission", 748d9c9) with no behavioral change — this release jumps directly to 1.11.6 to keep the changelog one-version-per-set-of-changes.
+
+**Upgrade priority**: 🟢 RECOMMENDED — fixes the visible "click does nothing" Boost regression, gives users a real Charging Power reading out of the box, and adds at-a-glance override state visibility. Pure frontend bundle update — the `?v=` + `&h=` cache-busters from v1.11.4 guarantee the browser picks up the new bundle on the next dashboard reload.
+
+---
+
 ### v1.11.4 (2026-05-27)
 **HARDENING: Dashboard cache-busting — content-hash + runtime version injection**
 

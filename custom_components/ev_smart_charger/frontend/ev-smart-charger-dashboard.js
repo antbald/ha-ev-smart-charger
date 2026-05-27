@@ -12,6 +12,23 @@
 // reserved for future fetches against /local/ or other path assets — when used,
 // pass `this._buildVersion` as the second argument so the bundle's own version
 // stamps every URL it derives. See frontend/DEPLOY.md.
+//
+// v1.11.6 — Round of UX fixes:
+//   1. Boost Session (and every other) toggle no longer rimbalza OFF immediately
+//      after click: optimistic visual flip is now protected by a _pendingToggles
+//      Map with TTL so unrelated sensor-tick renders can't revert it while the
+//      HA service call is still in flight.
+//   2. Charging Power tile derives kW from amperage (× 230 V) when the user
+//      hasn't mapped a dedicated power sensor in the card config — the
+//      auto-dashboard path that previously fell through to "Non in carica".
+//   3. Weekly Planner mobile day cards: explicit "Ready ☀️?" label sits next
+//      to the per-day car-ready toggle so users know what it controls.
+//   4. Night Smart Charge bento card: redundant "Enabled / Unavailable" caption
+//      removed — the iOS pill alone is enough next to the card title.
+//   5. Hero card cambia aspetto live quando Force Charge o Boost Session sono
+//      attive: banner top + bordo + glow pulsante, rosso iOS per Force, deep
+//      orange per Boost. Force vince su Boost (allineato a coordinator
+//      PRIORITY_OVERRIDE=1 > PRIORITY_BOOST_CHARGE).
 function withVersion(url, version) {
   const v = version || "unknown";
   const sep = url.includes("?") ? "&" : "?";
@@ -19,6 +36,11 @@ function withVersion(url, version) {
 }
 const DEFAULT_TITLE = "EV Smart Charger";
 const SUPPORTED_PROFILES = ["manual", "solar_surplus"];
+// v1.11.5 — Hardcoded EU mains voltage used to derive live charging power
+// (kW) from the configured wallbox amperage when no dedicated power sensor
+// is mapped. Mirrors the same assumption made by solar_surplus.py
+// (VOLTAGE_EU = 230) — see CLAUDE.md "Important Notes" → "European Standard".
+const VOLTAGE_EU = 230;
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const DAY_INITIALS_BY_LOCALE = {
   en: ["M", "T", "W", "T", "F", "S", "S"],
@@ -427,6 +449,7 @@ const STATIC_LABELS = {
     settings_title: "Settings", settings_intro: "Automation module configuration. Click a category to expand its parameters.",
     weekly_title: "Weekly Planner", weekly_desc: "Daily SOC targets · Car ready toggle per day",
     weekly_ev: "EV target", weekly_home: "Home target", weekly_car: "Car ready",
+    weekly_car_ready_label: "Ready ☀️?",
     weekly_today_badge: "Today",
     weekly_info: "When active, Night Smart Charge falls back to grid if the home battery is insufficient. When inactive, charging is skipped pending solar surplus.",
     night_start: "Start", night_car_ready: "Car Ready", night_enabled: "Enabled", night_card_title: "Night Smart Charge", night_card_sub: "Forecast driven",
@@ -439,6 +462,7 @@ const STATIC_LABELS = {
     settings_title: "Impostazioni", settings_intro: "Configurazione dei moduli di automazione. Clicca su una categoria per espandere i parametri.",
     weekly_title: "Pianificatore settimanale", weekly_desc: "Target SOC giornalieri · Toggle Car Ready per giorno",
     weekly_ev: "Target EV", weekly_home: "Target casa", weekly_car: "Car ready",
+    weekly_car_ready_label: "Ready ☀️?",
     weekly_today_badge: "Oggi",
     weekly_info: "Quando attivo, Night Smart Charge fa fallback su rete se la batteria di casa non basta. Quando inattivo la ricarica viene saltata in attesa del surplus solare.",
     night_start: "Inizio", night_car_ready: "Auto pronta", night_enabled: "Attivo", night_card_title: "Night Smart Charge", night_card_sub: "Guidato dal forecast",
@@ -451,6 +475,7 @@ const STATIC_LABELS = {
     settings_title: "Instellingen", settings_intro: "Configuratie van de automatiseringsmodules. Klik op een categorie om de parameters uit te vouwen.",
     weekly_title: "Weekplanner", weekly_desc: "Dagelijkse SOC-doelen · Car Ready-schakelaar per dag",
     weekly_ev: "EV-doel", weekly_home: "Thuisdoel", weekly_car: "Auto klaar",
+    weekly_car_ready_label: "Ready ☀️?",
     weekly_today_badge: "Vandaag",
     weekly_info: "Indien actief schakelt Night Smart Charge naar het net als de thuisbatterij onvoldoende is. Indien inactief wordt het laden overgeslagen in afwachting van zonneoverschot.",
     night_start: "Start", night_car_ready: "Auto klaar", night_enabled: "Actief", night_card_title: "Slim nachtelijk laden", night_card_sub: "Op verwachting gestuurd",
@@ -470,6 +495,8 @@ const FRONTEND_LOCALES = {
     "hero.eyebrow": "Custom Integration Control Surface",
     "hero.description":
       "Single-column EV charging control with native Home Assistant service calls, stacked modules, and live operational telemetry.",
+    "hero.banner.force_charging": "Force Charging Active",
+    "hero.banner.boost_session": "Boost Session Active",
     "metric.charging_power": "Charging Power",
     "metric.live_power": "Live power",
     "metric.ev_soc": "EV",
@@ -609,6 +636,8 @@ const FRONTEND_LOCALES = {
     "common.no_options": "Nessuna opzione",
     "boot.waiting_for_hass": "In attesa dello stato di Home Assistant...",
     "hero.eyebrow": "Pannello di controllo integrazione custom",
+    "hero.banner.force_charging": "Force Charging in corso",
+    "hero.banner.boost_session": "Boost Session in corso",
     "hero.description":
       "Controllo ricarica EV a colonna singola con chiamate servizio native di Home Assistant, moduli sovrapposti e telemetria operativa live.",
     "metric.charging_power": "Potenza di ricarica",
@@ -750,6 +779,8 @@ const FRONTEND_LOCALES = {
     "common.no_options": "Geen opties",
     "boot.waiting_for_hass": "Wachten op Home Assistant-status...",
     "hero.eyebrow": "Bedieningspaneel voor custom integratie",
+    "hero.banner.force_charging": "Force Charging actief",
+    "hero.banner.boost_session": "Boost Sessie actief",
     "hero.description":
       "Enkelkoloms EV-laadbediening met native Home Assistant-serviceaanroepen, gestapelde modules en live operationele telemetrie.",
     "metric.charging_power": "Laadvermogen",
@@ -929,6 +960,14 @@ class EvSmartChargerDashboard extends HTMLElement {
     if (!this._view) this._view = "dashboard";
     if (!this._openAccordions) this._openAccordions = new Set(["solar"]);
 
+    // v1.11.5: pending optimistic-toggle tracking. Map<entityId, {desired, expiresAt}>.
+    // Used by _updateLiveValues() to avoid reverting an in-flight optimistic flip
+    // when an unrelated sensor tick triggers a render before HA has finished
+    // processing the switch.toggle service call. Entries auto-expire after 3 s
+    // (much longer than any normal HA round-trip) so a silently-dropped service
+    // call still recovers the real state. See fix #1 in v1.11.5 changelog.
+    if (!this._pendingToggles) this._pendingToggles = new Map();
+
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
     }
@@ -1103,13 +1142,17 @@ class EvSmartChargerDashboard extends HTMLElement {
     // user gets sub-frame feedback instead of waiting for the HA service
     // round-trip + state event. If the service call errors, the next
     // live-update tick (which reads the real state) will revert it.
+    // v1.11.5: also record the desired state in _pendingToggles so
+    // _updateLiveValues() ignores intermediate sensor-tick renders that
+    // would otherwise revert the optimistic flip.
     this._optimisticToggleVisual(entityId);
     const [domain] = entityId.split(".");
     try {
       await this._hass.callService(domain, "toggle", { entity_id: entityId });
     } catch (e) {
-      // Revert: live-update will snap the visual back on the next render
-      // tick, but trigger one immediately to avoid a frame of wrongness.
+      // v1.11.5: service call failed — clear the pending entry so the next
+      // live-update can snap the visual back to the real (unchanged) state.
+      this._pendingToggles.delete(entityId);
       this.render();
       throw e;
     }
@@ -1127,18 +1170,29 @@ class EvSmartChargerDashboard extends HTMLElement {
     const escapedId = (typeof CSS !== "undefined" && CSS.escape)
       ? CSS.escape(entityId)
       : entityId.replace(/"/g, '\\"');
+    // v1.11.5: derive `next` from the *current* HA state, not from the DOM.
+    // Reading from the DOM is fragile when an earlier intermediate render
+    // already snapped the class to something stale. The real HA state is
+    // the source of truth; we flip the opposite of it.
+    const stateObj = this._stateObj(entityId);
+    const currentlyOn = stateObj?.state === "on";
+    const next = !currentlyOn;
+    // Record the optimistic intent so live-update skips this entity until
+    // HA confirms (or 3 s pass, whichever comes first).
+    this._pendingToggles.set(entityId, {
+      desired: next,
+      expiresAt: Date.now() + 3000,
+    });
     root.querySelectorAll(`[data-toggle="${escapedId}"]`).forEach((node) => {
       if (
         node.classList.contains("control-toggle")
         || node.classList.contains("day-cell")
         || node.classList.contains("day-soc-cell")
       ) {
-        const next = !node.classList.contains("is-on");
         node.classList.toggle("is-on", next);
         const shell = node.querySelector(".switch-shell");
         if (shell) shell.classList.toggle("is-on", next);
       } else {
-        const next = !node.classList.contains("on");
         node.classList.toggle("on", next);
       }
     });
@@ -1236,6 +1290,38 @@ class EvSmartChargerDashboard extends HTMLElement {
   }
 
   /**
+   * v1.11.5: Compute live charging power in kW.
+   *
+   * Priority order:
+   *   1. If `charging_power_entity` is mapped in card config AND yields a
+   *      positive numeric value, use it directly (advanced users with a real
+   *      wallbox/CT power sensor).
+   *   2. If the charger is reporting `charger_charging` AND we know the
+   *      current amperage, derive kW = amps × VOLTAGE_EU / 1000.
+   *   3. Otherwise return null (no live power available).
+   *
+   * The integration's config flow does NOT expose a power-sensor field —
+   * the auto-dashboard never maps `charging_power_entity`, so path (2) is
+   * the production path for the bundled UI. Anyone wanting actual measured
+   * power can wire it manually in YAML by passing `charging_power_entity`
+   * into the card config.
+   */
+  _computeChargingPowerKw() {
+    // Path 1: explicit power sensor wins when present and non-trivial.
+    const sensorKw = this._numericState(this._config.charging_power_entity);
+    if (sensorKw != null && sensorKw > 0.05) {
+      return Math.round(sensorKw * 10) / 10;
+    }
+    // Path 2: derive from amperage when actively charging.
+    const chargerStatus = this._stateObj(this._config.charger_status_entity)?.state;
+    if (chargerStatus !== "charger_charging") return null;
+    const amps = this._numericState(this._config.current_entity);
+    if (amps == null || amps <= 0) return null;
+    const kw = (amps * VOLTAGE_EU) / 1000;
+    return Math.round(kw * 10) / 10;
+  }
+
+  /**
    * Dual concentric SOC ring (iOS Activity-style):
    *   outer = EV SOC (system green)
    *   inner = Home Battery SOC (system purple) — only drawn when configured
@@ -1263,22 +1349,20 @@ class EvSmartChargerDashboard extends HTMLElement {
     const evFrac = evPct != null ? clamp01(evPct / 100) : 0;
     const homeFrac = homePct != null ? clamp01(homePct / 100) : 0;
 
-    // v1.10.5: same logic as _collectLiveValues to keep first-render and
-    // live-update output identical (avoids a one-frame flash).
-    const chargingPowerNum = chargingPowerObj
-      ? Number(chargingPowerObj.state)
-      : null;
+    // v1.10.5 / v1.11.5: same logic as _collectLiveValues to keep
+    // first-render and live-update output identical (avoids a one-frame
+    // flash). v1.11.5 derives the kW reading from amperage when no
+    // dedicated power sensor is mapped — see _computeChargingPowerKw().
+    const derivedKw = this._computeChargingPowerKw();
     const isActuallyCharging =
       isCharging
-      && chargingPowerObj
-      && Number.isFinite(chargingPowerNum)
-      && chargingPowerNum > 0.05
+      && derivedKw != null
+      && derivedKw > 0
       && !(evPct != null && evPct >= 100);
     let headline = "—";
     let sub = this._t("metric.ev_soc");
     if (isActuallyCharging) {
-      const unit = chargingPowerObj.attributes?.unit_of_measurement || "";
-      headline = `${chargingPowerObj.state}${unit ? " " + unit : ""}`;
+      headline = `${derivedKw.toFixed(1)} kW`;
       sub = this._t("metric.charging_power");
     } else if (evPct != null) {
       headline = `${Math.round(evPct)}%`;
@@ -1692,10 +1776,6 @@ class EvSmartChargerDashboard extends HTMLElement {
           </div>
         </div>
         <div class="evsc-night-enable">
-          <div>
-            <div class="t">${this._label("night_enabled")}</div>
-            ${forecast ? `<div class="s">${forecast}</div>` : ""}
-          </div>
           <button class="evsc-set-toggle violet ${enabled ? "on" : ""}" data-toggle="${enabledId}" aria-label="${this._label("night_enabled")}"></button>
         </div>
       </section>
@@ -1779,9 +1859,12 @@ class EvSmartChargerDashboard extends HTMLElement {
               <span class="evsc-wp-day-name">${dayFullNames[i]}</span>
               ${todayBadge}
             </div>
-            <button class="evsc-wp-tog ${carOn ? "on" : ""}"
-                    data-toggle="${carEnt}"
-                    aria-label="${this._label("weekly_car")}"></button>
+            <div class="evsc-wp-day-ready">
+              <span class="evsc-wp-day-ready-label">${this._label("weekly_car_ready_label")}</span>
+              <button class="evsc-wp-tog ${carOn ? "on" : ""}"
+                      data-toggle="${carEnt}"
+                      aria-label="${this._label("weekly_car")}"></button>
+            </div>
           </header>
           <div class="evsc-wp-day-body">
             <div class="evsc-wp-day-row">
@@ -1914,6 +1997,23 @@ class EvSmartChargerDashboard extends HTMLElement {
    * live in the Settings view.
    */
   _renderDashboardView(ids, displayValues, priorityState) {
+    // v1.11.5: hero state — force overrides boost (matches coordinator
+    // priority PRIORITY_OVERRIDE=1 > PRIORITY_BOOST_CHARGE). When neither
+    // is on, no banner, no border emphasis; the card renders as before.
+    const forceChargeOn = this._isOn(ids.forceChargeId);
+    const boostOn = this._isOn(ids.boostEnabledId);
+    const heroState = forceChargeOn ? "force" : (boostOn ? "boost" : "normal");
+    const heroBanner = heroState === "normal"
+      ? ""
+      : `
+        <div class="evsc-hero-banner banner-${heroState}" role="status" aria-live="polite">
+          <span class="evsc-hero-banner-dot"></span>
+          <span class="evsc-hero-banner-text">${this._t(heroState === "force" ? "hero.banner.force_charging" : "hero.banner.boost_session")}</span>
+        </div>
+      `;
+    const heroWrapClasses = ["evsc-hero-wrap", `evsc-hero-state-${heroState}`];
+    if (heroState !== "normal") heroWrapClasses.push("has-banner");
+
     // v1.10.2: Boost group — toggle + amperage + target SOC are
     // semantically one control, so render them inside a single visual
     // container with internal dividers instead of three sibling cards.
@@ -1935,20 +2035,23 @@ class EvSmartChargerDashboard extends HTMLElement {
     return `
       <div class="evsc-dash-grid">
         <div class="evsc-stack">
-          <header class="evsc-hero-v2">
-            ${this._renderHeroRing()}
-            <div class="evsc-hero-body">
-              ${this._renderPriorityPill(priorityState)}
-              <h1>${this._config.title || this._t("title.default")}</h1>
-              <p class="evsc-hero-sub">${this._t("hero.description")}</p>
-              <div class="evsc-metric-row">
-                ${this._renderMetric(this._t("metric.solar_power"), displayValues.solarPower, "amber", "", "metric.solarPower")}
-                ${this._renderMetric(this._t("metric.grid_import"), displayValues.gridImport, "rose", "", "metric.gridImport")}
-                ${this._renderMetric(this._t("metric.charge_current"), displayValues.chargerCurrent, "teal", "", "metric.chargerCurrent")}
-                ${this._renderMetric(this._t("metric.charging_power"), displayValues.chargingPower, "cyan", "", "metric.chargingPower")}
+          <div class="${heroWrapClasses.join(" ")}">
+            ${heroBanner}
+            <header class="evsc-hero-v2">
+              ${this._renderHeroRing()}
+              <div class="evsc-hero-body">
+                ${this._renderPriorityPill(priorityState)}
+                <h1>${this._config.title || this._t("title.default")}</h1>
+                <p class="evsc-hero-sub">${this._t("hero.description")}</p>
+                <div class="evsc-metric-row">
+                  ${this._renderMetric(this._t("metric.solar_power"), displayValues.solarPower, "amber", "", "metric.solarPower")}
+                  ${this._renderMetric(this._t("metric.grid_import"), displayValues.gridImport, "rose", "", "metric.gridImport")}
+                  ${this._renderMetric(this._t("metric.charge_current"), displayValues.chargerCurrent, "teal", "", "metric.chargerCurrent")}
+                  ${this._renderMetric(this._t("metric.charging_power"), displayValues.chargingPower, "cyan", "", "metric.chargingPower")}
+                </div>
               </div>
-            </div>
-          </header>
+            </header>
+          </div>
 
           <section class="evsc-card evsc-override-card">
             <div class="evsc-card-head">
@@ -2039,31 +2142,29 @@ class EvSmartChargerDashboard extends HTMLElement {
     const cachedEvSoc = this._integrationState("cachedEvSoc");
     const logFilePath = this._integrationState("logFilePath");
 
-    // v1.10.5: charging power label gives a meaningful status string
-    // instead of "0.0 W" or "Live feed optional" when the car isn't
-    // actually drawing power. Priority order:
+    // v1.10.5 / v1.11.5: charging power label gives a meaningful status
+    // string instead of friendly-name fallback when the car isn't actually
+    // drawing power. v1.11.5 also derives the kW reading from amperage when
+    // no dedicated power sensor is mapped (the auto-dashboard path).
+    // Priority order:
     //   1. EV at 100% OR charger_end       → "Fully Charged"
-    //   2. charger_free / no power / null  → "Not Charging"
-    //   3. charger_wait                    → "Waiting"
+    //   2. charger_wait                    → "Waiting"
+    //   3. charger_free / no power         → "Not Charging"
     //   4. otherwise                       → live kW reading
     const _chargerStatusState = this._stateObj(this._config.charger_status_entity)?.state;
-    const _chargingPowerNum = this._numericState(this._config.charging_power_entity);
+    const _chargingPowerKw = this._computeChargingPowerKw();
     const _evSocNum = this._numericState(this._config.ev_soc_entity);
     let chargingPower;
     if (_evSocNum != null && _evSocNum >= 100) {
       chargingPower = this._t("charging_state.fully_charged");
     } else if (_chargerStatusState === "charger_end") {
       chargingPower = this._t("charging_state.fully_charged");
-    } else if (
-      _chargerStatusState === "charger_free"
-      || _chargingPowerNum == null
-      || _chargingPowerNum <= 0.05
-    ) {
-      chargingPower = this._t("charging_state.not_charging");
     } else if (_chargerStatusState === "charger_wait") {
       chargingPower = this._t("charging_state.waiting");
+    } else if (_chargingPowerKw != null && _chargingPowerKw > 0) {
+      chargingPower = `${_chargingPowerKw.toFixed(1)} kW`;
     } else {
-      chargingPower = this._displayValue(this._config.charging_power_entity, this._t("charging_state.not_charging"));
+      chargingPower = this._t("charging_state.not_charging");
     }
     const evSoc = this._displayValue(this._config.ev_soc_entity, this._t("fallback.ev_soc_entity"));
     const homeBatterySoc = this._displayValue(
@@ -2160,6 +2261,13 @@ class EvSmartChargerDashboard extends HTMLElement {
 
     const chargerStatus = this._stateObj(this._config.charger_status_entity)?.state || "";
     const priorityState = this._integrationState("priorityState")?.state || "";
+    // v1.11.5: include Force Charge and Boost Session state in the
+    // structural key. The hero card swaps in/out an entire banner +
+    // changes wrapper class when these flip — not a class-only fast-path
+    // change. Transitions are rare (manual user actions) so the full
+    // innerHTML rebuild here is acceptable.
+    const forceChargeOn = states[this._entityId("forceCharge")]?.state === "on";
+    const boostOn = states[this._entityId("boostEnabled")]?.state === "on";
 
     return JSON.stringify({
       view: this._view,
@@ -2170,6 +2278,8 @@ class EvSmartChargerDashboard extends HTMLElement {
       hb: !!this._config.home_battery_soc_entity,
       cs: chargerStatus,
       ps: priorityState,
+      fc: forceChargeOn,
+      bo: boostOn,
     });
   }
 
@@ -2196,23 +2306,20 @@ class EvSmartChargerDashboard extends HTMLElement {
     const evFrac = evPct != null ? clamp01(evPct / 100) : 0;
     const homeFrac = homePct != null ? clamp01(homePct / 100) : 0;
 
-    // v1.10.5: ring headline shows live kW only when actually drawing
-    // power. When the car is fully charged or idle, show the EV % so the
-    // ring stays informative instead of jumping to "0.0 W".
-    const chargingPowerNum = chargingPowerObj
-      ? Number(chargingPowerObj.state)
-      : null;
+    // v1.10.5 / v1.11.5: ring headline shows live kW only when actually
+    // drawing power. v1.11.5 uses the derived helper so the value tracks
+    // amperage when no dedicated power sensor is mapped — mirrors
+    // _renderHeroRing() exactly to avoid a one-frame mismatch.
+    const derivedKw = this._computeChargingPowerKw();
     const isActuallyCharging =
       isCharging
-      && chargingPowerObj
-      && Number.isFinite(chargingPowerNum)
-      && chargingPowerNum > 0.05
+      && derivedKw != null
+      && derivedKw > 0
       && !(evPct != null && evPct >= 100);
     let ringHeadline = "—";
     let ringSub = this._t("metric.ev_soc");
     if (isActuallyCharging) {
-      const unit = chargingPowerObj.attributes?.unit_of_measurement || "";
-      ringHeadline = `${chargingPowerObj.state}${unit ? " " + unit : ""}`;
+      ringHeadline = `${derivedKw.toFixed(1)} kW`;
       ringSub = this._t("metric.charging_power");
     } else if (evPct != null) {
       ringHeadline = `${Math.round(evPct)}%`;
@@ -2305,7 +2412,25 @@ class EvSmartChargerDashboard extends HTMLElement {
     //   .evsc-set-toggle / .evsc-wp-tog            → "on"
     // The inner .switch-shell (child of .control-toggle) also mirrors the
     // is-on state — toggle that too so the iOS-style switch animates.
+    // v1.11.5: skip toggles with a pending optimistic flip so unrelated
+    // sensor ticks don't revert the visual before HA confirms.
+    const nowMs = Date.now();
     for (const [entityId, enabled] of Object.entries(snapshot.toggles || {})) {
+      const pending = this._pendingToggles.get(entityId);
+      if (pending) {
+        if (nowMs > pending.expiresAt) {
+          // TTL elapsed — service call seemingly dropped. Drop the entry and
+          // fall through to apply the real (snapshot) state.
+          this._pendingToggles.delete(entityId);
+        } else if (enabled === pending.desired) {
+          // HA has caught up. Clear the marker and apply the real state.
+          this._pendingToggles.delete(entityId);
+        } else {
+          // Still in-flight and HA reports the old state. Skip this entry
+          // so the optimistic visual stays put.
+          continue;
+        }
+      }
       const escapedId = (typeof CSS !== "undefined" && CSS.escape)
         ? CSS.escape(entityId)
         : entityId.replace(/"/g, '\\"');
@@ -2412,6 +2537,10 @@ class EvSmartChargerDashboard extends HTMLElement {
           --evsc-sys-orange: #ff9500;
           --evsc-sys-yellow: #ffcc00;
           --evsc-sys-cyan: #32ade6;
+          /* v1.11.5 — Material 900 deep orange for the Boost Session hero
+             banner / border state. Deliberately darker than --evsc-sys-orange
+             so it reads distinctly from Solar Power tile accents. */
+          --evsc-deep-orange: #ff6b00;
 
           /* v1.11.0: Aurora accents — saturated, electric, used sparingly
              for "live" moments (active charging, today, priority change).
@@ -3349,6 +3478,84 @@ class EvSmartChargerDashboard extends HTMLElement {
           gap: 12px;
         }
 
+        /* v1.11.5 — Hero state visualization (Force Charging / Boost Session).
+           The wrapper holds the radius, border emphasis and pulse animation;
+           the inner header keeps its own glass surface. When a banner is
+           present the inner card's top radius is flattened so the two read
+           as a single block. Force takes precedence over Boost. Deep orange
+           variable is added at the :root level (search "--evsc-deep-orange"). */
+        .evsc-hero-wrap {
+          position: relative;
+          border-radius: var(--evsc-radius-lg);
+        }
+        .evsc-hero-wrap.has-banner .evsc-hero-v2 {
+          border-top-left-radius: 0;
+          border-top-right-radius: 0;
+        }
+        .evsc-hero-state-force {
+          --evsc-hero-accent: var(--evsc-sys-red);
+          --evsc-hero-glow: color-mix(in srgb, var(--evsc-sys-red) 45%, transparent);
+          box-shadow:
+            0 0 0 2px var(--evsc-hero-accent),
+            0 0 24px 4px var(--evsc-hero-glow),
+            var(--evsc-shadow-soft);
+          animation: evsc-hero-border-pulse 2.2s ease-in-out infinite;
+        }
+        .evsc-hero-state-boost {
+          --evsc-hero-accent: var(--evsc-deep-orange);
+          --evsc-hero-glow: color-mix(in srgb, var(--evsc-deep-orange) 45%, transparent);
+          box-shadow:
+            0 0 0 2px var(--evsc-hero-accent),
+            0 0 24px 4px var(--evsc-hero-glow),
+            var(--evsc-shadow-soft);
+          animation: evsc-hero-border-pulse 2.2s ease-in-out infinite;
+        }
+        @keyframes evsc-hero-border-pulse {
+          0%, 100% {
+            box-shadow:
+              0 0 0 2px var(--evsc-hero-accent),
+              0 0 22px 3px var(--evsc-hero-glow),
+              var(--evsc-shadow-soft);
+          }
+          50% {
+            box-shadow:
+              0 0 0 2px var(--evsc-hero-accent),
+              0 0 38px 8px var(--evsc-hero-glow),
+              var(--evsc-shadow-soft);
+          }
+        }
+        .evsc-hero-banner {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 11px 22px;
+          font-weight: 600;
+          font-size: 0.85rem;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: #fff;
+          border-radius: var(--evsc-radius-lg) var(--evsc-radius-lg) 0 0;
+        }
+        .evsc-hero-banner.banner-force { background: var(--evsc-sys-red); }
+        .evsc-hero-banner.banner-boost { background: var(--evsc-deep-orange); }
+        .evsc-hero-banner-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #fff;
+          box-shadow: 0 0 8px rgba(255,255,255,0.6);
+          animation: evsc-hero-dot-pulse 1.4s ease-in-out infinite;
+        }
+        @keyframes evsc-hero-dot-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50%      { opacity: 0.5; transform: scale(0.7); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .evsc-hero-state-force,
+          .evsc-hero-state-boost { animation: none; }
+          .evsc-hero-banner-dot { animation: none; }
+        }
+
         /* Revised hero — status pill BELOW the ring, EV label inside */
         .evsc-hero-v2 {
           background: var(--evsc-surface);
@@ -3712,6 +3919,22 @@ class EvSmartChargerDashboard extends HTMLElement {
           gap: 10px;
           min-width: 0;
         }
+        /* v1.11.5: explicit "Ready ☀️?" label next to the per-day car-ready
+           toggle in the mobile day cards. Without it, users had no idea what
+           the trailing pill controlled. */
+        .evsc-wp-day-ready {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-shrink: 0;
+        }
+        .evsc-wp-day-ready-label {
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          color: var(--evsc-fg-muted, rgba(255,255,255,0.7));
+          white-space: nowrap;
+        }
         .evsc-wp-day-name {
           /* v1.11.2: reverted to system sans bold (was Instrument Serif
              italic 22px in v1.11.0-1.11.1). Still the card's anchor —
@@ -3973,24 +4196,18 @@ class EvSmartChargerDashboard extends HTMLElement {
           font-variant-numeric: tabular-nums;
           color: var(--evsc-fg);
         }
+        /* v1.11.5: stripped the redundant "Enabled / Unavailable" caption
+           that used to sit next to this toggle — the card title already
+           reads "NIGHT SMART CHARGE", so the toggle's purpose is obvious.
+           Only the iOS pill remains, right-aligned. */
         .evsc-night-enable {
           display: flex;
           align-items: center;
-          justify-content: space-between;
-          padding: 12px 14px;
+          justify-content: flex-end;
+          padding: 10px 14px;
           background: color-mix(in srgb, var(--evsc-fg) 5%, transparent);
           border: 1px solid var(--evsc-stroke);
           border-radius: 12px;
-        }
-        .evsc-night-enable .t {
-          font-size: 13px;
-          font-weight: 700;
-          letter-spacing: -0.01em;
-        }
-        .evsc-night-enable .s {
-          font-size: 11px;
-          color: var(--evsc-fg-low);
-          margin-top: 2px;
         }
 
         /* Settings view — hero + accordion list */
