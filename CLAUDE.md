@@ -756,6 +756,42 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.11.7 (2026-05-27)
+**HOTFIX: Boost rejection visibility + Charging Power lenient computation**
+
+Two persistent regressions reported by the user after v1.11.6 shipped — neither was a bug in v1.11.6 per se, both were "the fix didn't actually solve my problem because the cause was deeper".
+
+**1. Boost Session toggle still rimbalza off.**
+
+After v1.11.6's frontend race fix, every toggle in the dashboard works correctly. Boost still bounces because the *backend* is genuinely rejecting the start condition. Most common cause: `target_soc ≤ current_soc` ([boost_charge.py:305-316](custom_components/ev_smart_charger/boost_charge.py:305)) — the EV is already at or above the configured boost target. The backend sends a `persistent_notification.create` with title "Boost not started" + reason, but that notification lands in HA's bell-icon panel, which users routinely miss.
+
+Fix: pre-emptive validation on the frontend before `switch.toggle` is even dispatched. New `_validateToggleStart(entityId)` helper runs only for the Boost Session toggle (other toggles pass through unchanged). When the user clicks the OFF→ON direction:
+- if `ev_soc_entity` is unavailable → abort with `toast.boost.missing_soc`.
+- if `evSoc >= boost_target_soc` → abort with `toast.boost.target_reached` (interpolates real values: e.g. "Boost can't start: EV at 82% (≥ target 80%). Raise the target or wait for the battery to drain.").
+
+The toast itself is a new `_showTransientMessage(text, tone)` helper. Renders a compact pill bottom-right of `.dashboard-shell` (already `position: relative`), auto-dismisses after 5 s, dismissible via × button, respects `prefers-reduced-motion`. Tones: `info` (blue accent) / `warning` (amber accent). The textContent is set via DOM assignment (not template injection) so translated strings can never carry HTML payloads.
+
+When validation passes, the existing v1.11.6 optimistic flip + service call + pending-toggle TTL pipeline runs unchanged.
+
+**2. Charging Power tile still shows "Not Charging" while car is drawing.**
+
+v1.11.6's `_computeChargingPowerKw()` was strict in two places that real-world setups violate:
+- Status check required *exact* `"charger_charging"`. Some wallboxes (and the user's transient states) report different strings.
+- Amperage was parsed with `_numericState()` which calls plain `Number()` — fails on "6 A", "6.0A", or comma-decimal locales ("6,0").
+
+Fix: inverted the status check (return null only when status is *explicitly* one of `{charger_free, charger_end, charger_wait}`; any other value — including `unknown`, `unavailable`, or brand-specific strings — falls through to amperage derivation). Amperage parser strips non-numeric characters with `/[^\d.,\-]/g` and replaces `,` with `.` before `Number()`. Both null-return branches now emit `console.debug` with full state context so the next user-reported issue can be triaged from DevTools without another release.
+
+Both fixes are 100% frontend — pure bundle update, no schema / entity / config changes. The auto-dashboard cache-buster (`?v=1.11.7` + content-hash) picks up the new bundle on the next page reload.
+
+**Files Modified**:
+- [frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js): new i18n keys `toast.boost.target_reached`, `toast.boost.missing_soc`, `toast.dismiss_aria` (EN/IT/NL); new methods `_validateToggleStart`, `_showTransientMessage`; updated `_toggle` to gate via validation; rewritten `_computeChargingPowerKw`; new CSS block for `.evsc-toast.*`.
+- [const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.11.7"`
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): `"version": "1.11.7"`
+
+**Upgrade priority**: 🔴 **STRONGLY RECOMMENDED** for anyone on v1.11.6 — these are the two bugs that made the v1.11.6 ship feel broken. After upgrading you should see (a) a clear toast when Boost can't start (target reached or missing SOC) and (b) a real "X.X kW" reading on the Charging Power tile when the car is drawing current. If the Charging Power tile still shows "Not Charging" while charging, open browser DevTools → Console — you'll see a `[EVSC Dashboard] _computeChargingPowerKw: ...` debug line with the actual state values so the next bug fix is targeted.
+
+---
+
 ### v1.11.6 (2026-05-27)
 **UX FIXES: 5 dashboard issues + new hero state visualization**
 

@@ -13,6 +13,19 @@
 // pass `this._buildVersion` as the second argument so the bundle's own version
 // stamps every URL it derives. See frontend/DEPLOY.md.
 //
+// v1.11.7 — Follow-up of two persistent issues after v1.11.6 shipped:
+//   • Boost Session: backend silently rejects when target_soc ≤ current_soc
+//     (persistent_notification fires but ends up in HA's bell). We now
+//     pre-validate on the frontend in `_toggle()` via
+//     `_validateToggleStart()`, abort the service call, and surface the
+//     real reason via a transient toast (`_showTransientMessage()`).
+//   • Charging Power: helper was strict on `charger_status === "charger_charging"`
+//     and used the raw numeric parser. Now treats any non-idle status as
+//     "probably charging" and strips non-numeric chars from the amperage
+//     state (handles "6 A", "6.0A", "6,0", brand-specific status strings).
+//     console.debug paths flag the remaining null cases so future bugs are
+//     diagnosable from DevTools without redeploying.
+//
 // v1.11.6 — Round of UX fixes:
 //   1. Boost Session (and every other) toggle no longer rimbalza OFF immediately
 //      after click: optimistic visual flip is now protected by a _pendingToggles
@@ -497,6 +510,9 @@ const FRONTEND_LOCALES = {
       "Single-column EV charging control with native Home Assistant service calls, stacked modules, and live operational telemetry.",
     "hero.banner.force_charging": "Force Charging Active",
     "hero.banner.boost_session": "Boost Session Active",
+    "toast.boost.target_reached": "Boost can't start: EV at {ev}% (≥ target {target}%). Raise the target or wait for the battery to drain.",
+    "toast.boost.missing_soc": "Boost can't start: EV SOC sensor unavailable. Check the mapped sensor.",
+    "toast.dismiss_aria": "Dismiss notification",
     "metric.charging_power": "Charging Power",
     "metric.live_power": "Live power",
     "metric.ev_soc": "EV",
@@ -638,6 +654,9 @@ const FRONTEND_LOCALES = {
     "hero.eyebrow": "Pannello di controllo integrazione custom",
     "hero.banner.force_charging": "Force Charging in corso",
     "hero.banner.boost_session": "Boost Session in corso",
+    "toast.boost.target_reached": "Boost non può partire: EV al {ev}% (≥ target {target}%). Alza il target o aspetta che la batteria scenda.",
+    "toast.boost.missing_soc": "Boost non può partire: sensore SOC EV non disponibile. Controlla la mappatura.",
+    "toast.dismiss_aria": "Chiudi notifica",
     "hero.description":
       "Controllo ricarica EV a colonna singola con chiamate servizio native di Home Assistant, moduli sovrapposti e telemetria operativa live.",
     "metric.charging_power": "Potenza di ricarica",
@@ -781,6 +800,9 @@ const FRONTEND_LOCALES = {
     "hero.eyebrow": "Bedieningspaneel voor custom integratie",
     "hero.banner.force_charging": "Force Charging actief",
     "hero.banner.boost_session": "Boost Sessie actief",
+    "toast.boost.target_reached": "Boost kan niet starten: EV op {ev}% (≥ doel {target}%). Verhoog het doel of wacht tot de batterij zakt.",
+    "toast.boost.missing_soc": "Boost kan niet starten: EV SOC-sensor niet beschikbaar. Controleer de mapping.",
+    "toast.dismiss_aria": "Melding sluiten",
     "hero.description":
       "Enkelkoloms EV-laadbediening met native Home Assistant-serviceaanroepen, gestapelde modules en live operationele telemetrie.",
     "metric.charging_power": "Laadvermogen",
@@ -1138,6 +1160,18 @@ class EvSmartChargerDashboard extends HTMLElement {
     if (!this._hass || !entityId) {
       return;
     }
+    // v1.11.7: pre-emptive validation for toggles whose backend rejects the
+    // start condition silently (Boost Charge in particular: target_soc ≤
+    // current_soc causes the backend to flip the switch back off, leaving
+    // the user with a "click does nothing" experience because the
+    // persistent_notification ends up in the HA bell that nobody checks).
+    // Returns { ok: bool, reason?: string }. When not ok, we abort the
+    // service call and surface the reason via a transient toast.
+    const guard = this._validateToggleStart(entityId);
+    if (!guard.ok) {
+      this._showTransientMessage(guard.reason, "warning");
+      return;
+    }
     // v1.11.3: optimistic UI — flip the visual state immediately so the
     // user gets sub-frame feedback instead of waiting for the HA service
     // round-trip + state event. If the service call errors, the next
@@ -1156,6 +1190,79 @@ class EvSmartChargerDashboard extends HTMLElement {
       this.render();
       throw e;
     }
+  }
+
+  /**
+   * v1.11.7 — Pre-emptive validation for toggles that the backend may
+   * silently reject. Currently only Boost Session: if EV SOC is already
+   * at or above the Boost Target SOC, the backend's
+   * boost_charge.py:_start_boost_charge() flips the switch back off and
+   * sends a persistent_notification. Users routinely miss that bell-icon
+   * indicator, so we short-circuit here with a visible toast.
+   *
+   * Returns { ok: true } when the toggle should proceed, or
+   * { ok: false, reason } when it should be aborted with a toast.
+   */
+  _validateToggleStart(entityId) {
+    const boostEnabledId = this._entityId("boostEnabled");
+    if (entityId !== boostEnabledId) return { ok: true };
+    // Turning Boost OFF is always allowed (idempotent stop).
+    if (this._isOn(entityId)) return { ok: true };
+
+    const evSoc = this._numericState(this._config.ev_soc_entity);
+    const target = this._numericState(this._entityId("boostTargetSoc"));
+    if (evSoc == null) {
+      return {
+        ok: false,
+        reason: this._t("toast.boost.missing_soc"),
+      };
+    }
+    if (target != null && evSoc >= target) {
+      const reason = this._t("toast.boost.target_reached")
+        .replace("{ev}", String(Math.round(evSoc)))
+        .replace("{target}", String(Math.round(target)));
+      return { ok: false, reason };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * v1.11.7 — Show a brief in-card toast for a few seconds. The toast is
+   * positioned fixed-bottom inside the shadow root and auto-dismisses
+   * after 5 s (or earlier if the user clicks ×). Used by toggle guards
+   * (Boost target reached) to give immediate feedback that doesn't
+   * depend on HA's notification panel.
+   */
+  _showTransientMessage(text, tone = "info") {
+    const root = this.shadowRoot;
+    if (!root || !text) return;
+    let toast = root.querySelector(".evsc-toast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.className = "evsc-toast";
+      // .dashboard-shell already has position: relative (line ~2710 of
+      // the bundle) so the absolute-positioned toast anchors correctly.
+      // Fall back to ha-card / shadowRoot if the shell hasn't rendered.
+      const host = root.querySelector(".dashboard-shell")
+        || root.querySelector("ha-card")
+        || root;
+      host.appendChild(toast);
+    }
+    toast.className = `evsc-toast evsc-toast-${tone} visible`;
+    toast.innerHTML = `
+      <span class="evsc-toast-icon" aria-hidden="true">${tone === "warning" ? "⚠️" : "ℹ️"}</span>
+      <span class="evsc-toast-text"></span>
+      <button class="evsc-toast-dismiss" type="button" aria-label="${this._t("toast.dismiss_aria")}">×</button>
+    `;
+    // Use textContent to avoid HTML injection from the translated message.
+    toast.querySelector(".evsc-toast-text").textContent = text;
+    toast.querySelector(".evsc-toast-dismiss").addEventListener("click", () => {
+      toast.classList.remove("visible");
+    });
+    if (this._toastDismissTimer) clearTimeout(this._toastDismissTimer);
+    this._toastDismissTimer = setTimeout(() => {
+      toast.classList.remove("visible");
+    }, 5000);
   }
 
   /**
@@ -1312,11 +1419,39 @@ class EvSmartChargerDashboard extends HTMLElement {
     if (sensorKw != null && sensorKw > 0.05) {
       return Math.round(sensorKw * 10) / 10;
     }
-    // Path 2: derive from amperage when actively charging.
+    // Path 2: derive from amperage.
+    // v1.11.7: hardened against two real-world issues:
+    //   (a) status sensors that don't normalize to exactly "charger_charging"
+    //       (different brands report different strings while live charging).
+    //       Fix: derive whenever status is NOT one of the explicitly-idle
+    //       values. Empty / unknown / unavailable / any other string → trust
+    //       the amperage instead of bailing.
+    //   (b) amperage states reported as strings like "6 A", "6.0A", "6,0".
+    //       Fix: strip non-numeric characters before parsing.
+    const IDLE_STATUSES = new Set(["charger_free", "charger_end", "charger_wait"]);
     const chargerStatus = this._stateObj(this._config.charger_status_entity)?.state;
-    if (chargerStatus !== "charger_charging") return null;
-    const amps = this._numericState(this._config.current_entity);
-    if (amps == null || amps <= 0) return null;
+    if (chargerStatus && IDLE_STATUSES.has(chargerStatus)) return null;
+    const ampsRaw = this._stateObj(this._config.current_entity)?.state;
+    if (ampsRaw == null || ampsRaw === "unknown" || ampsRaw === "unavailable") {
+      // eslint-disable-next-line no-console
+      console.debug(
+        "[EVSC Dashboard] _computeChargingPowerKw: current_entity missing/unknown",
+        { current_entity: this._config.current_entity, state: ampsRaw, chargerStatus }
+      );
+      return null;
+    }
+    // Strip everything that isn't a digit, dot, minus, or comma. Replace
+    // comma with dot to handle locales that use ',' as decimal separator.
+    const cleaned = String(ampsRaw).replace(/[^\d.,\-]/g, "").replace(",", ".");
+    const amps = Number(cleaned);
+    if (!Number.isFinite(amps) || amps <= 0) {
+      // eslint-disable-next-line no-console
+      console.debug(
+        "[EVSC Dashboard] _computeChargingPowerKw: amperage unparseable / <= 0",
+        { current_entity: this._config.current_entity, raw: ampsRaw, cleaned, amps, chargerStatus }
+      );
+      return null;
+    }
     const kw = (amps * VOLTAGE_EU) / 1000;
     return Math.round(kw * 10) / 10;
   }
@@ -3476,6 +3611,59 @@ class EvSmartChargerDashboard extends HTMLElement {
           display: flex;
           flex-direction: column;
           gap: 12px;
+        }
+
+        /* v1.11.7 — Transient toast for actionable feedback (e.g. boost
+           guard fired because EV ≥ target). Pinned to the bottom-right of
+           the card, opaque enough to read on top of the aurora background,
+           dismisses via fade-out + ×. Tones: info (blue) / warning (amber). */
+        .evsc-toast {
+          position: absolute;
+          bottom: 18px;
+          right: 18px;
+          left: auto;
+          z-index: 50;
+          display: none;
+          align-items: flex-start;
+          gap: 10px;
+          padding: 12px 14px;
+          max-width: min(420px, calc(100% - 36px));
+          border-radius: 14px;
+          background: var(--evsc-surface-strong, rgba(44, 44, 46, 0.92));
+          backdrop-filter: var(--evsc-blur);
+          -webkit-backdrop-filter: var(--evsc-blur);
+          border: 1px solid var(--evsc-stroke);
+          box-shadow: var(--evsc-shadow-lift, 0 10px 30px rgba(0,0,0,0.35));
+          color: var(--evsc-fg, #fff);
+          font-size: 13px;
+          line-height: 1.4;
+          opacity: 0;
+          transform: translateY(8px);
+          transition: opacity 0.2s ease, transform 0.2s ease;
+          pointer-events: none;
+        }
+        .evsc-toast.visible {
+          display: flex;
+          opacity: 1;
+          transform: translateY(0);
+          pointer-events: auto;
+        }
+        .evsc-toast-warning { border-left: 3px solid var(--evsc-sys-orange, #ff9500); }
+        .evsc-toast-info    { border-left: 3px solid var(--evsc-sys-blue, #007aff); }
+        .evsc-toast-icon { font-size: 16px; line-height: 1.4; }
+        .evsc-toast-text { flex: 1; min-width: 0; word-wrap: break-word; }
+        .evsc-toast-dismiss {
+          background: transparent;
+          border: 0;
+          color: var(--evsc-fg-mid, rgba(235,235,245,0.6));
+          font-size: 18px;
+          line-height: 1;
+          padding: 0 2px;
+          cursor: pointer;
+        }
+        .evsc-toast-dismiss:hover { color: var(--evsc-fg, #fff); }
+        @media (prefers-reduced-motion: reduce) {
+          .evsc-toast { transition: none; }
         }
 
         /* v1.11.5 — Hero state visualization (Force Charging / Boost Session).
