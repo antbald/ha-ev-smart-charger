@@ -23,7 +23,9 @@ hooks fail, a simple HA restart picks up the dashboard correctly.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
+from pathlib import Path
 from typing import Any
 
 from homeassistant.components import frontend
@@ -71,13 +73,63 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-RESOURCE_URL = f"{FRONTEND_URL_BASE}/{FRONTEND_CARD_FILENAME}?v={VERSION}"
 LOVELACE_REGISTRY_KEY = "lovelace_dashboards"
 LOVELACE_REGISTRY_VERSION = 1
 LOVELACE_PANEL_COMPONENT = "lovelace"
 
+_FRONTEND_DIR = Path(__file__).parent / "frontend"
+_BUNDLE_PATH = _FRONTEND_DIR / FRONTEND_CARD_FILENAME
+
 # Tracks whether the diagnostic probe has been logged for an entry already.
 _PROBE_LOGGED: set[str] = set()
+
+
+# ---------------------------------------------------------------------------
+# Cache-busting helpers (v1.11.4)
+# ---------------------------------------------------------------------------
+#
+# The Lovelace resource URL combines two cache busters:
+#
+#   ?v=<VERSION>    — manual SemVer bump in const.py (visible in logs, issues)
+#   &h=<8 hex>      — SHA-256 of the bundle, auto-invalidates on every file change
+#
+# Both must be computed fresh on every async_ensure_resource() call: HACS upgrade
+# swaps the file without re-importing this module, so caching the hash at module
+# load would return a stale value after upgrade. The file I/O runs in the
+# executor pool to keep the event loop free.
+
+
+def _compute_bundle_hash() -> str:
+    """Return first 8 hex chars of SHA-256 of the bundled JS file.
+
+    Synchronous (runs in executor via _build_resource_url). Falls back to
+    "unknown" if the file is missing — the next call will self-heal once the
+    file is back in place, because the resulting URL will differ from the
+    previously registered one and async_update_item will fire.
+    """
+    try:
+        return hashlib.sha256(_BUNDLE_PATH.read_bytes()).hexdigest()[:8]
+    except OSError as err:
+        _LOGGER.warning(
+            "Cannot read bundle for content hash (%s) — using fallback. "
+            "URL will self-heal on next setup once the file is available.",
+            err,
+        )
+        return "unknown"
+
+
+async def _build_resource_url(hass: HomeAssistant) -> str:
+    """Build the Lovelace resource URL with both cache busters.
+
+    Recomputed on every call (no module-level cache, no @lru_cache) so that
+    HACS upgrades that replace the JS file without restarting HA still
+    propagate to clients on the next resource ensure.
+    """
+    bundle_hash = await hass.async_add_executor_job(_compute_bundle_hash)
+    return (
+        f"{FRONTEND_URL_BASE}/{FRONTEND_CARD_FILENAME}"
+        f"?v={VERSION}&h={bundle_hash}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +196,10 @@ def _build_card_config(entry: ConfigEntry) -> dict[str, Any]:
         "type": "custom:ev-smart-charger-dashboard",
         "title": DASHBOARD_TITLE,
         "entity_prefix": entity_prefix,
+        # v1.11.4: runtime version injection. Single source of truth is
+        # const.py:VERSION — the card logs this to the browser console so
+        # users / maintainers can confirm which bundle is loaded.
+        "_build_version": VERSION,
     }
 
     mapping = {
@@ -187,12 +243,20 @@ def _build_dashboard_view(entry: ConfigEntry) -> dict[str, Any]:
 
 
 async def async_ensure_resource(hass: HomeAssistant) -> bool:
-    """Register the bundled card JS as a Lovelace resource. Idempotent."""
+    """Register the bundled card JS as a Lovelace resource. Idempotent.
+
+    The URL embeds both `?v=<VERSION>` and `&h=<content-hash>`; the latter is
+    recomputed on every call so HACS upgrades (which replace the JS file
+    without re-importing this module) still produce a fresh URL and trigger
+    async_update_item — invalidating the browser cache on next page reload.
+    """
+    resource_url = await _build_resource_url(hass)
+
     if _lovelace_resource_mode(hass) == "yaml":
         _LOGGER.info(
             "Lovelace runs in YAML mode — resource auto-registration skipped. "
             "Add manually: %s",
-            RESOURCE_URL,
+            resource_url,
         )
         return False
 
@@ -201,7 +265,7 @@ async def async_ensure_resource(hass: HomeAssistant) -> bool:
         _LOGGER.info(
             "Lovelace resources collection unavailable — resource will not be "
             "auto-registered. Manual URL: %s",
-            RESOURCE_URL,
+            resource_url,
         )
         return False
 
@@ -213,22 +277,22 @@ async def async_ensure_resource(hass: HomeAssistant) -> bool:
             return False
 
     items = _resource_items(resources)
-    base_url = RESOURCE_URL.split("?")[0]
+    base_url = resource_url.split("?")[0]
     existing = next(
         (item for item in items if str(item.get("url", "")).split("?")[0] == base_url),
         None,
     )
 
-    payload = {"res_type": "module", "url": RESOURCE_URL}
+    payload = {"res_type": "module", "url": resource_url}
     try:
         if existing is None:
             await resources.async_create_item(payload)
-            _LOGGER.info("📌 Registered Lovelace resource: %s", RESOURCE_URL)
-        elif existing.get("url") != RESOURCE_URL:
+            _LOGGER.info("📌 Registered Lovelace resource: %s", resource_url)
+        elif existing.get("url") != resource_url:
             await resources.async_update_item(existing["id"], payload)
-            _LOGGER.info("🔄 Updated Lovelace resource: %s", RESOURCE_URL)
+            _LOGGER.info("🔄 Updated Lovelace resource: %s", resource_url)
         else:
-            _LOGGER.debug("Lovelace resource already up to date: %s", RESOURCE_URL)
+            _LOGGER.debug("Lovelace resource already up to date: %s", resource_url)
         return True
     except Exception as err:  # pragma: no cover - defensive
         _LOGGER.warning("Failed to register Lovelace resource: %s", err)
@@ -252,8 +316,11 @@ async def async_remove_resource_if_unused(hass: HomeAssistant) -> None:
     if resources is None:
         return
 
+    # Use bare path for dedup (ignores ?v=&h= so we find the resource regardless
+    # of which version/hash registered it). We log the would-be-current URL for
+    # readability — see _build_resource_url for the format.
+    base_url = f"{FRONTEND_URL_BASE}/{FRONTEND_CARD_FILENAME}"
     items = _resource_items(resources)
-    base_url = RESOURCE_URL.split("?")[0]
     existing = next(
         (item for item in items if str(item.get("url", "")).split("?")[0] == base_url),
         None,
@@ -263,7 +330,7 @@ async def async_remove_resource_if_unused(hass: HomeAssistant) -> None:
 
     try:
         await resources.async_delete_item(existing["id"])
-        _LOGGER.info("🗑️  Removed Lovelace resource: %s", RESOURCE_URL)
+        _LOGGER.info("🗑️  Removed Lovelace resource: %s", existing.get("url"))
     except Exception as err:  # pragma: no cover - defensive
         _LOGGER.warning("Failed to remove Lovelace resource: %s", err)
 
@@ -399,10 +466,11 @@ async def async_ensure_dashboard(hass: HomeAssistant, entry: ConfigEntry) -> boo
     # Step 2: YAML mode rejects all mutations to dashboards/resources.
     resource_mode = _lovelace_resource_mode(hass)
     if resource_mode == "yaml":
+        resource_url = await _build_resource_url(hass)
         _LOGGER.info(
             "Lovelace runs in YAML mode — auto-dashboard skipped. Add the "
             "resource %s and the card manually in your YAML config.",
-            RESOURCE_URL,
+            resource_url,
         )
         return False
 

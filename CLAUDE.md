@@ -756,6 +756,49 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v1.11.4 (2026-05-27)
+**HARDENING: Dashboard cache-busting — content-hash + runtime version injection**
+
+Layered cache-busting on the bundled Lovelace card so visual changes always reach the browser on the next page reload — no manual cache clear, no service worker, no bundler.
+
+**The pre-existing safety net**: `dashboard_manager.py` already registered the card resource with `?v={VERSION}` and the dedup logic at `async_ensure_resource()` correctly called `async_update_item` whenever the URL string differed from the previously-registered one. That worked for clean SemVer bumps where both `const.py:VERSION` and `manifest.json:version` were updated together.
+
+**The gap**: the buster was a single manually-bumped value, and `RESOURCE_URL` lived as a module-level constant (`f"{FRONTEND_URL_BASE}/{FRONTEND_CARD_FILENAME}?v={VERSION}"`). A maintainer hotfix that edited the JS file but forgot to bump VERSION would silently ship stale bundles to every existing install — HACS replaces the file but does NOT re-import the Python module, so the in-memory `RESOURCE_URL` stayed at the old value forever and `async_update_item` never fired.
+
+**The fix — two layered busters with runtime-fresh hash**:
+
+1. **`?v=<VERSION>`** (unchanged): manual SemVer bump in `const.py`, visible in logs and issue reports.
+2. **`&h=<content-hash>`** (new): first 8 hex chars of SHA-256 of the bundled JS, computed inside `_compute_bundle_hash()` and recomputed on **every** `async_ensure_resource()` call via `hass.async_add_executor_job` (no `@lru_cache`, no module-level cache). When the file content changes by a single byte, `h` changes, the URL differs from the registered one, and `async_update_item` fires.
+
+**Single source of truth — no triple-bump risk**:
+
+The build version is no longer duplicated as a JS-side `BUILD_VERSION` constant. Instead, `dashboard_manager.py:_build_card_config` injects `_build_version: VERSION` into the card config payload at runtime; the JS reads `this.config._build_version` in `setConfig()` and logs it once to the browser console (gated by `window.__EVSC_BUILD_LOGGED__`). Maintainers still update only `const.py + manifest.json` per release, as today.
+
+**Diagnostic surface**:
+
+- Browser console: `[EVSC Dashboard] build version: 1.11.4` (one line per page load, helps users / reviewers confirm which bundle is actually running).
+- New `withVersion(url, version)` JS helper exported at module scope, ready for future fetches of `/local/...` assets — currently unused (the bundle has zero external loads).
+
+**Documentation**:
+
+- New `custom_components/ev_smart_charger/frontend/DEPLOY.md` — how the cache-busting works, pre-release checklist, DevTools verification steps, troubleshooting, ⚠️ note about CDN/proxy with "Ignore Query String" (e.g. Cloudflare).
+- Updated manual install snippets in `frontend/README.md` and root `README.md` to show `?v=1.11.4` explicitly + advisory to bump on every release. Users who disable the auto-dashboard now have the buster documented inline.
+
+**Files Modified**:
+- [dashboard_manager.py](custom_components/ev_smart_charger/dashboard_manager.py): removed module-level `RESOURCE_URL`; added `_compute_bundle_hash()` + async `_build_resource_url(hass)`; `async_ensure_resource()` and `async_remove_resource_if_unused()` rewritten to compute URL locally; `_build_card_config()` injects `_build_version`.
+- [frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js): added `withVersion(url, version)` helper at module scope; `setConfig()` captures `_build_version` from config and logs it once.
+- **NEW**: [frontend/DEPLOY.md](custom_components/ev_smart_charger/frontend/DEPLOY.md) — cache-busting reference (~150 lines).
+- [frontend/README.md](custom_components/ev_smart_charger/frontend/README.md): manual install snippet now shows `?v=1.11.4` + cross-reference to DEPLOY.md.
+- [README.md](README.md): manual install snippet same treatment.
+- [const.py](custom_components/ev_smart_charger/const.py): `VERSION = "1.11.4"`.
+- [manifest.json](custom_components/ev_smart_charger/manifest.json): `"version": "1.11.4"`.
+
+**Backward compatibility**: zero schema / entity / API changes. Existing config entries and card YAML continue to work unchanged. Users on the auto-dashboard see the new URL format on next HA restart; manual-install users see the same URL they had until they follow the updated snippet.
+
+**Upgrade priority**: 🟢 STRONGLY RECOMMENDED — eliminates a class of "I upgraded but the dashboard looks identical" bug reports. No behavioral changes beyond cache invalidation.
+
+---
+
 ### v1.11.3 (2026-05-26)
 **CRITICAL FIX: Click handlers — scroll-to-top + boost charge "no response" bugs**
 

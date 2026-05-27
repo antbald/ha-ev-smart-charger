@@ -1010,9 +1010,11 @@ If you disabled Step 7 or want the card in an existing dashboard, the bundled mo
 ```yaml
 lovelace:
   resources:
-    - url: /api/ev_smart_charger/frontend/ev-smart-charger-dashboard.js
+    - url: /api/ev_smart_charger/frontend/ev-smart-charger-dashboard.js?v=1.11.4
       type: module
 ```
+
+> Replace `1.11.4` with the current `VERSION` from `custom_components/ev_smart_charger/const.py` on every upgrade — otherwise the browser may keep serving the cached previous bundle. The auto-dashboard (enabled by default in Step 7) does this automatically and additionally appends a content-hash buster. See [DEPLOY.md](custom_components/ev_smart_charger/frontend/DEPLOY.md) for the full strategy.
 
 Then drop the card into any view:
 

@@ -4,6 +4,19 @@
 // Night Smart Charge card with crescent illustration. Language detection inherited
 // from this._hass.language (no manual picker). Exposes all 64 helper entities
 // (51 in PV-only mode).
+//
+// v1.11.4 — Cache-busting hardening. Build version is injected at runtime via the
+// card config (`this.config._build_version`). Single source of truth lives in
+// custom_components/ev_smart_charger/const.py:VERSION and propagates through
+// dashboard_manager.py:_build_card_config. The exported `withVersion()` helper is
+// reserved for future fetches against /local/ or other path assets — when used,
+// pass `this._buildVersion` as the second argument so the bundle's own version
+// stamps every URL it derives. See frontend/DEPLOY.md.
+function withVersion(url, version) {
+  const v = version || "unknown";
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}v=${encodeURIComponent(v)}`;
+}
 const DEFAULT_TITLE = "EV Smart Charger";
 const SUPPORTED_PROFILES = ["manual", "solar_surplus"];
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -897,6 +910,14 @@ class EvSmartChargerDashboard extends HTMLElement {
       current_entity: config?.current_entity,
       charger_status_entity: config?.charger_status_entity,
     };
+
+    // v1.11.4: capture the build version injected by dashboard_manager.py.
+    // Manual users who omit `_build_version` from their card YAML get "unknown".
+    this._buildVersion = config?._build_version || "unknown";
+    if (typeof window !== "undefined" && !window.__EVSC_BUILD_LOGGED__) {
+      window.__EVSC_BUILD_LOGGED__ = true;
+      console.info("[EVSC Dashboard] build version:", this._buildVersion);
+    }
 
     // Reset discovery and render caches — the configured prefix may have changed.
     this._resolvedPrefix = null;

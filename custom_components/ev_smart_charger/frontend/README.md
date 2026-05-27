@@ -57,9 +57,11 @@ The card is still usable as a standalone Lovelace card. Add the resource:
 ```yaml
 lovelace:
   resources:
-    - url: /api/ev_smart_charger/frontend/ev-smart-charger-dashboard.js
+    - url: /api/ev_smart_charger/frontend/ev-smart-charger-dashboard.js?v=1.11.4
       type: module
 ```
+
+> Replace `1.11.4` with the current value of `custom_components/ev_smart_charger/const.py:VERSION` on every upgrade — otherwise the browser may keep serving the cached previous bundle. The auto-dashboard (enabled by default in the config flow) does this for you. See [DEPLOY.md](DEPLOY.md) for the full cache-busting strategy.
 
 Then add it to a view:
 
