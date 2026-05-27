@@ -1644,10 +1644,51 @@ class EvSmartChargerDashboard extends HTMLElement {
       }
       value = "—";
     } else {
-      const unit = stateObj.attributes?.unit_of_measurement || "kWh";
-      value = `${stateObj.state} ${unit}`;
+      // v1.11.15: always render the chip in kWh, regardless of the
+      // sensor's native unit, and round to one decimal so locale-aware
+      // formatting keeps it tight ("4,5 kWh" / "4.5 kWh", not "4523.7 Wh").
+      value = this._formatForecastKwh(stateObj);
     }
     return `<span class="forecast-pill"><span class="forecast-pill-label">${label}:</span> <span data-live="forecast.tomorrow">${value}</span></span>`;
+  }
+
+  /**
+   * v1.11.15: Normalise a forecast sensor state into a "X[.,]Y kWh"
+   * string. Handles four common unit flavours (Wh, kWh, MWh, GWh — case
+   * insensitive, ignoring whitespace) and uses Intl.NumberFormat against
+   * the dashboard's resolved locale so Italian/Dutch users see comma as
+   * the decimal separator while English users see period.
+   *
+   * Anything we don't recognise as a unit is treated as kWh (the
+   * documented contract on the config-flow help text) so a sensor with
+   * no unit_of_measurement still renders sanely.
+   */
+  _formatForecastKwh(stateObj) {
+    const raw = Number(stateObj?.state);
+    if (!Number.isFinite(raw)) {
+      return "—";
+    }
+    const unitRaw = (stateObj?.attributes?.unit_of_measurement || "").trim().toLowerCase();
+    let kwh;
+    if (unitRaw === "wh") {
+      kwh = raw / 1000;
+    } else if (unitRaw === "mwh") {
+      kwh = raw * 1000;
+    } else if (unitRaw === "gwh") {
+      kwh = raw * 1_000_000;
+    } else {
+      // "kwh", unknown, or empty → assume kWh
+      kwh = raw;
+    }
+    const locale = this._language() || DEFAULT_LOCALE;
+    // 1 decimal max, no trailing zero suppression here — keep "4,0 kWh"
+    // visible so the chip width stays stable and the user knows the
+    // sensor is reporting a round number, not a missing fraction.
+    const formatted = new Intl.NumberFormat(locale, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }).format(kwh);
+    return `${formatted} kWh`;
   }
 
   _bindEvents() {
@@ -2602,8 +2643,10 @@ class EvSmartChargerDashboard extends HTMLElement {
     if (fcEntity) {
       const fcObj = this._stateObj(fcEntity);
       if (fcObj && fcObj.state && fcObj.state !== "unknown" && fcObj.state !== "unavailable") {
-        const fcUnit = fcObj.attributes?.unit_of_measurement || "kWh";
-        forecastValue = `${fcObj.state} ${fcUnit}`;
+        // v1.11.15: route through the same kWh formatter as the
+        // initial render so the live tick and the structural render
+        // can never disagree on units or decimals.
+        forecastValue = this._formatForecastKwh(fcObj);
       } else {
         forecastValue = "—";
       }
