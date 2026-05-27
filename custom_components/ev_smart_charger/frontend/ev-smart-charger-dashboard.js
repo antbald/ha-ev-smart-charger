@@ -512,6 +512,7 @@ const FRONTEND_LOCALES = {
     "hero.banner.force_charging": "Force Charging Active",
     "hero.banner.boost_session": "Boost Session Active",
     "hero.banner.night_charge": "Night Smart Charge Active",
+    "hero.forecast_tomorrow": "Tomorrow Forecast",
     "toast.boost.target_reached": "Boost can't start: EV at {ev}% (≥ target {target}%). Raise the target or wait for the battery to drain.",
     "toast.boost.missing_soc": "Boost can't start: EV SOC sensor unavailable. Check the mapped sensor.",
     "toast.dismiss_aria": "Dismiss notification",
@@ -657,6 +658,7 @@ const FRONTEND_LOCALES = {
     "hero.banner.force_charging": "Force Charging in corso",
     "hero.banner.boost_session": "Boost Session in corso",
     "hero.banner.night_charge": "Night Smart Charge in corso",
+    "hero.forecast_tomorrow": "Forecast Domani",
     "toast.boost.target_reached": "Boost non può partire: EV al {ev}% (≥ target {target}%). Alza il target o aspetta che la batteria scenda.",
     "toast.boost.missing_soc": "Boost non può partire: sensore SOC EV non disponibile. Controlla la mappatura.",
     "toast.dismiss_aria": "Chiudi notifica",
@@ -802,6 +804,7 @@ const FRONTEND_LOCALES = {
     "hero.banner.force_charging": "Force Charging actief",
     "hero.banner.boost_session": "Boost Sessie actief",
     "hero.banner.night_charge": "Slim nachtelijk laden actief",
+    "hero.forecast_tomorrow": "Verwachting morgen",
     "toast.boost.target_reached": "Boost kan niet starten: EV op {ev}% (≥ doel {target}%). Verhoog het doel of wacht tot de batterij zakt.",
     "toast.boost.missing_soc": "Boost kan niet starten: EV SOC-sensor niet beschikbaar. Controleer de mapping.",
     "toast.dismiss_aria": "Melding sluiten",
@@ -1570,6 +1573,29 @@ class EvSmartChargerDashboard extends HTMLElement {
     return `<span class="priority-pill state-${modifier}">${label}</span>`;
   }
 
+  /**
+   * v1.11.8: Render the next-day PV forecast as an orange chip placed
+   * next to the priority pill. Returns an empty string when the
+   * `pv_forecast_entity` is not configured or the state is unavailable —
+   * so PV-only setups without a forecast sensor degrade gracefully.
+   * The value span carries `data-live="forecast.tomorrow"` so the chip
+   * stays live without forcing a structural rebuild.
+   */
+  _renderForecastPill() {
+    const entityId = this._config.pv_forecast_entity;
+    if (!entityId) {
+      return "";
+    }
+    const stateObj = this._stateObj(entityId);
+    if (!stateObj || !stateObj.state || stateObj.state === "unknown" || stateObj.state === "unavailable") {
+      return "";
+    }
+    const unit = stateObj.attributes?.unit_of_measurement || "kWh";
+    const value = `${stateObj.state} ${unit}`;
+    const label = this._t("hero.forecast_tomorrow");
+    return `<span class="forecast-pill"><span class="forecast-pill-label">${label}:</span> <span data-live="forecast.tomorrow">${value}</span></span>`;
+  }
+
   _bindEvents() {
     const root = this.shadowRoot;
     if (!root) {
@@ -2189,7 +2215,10 @@ class EvSmartChargerDashboard extends HTMLElement {
             <header class="evsc-hero-v2">
               ${this._renderHeroRing()}
               <div class="evsc-hero-body">
-                ${this._renderPriorityPill(priorityState)}
+                <div class="hero-pill-row">
+                  ${this._renderPriorityPill(priorityState)}
+                  ${this._renderForecastPill()}
+                </div>
                 <h1>${this._config.title || this._t("title.default")}</h1>
                 <div class="evsc-metric-row">
                   ${this._renderMetric(this._t("metric.solar_power"), displayValues.solarPower, "amber", "", "metric.solarPower")}
@@ -2507,6 +2536,21 @@ class EvSmartChargerDashboard extends HTMLElement {
       }
     }
 
+    // v1.11.8: forecast pill value — kept live so the chip refreshes
+    // when the PV forecast sensor updates (typically hourly) without
+    // forcing a structural rebuild. Empty string when entity missing
+    // or unavailable; the chip will then have been omitted at render
+    // time and the selector below simply won't match anything.
+    let forecastValue = "";
+    const fcEntity = this._config.pv_forecast_entity;
+    if (fcEntity) {
+      const fcObj = this._stateObj(fcEntity);
+      if (fcObj && fcObj.state && fcObj.state !== "unknown" && fcObj.state !== "unavailable") {
+        const fcUnit = fcObj.attributes?.unit_of_measurement || "kWh";
+        forecastValue = `${fcObj.state} ${fcUnit}`;
+      }
+    }
+
     return {
       text: {
         "metric.solarPower": displayValues.solarPower,
@@ -2517,6 +2561,7 @@ class EvSmartChargerDashboard extends HTMLElement {
         "ring.sub": ringSub,
         "legend.ev": legendEvText,
         "legend.home": legendHomeText,
+        "forecast.tomorrow": forecastValue,
       },
       attrs: {
         "ring.evOffset": {
@@ -3496,6 +3541,37 @@ class EvSmartChargerDashboard extends HTMLElement {
         .priority-pill.state-ev      { color: var(--evsc-sys-green);  }
         .priority-pill.state-home    { color: var(--evsc-sys-blue);   }
         .priority-pill.state-ev_free { color: var(--evsc-sys-purple); }
+
+        /* v1.11.8: hero pill row — centers the priority pill and pairs
+           it with the optional forecast chip. Wraps on narrow viewports
+           so the chips stack neatly instead of overflowing the card. */
+        .hero-pill-row {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-bottom: 4px;
+        }
+        /* v1.11.8: orange forecast chip — same dimensions as the
+           priority pill but tinted with the iOS system orange so the
+           "next-day PV" snapshot reads as a related-but-distinct chip.
+           No pulse halo — this is a static informational chip. */
+        .forecast-pill {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 6px 12px;
+          border-radius: var(--evsc-radius-pill);
+          font-size: 0.85rem;
+          font-weight: 600;
+          background: rgba(255, 149, 0, 0.14);
+          border: 1px solid rgba(255, 149, 0, 0.45);
+          color: var(--evsc-sys-orange);
+          white-space: nowrap;
+        }
+        .forecast-pill .forecast-pill-label {
+          font-weight: 500;
+          opacity: 0.85;
+        }
 
         /* Charging indicator with pulse */
         @keyframes evsc-pulse {
