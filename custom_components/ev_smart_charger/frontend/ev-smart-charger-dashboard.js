@@ -1584,15 +1584,35 @@ class EvSmartChargerDashboard extends HTMLElement {
   _renderForecastPill() {
     const entityId = this._config.pv_forecast_entity;
     if (!entityId) {
+      // Entity not mapped at all — log once so users can diagnose from the
+      // browser console without having to know the internal config shape.
+      if (!window.__EVSC_NO_FORECAST_LOGGED__) {
+        window.__EVSC_NO_FORECAST_LOGGED__ = true;
+        // eslint-disable-next-line no-console
+        console.debug(
+          "[EVSC Dashboard] forecast chip omitted: pv_forecast_entity not in card config. "
+          + "Configure the PV Forecast step of the integration to surface the chip."
+        );
+      }
       return "";
     }
     const stateObj = this._stateObj(entityId);
-    if (!stateObj || !stateObj.state || stateObj.state === "unknown" || stateObj.state === "unavailable") {
-      return "";
-    }
-    const unit = stateObj.attributes?.unit_of_measurement || "kWh";
-    const value = `${stateObj.state} ${unit}`;
     const label = this._t("hero.forecast_tomorrow");
+    let value;
+    if (!stateObj || !stateObj.state || stateObj.state === "unknown" || stateObj.state === "unavailable") {
+      // v1.11.11: render the chip even when momentarily unavailable so the
+      // user sees the integration *is* aware of the sensor — the dash is
+      // not silently broken. Also log so the diagnostic trail is obvious.
+      // eslint-disable-next-line no-console
+      console.debug(
+        `[EVSC Dashboard] forecast chip: entity ${entityId} state is `
+        + `${stateObj ? stateObj.state : "missing"} — showing placeholder.`
+      );
+      value = "—";
+    } else {
+      const unit = stateObj.attributes?.unit_of_measurement || "kWh";
+      value = `${stateObj.state} ${unit}`;
+    }
     return `<span class="forecast-pill"><span class="forecast-pill-label">${label}:</span> <span data-live="forecast.tomorrow">${value}</span></span>`;
   }
 
@@ -2536,11 +2556,11 @@ class EvSmartChargerDashboard extends HTMLElement {
       }
     }
 
-    // v1.11.8: forecast pill value — kept live so the chip refreshes
-    // when the PV forecast sensor updates (typically hourly) without
-    // forcing a structural rebuild. Empty string when entity missing
-    // or unavailable; the chip will then have been omitted at render
-    // time and the selector below simply won't match anything.
+    // v1.11.8 / v1.11.11: forecast pill value — kept live so the chip
+    // refreshes when the PV forecast sensor updates (typically hourly)
+    // without forcing a structural rebuild. v1.11.11: render "—" when
+    // the entity is mapped but the state is momentarily unavailable,
+    // so the chip stays visible (matches _renderForecastPill()).
     let forecastValue = "";
     const fcEntity = this._config.pv_forecast_entity;
     if (fcEntity) {
@@ -2548,6 +2568,8 @@ class EvSmartChargerDashboard extends HTMLElement {
       if (fcObj && fcObj.state && fcObj.state !== "unknown" && fcObj.state !== "unavailable") {
         const fcUnit = fcObj.attributes?.unit_of_measurement || "kWh";
         forecastValue = `${fcObj.state} ${fcUnit}`;
+      } else {
+        forecastValue = "—";
       }
     }
 
