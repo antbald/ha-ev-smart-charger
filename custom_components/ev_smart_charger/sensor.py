@@ -16,7 +16,9 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .const import (
     CONF_SOC_CAR,
     HELPER_HYBRID_DIAGNOSTIC_SUFFIX,
+    HELPER_NIGHT_SESSION_STATE_SUFFIX,
     HYBRID_STATE_IDLE,
+    NIGHT_CHARGE_MODE_IDLE,
     has_home_battery,
 )
 from .entity_base import EVSCEntityMixin
@@ -86,6 +88,13 @@ async def async_setup_entry(
             HELPER_HYBRID_DIAGNOSTIC_SUFFIX,
             "EVSC Hybrid Inverter Diagnostic",
             "mdi:solar-power-variant-outline",
+        ),
+        EVSCNightSessionStateSensor(
+            runtime_data,
+            entry.entry_id,
+            HELPER_NIGHT_SESSION_STATE_SUFFIX,
+            "EVSC Night Session State",
+            "mdi:weather-night",
         ),
     ]
 
@@ -214,6 +223,46 @@ class EVSCPriorityStateSensor(EVSCBaseSensor):
         await super().async_added_to_hass()
         _LOGGER.info(
             "✅ Priority sensor registered: %s (unique_id: %s)",
+            self.entity_id,
+            self.unique_id,
+        )
+        if (last_state := await self.async_get_last_state()) is not None:
+            self._attr_native_value = last_state.state
+            self._attr_extra_state_attributes = dict(last_state.attributes)
+
+
+class EVSCNightSessionStateSensor(EVSCBaseSensor):
+    """Runtime state of the Night Smart Charge session (v1.11.9).
+
+    Published by night_smart_charge.py whenever its `_active_mode` transitions
+    between `idle`, `battery`, and `grid`. Consumed by the bundled Lovelace
+    card so the hero banner can show a blue-violet "Night Smart Charge Active"
+    state — analogous to the existing red Force / orange Boost banners.
+    """
+
+    def __init__(
+        self,
+        runtime_data: EVSCRuntimeData,
+        entry_id: str,
+        suffix: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        """Initialize the night session sensor."""
+        super().__init__(
+            runtime_data,
+            entry_id,
+            suffix,
+            name,
+            icon,
+            native_value=NIGHT_CHARGE_MODE_IDLE,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state across HA restarts."""
+        await super().async_added_to_hass()
+        _LOGGER.info(
+            "✅ Night session sensor registered: %s (unique_id: %s)",
             self.entity_id,
             self.unique_id,
         )

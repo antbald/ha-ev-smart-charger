@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.11.7"
+VERSION = "1.11.9"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -178,6 +178,7 @@ HELPER_LOG_FILE_PATH_SUFFIX = "evsc_log_file_path"  # v1.3.25
 HELPER_TODAY_EV_TARGET_SUFFIX = "evsc_today_ev_target"  # v1.3.26
 HELPER_TODAY_HOME_TARGET_SUFFIX = "evsc_today_home_target"  # v1.3.26
 HELPER_CACHED_EV_SOC_SUFFIX = "evsc_cached_ev_soc"  # v1.4.0
+HELPER_NIGHT_SESSION_STATE_SUFFIX = "evsc_night_session_state"  # v1.11.9 — runtime session state for hero banner
 
 # Hybrid Inverter Mode (v1.8.0 — issue #20)
 HELPER_HYBRID_INVERTER_MODE_SUFFIX = "evsc_hybrid_inverter_mode"
@@ -291,16 +292,16 @@ HYBRID_STATE_COOLDOWN_LONG = "COOLDOWN_LONG"
 HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 
 # ========== ENTITY REGISTRATION ==========
-# Verified count (v1.8.0): 64 entities when home battery is configured.
-# v1.7.0 set the with-battery baseline to 58. v1.8.0 adds 6 Hybrid Inverter
-# Mode entities (1 switch + 4 numbers + 1 sensor).
-TOTAL_INTEGRATION_ENTITIES = 64
-# Verified count (v1.8.0): 51 entities when running in PV-only mode.
+# Verified count (v1.11.9): 65 entities when home battery is configured.
+# v1.8.0 set the baseline to 64 (added 6 Hybrid Mode entities). v1.11.9 adds
+# 1 sensor (evsc_night_session_state) — runtime state for the hero banner.
+TOTAL_INTEGRATION_ENTITIES = 65
+# Verified count (v1.11.9): 52 entities when running in PV-only mode.
 # Skipped helpers (13): 2 switches (use_home_battery, preserve_home_battery),
 # 3 numbers (home_battery_min_soc, battery_support_amperage, battery_support_sunset_buffer),
 # 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).
 # Hybrid Mode entities are still created in PV-only mode but stay IDLE (requires soc_home).
-TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 51
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 52
 
 
 def has_home_battery(config: dict) -> bool:

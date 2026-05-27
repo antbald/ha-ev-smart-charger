@@ -48,6 +48,7 @@ from .const import (
     NIGHT_CHARGE_START_RETRY_DELAYS,
     ACTIVATION_GRACE_BEFORE_MINUTES,
     ACTIVATION_GRACE_AFTER_MINUTES,
+    HELPER_NIGHT_SESSION_STATE_SUFFIX,
     has_home_battery,
 )
 from .localization import translate_runtime
@@ -140,7 +141,15 @@ class NightSmartCharge:
         self._battery_monitor_unsub = None
         self._grid_monitor_unsub = None  # Grid charge monitoring timer (v1.3.17)
         self._night_charge_active = False
-        self._active_mode = NIGHT_CHARGE_MODE_IDLE
+        # v1.11.9: `_active_mode` is now a property — assignments are
+        # automatically published to sensor.evsc_night_session_state so the
+        # bundled Lovelace card can show the blue-violet hero banner when a
+        # night session is running. Bootstrap the underlying storage
+        # directly to avoid triggering the publish before the sensor
+        # platform has registered (runtime_data.get_entity(...) would
+        # return None and the publish would no-op anyway, but storing
+        # directly keeps init side-effect-free).
+        self._active_mode_value = NIGHT_CHARGE_MODE_IDLE
         self._last_window_check_time = None
         self._last_completion_time = None  # Track when session completed
 
@@ -159,6 +168,43 @@ class NightSmartCharge:
     def _automation_name(self) -> str:
         """Return the coordinator owner name for Night Smart Charge."""
         return "Night Smart Charge"
+
+    # v1.11.9: `_active_mode` is a property whose setter mirrors every state
+    # transition into sensor.evsc_night_session_state. All ~12 existing call
+    # sites (start battery, start grid, complete, control loss, cleanup …)
+    # keep working unchanged because they use plain attribute syntax —
+    # `self._active_mode = NIGHT_CHARGE_MODE_BATTERY` now ALSO fires the
+    # publish below. The setter is intentionally cheap and graceful: if the
+    # sensor isn't registered yet (init time, before the platform setup) or
+    # the publish task can't be scheduled (HA shutting down), it silently
+    # no-ops — the bootstrap stored the initial value directly to keep init
+    # side-effect-free, and `async_added_to_hass` on the sensor restores any
+    # mid-session state from disk after a HA restart.
+    @property
+    def _active_mode(self) -> str:
+        """Return the current runtime night charge mode."""
+        return self._active_mode_value
+
+    @_active_mode.setter
+    def _active_mode(self, value: str) -> None:
+        """Set the runtime mode and publish it to the session-state sensor."""
+        old_value = getattr(self, "_active_mode_value", None)
+        self._active_mode_value = value
+        if old_value == value:
+            return
+        runtime = getattr(self, "_runtime_data", None)
+        if runtime is None:
+            return
+        sensor_entity = runtime.get_entity(HELPER_NIGHT_SESSION_STATE_SUFFIX)
+        if sensor_entity is None or not hasattr(sensor_entity, "async_publish"):
+            return
+        if getattr(sensor_entity, "hass", None) is None:
+            return
+        try:
+            self.hass.async_create_task(sensor_entity.async_publish(value))
+        except RuntimeError:
+            # HA event loop closed (shutdown path) — drop silently.
+            return
 
     def _has_control(self) -> bool:
         """Return True when Night Smart Charge currently owns the session."""

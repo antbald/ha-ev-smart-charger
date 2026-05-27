@@ -129,6 +129,9 @@ const DOMAIN_SUFFIXES = {
   cachedEvSoc: ["sensor", "evsc_cached_ev_soc"],
   diagnostic: ["sensor", "evsc_diagnostic"],
   solarDiagnostic: ["sensor", "evsc_solar_surplus_diagnostic"],
+  // v1.11.9: runtime state of Night Smart Charge (`idle` | `battery` | `grid`).
+  // Drives the blue-violet hero banner when a session is running.
+  nightSession: ["sensor", "evsc_night_session_state"],
 };
 
 // Daily helper entities — generated programmatically (saves ~50 lines of boilerplate).
@@ -506,10 +509,9 @@ const FRONTEND_LOCALES = {
     "common.no_options": "No options",
     "boot.waiting_for_hass": "Waiting for Home Assistant state...",
     "hero.eyebrow": "Custom Integration Control Surface",
-    "hero.description":
-      "Single-column EV charging control with native Home Assistant service calls, stacked modules, and live operational telemetry.",
     "hero.banner.force_charging": "Force Charging Active",
     "hero.banner.boost_session": "Boost Session Active",
+    "hero.banner.night_charge": "Night Smart Charge Active",
     "toast.boost.target_reached": "Boost can't start: EV at {ev}% (≥ target {target}%). Raise the target or wait for the battery to drain.",
     "toast.boost.missing_soc": "Boost can't start: EV SOC sensor unavailable. Check the mapped sensor.",
     "toast.dismiss_aria": "Dismiss notification",
@@ -654,11 +656,10 @@ const FRONTEND_LOCALES = {
     "hero.eyebrow": "Pannello di controllo integrazione custom",
     "hero.banner.force_charging": "Force Charging in corso",
     "hero.banner.boost_session": "Boost Session in corso",
+    "hero.banner.night_charge": "Night Smart Charge in corso",
     "toast.boost.target_reached": "Boost non può partire: EV al {ev}% (≥ target {target}%). Alza il target o aspetta che la batteria scenda.",
     "toast.boost.missing_soc": "Boost non può partire: sensore SOC EV non disponibile. Controlla la mappatura.",
     "toast.dismiss_aria": "Chiudi notifica",
-    "hero.description":
-      "Controllo ricarica EV a colonna singola con chiamate servizio native di Home Assistant, moduli sovrapposti e telemetria operativa live.",
     "metric.charging_power": "Potenza di ricarica",
     "metric.live_power": "Potenza live",
     "metric.ev_soc": "EV",
@@ -800,11 +801,10 @@ const FRONTEND_LOCALES = {
     "hero.eyebrow": "Bedieningspaneel voor custom integratie",
     "hero.banner.force_charging": "Force Charging actief",
     "hero.banner.boost_session": "Boost Sessie actief",
+    "hero.banner.night_charge": "Slim nachtelijk laden actief",
     "toast.boost.target_reached": "Boost kan niet starten: EV op {ev}% (≥ doel {target}%). Verhoog het doel of wacht tot de batterij zakt.",
     "toast.boost.missing_soc": "Boost kan niet starten: EV SOC-sensor niet beschikbaar. Controleer de mapping.",
     "toast.dismiss_aria": "Melding sluiten",
-    "hero.description":
-      "Enkelkoloms EV-laadbediening met native Home Assistant-serviceaanroepen, gestapelde modules en live operationele telemetrie.",
     "metric.charging_power": "Laadvermogen",
     "metric.live_power": "Live vermogen",
     "metric.ev_soc": "EV",
@@ -2132,18 +2132,32 @@ class EvSmartChargerDashboard extends HTMLElement {
    * live in the Settings view.
    */
   _renderDashboardView(ids, displayValues, priorityState) {
-    // v1.11.5: hero state — force overrides boost (matches coordinator
-    // priority PRIORITY_OVERRIDE=1 > PRIORITY_BOOST_CHARGE). When neither
-    // is on, no banner, no border emphasis; the card renders as before.
+    // v1.11.9: hero state — force > boost > night > normal. Precedence
+    // mirrors the backend automation_coordinator priority ladder
+    // (PRIORITY_OVERRIDE=1 > PRIORITY_BOOST_CHARGE > PRIORITY_NIGHT_CHARGE=3).
+    // Night is driven by sensor.evsc_night_session_state which night_smart_charge.py
+    // publishes whenever its `_active_mode` transitions between idle / battery / grid
+    // — so the banner reflects a REAL running session, not a config flag.
     const forceChargeOn = this._isOn(ids.forceChargeId);
     const boostOn = this._isOn(ids.boostEnabledId);
-    const heroState = forceChargeOn ? "force" : (boostOn ? "boost" : "normal");
+    const nightSessionState = this._stateObj(ids.nightSessionId)?.state;
+    const nightOn = nightSessionState === "battery" || nightSessionState === "grid";
+    const heroState = forceChargeOn
+      ? "force"
+      : (boostOn
+        ? "boost"
+        : (nightOn ? "night" : "normal"));
+    const heroBannerKey = heroState === "force"
+      ? "hero.banner.force_charging"
+      : (heroState === "boost"
+        ? "hero.banner.boost_session"
+        : "hero.banner.night_charge");
     const heroBanner = heroState === "normal"
       ? ""
       : `
         <div class="evsc-hero-banner banner-${heroState}" role="status" aria-live="polite">
           <span class="evsc-hero-banner-dot"></span>
-          <span class="evsc-hero-banner-text">${this._t(heroState === "force" ? "hero.banner.force_charging" : "hero.banner.boost_session")}</span>
+          <span class="evsc-hero-banner-text">${this._t(heroBannerKey)}</span>
         </div>
       `;
     const heroWrapClasses = ["evsc-hero-wrap", `evsc-hero-state-${heroState}`];
@@ -2177,7 +2191,6 @@ class EvSmartChargerDashboard extends HTMLElement {
               <div class="evsc-hero-body">
                 ${this._renderPriorityPill(priorityState)}
                 <h1>${this._config.title || this._t("title.default")}</h1>
-                <p class="evsc-hero-sub">${this._t("hero.description")}</p>
                 <div class="evsc-metric-row">
                   ${this._renderMetric(this._t("metric.solar_power"), displayValues.solarPower, "amber", "", "metric.solarPower")}
                   ${this._renderMetric(this._t("metric.grid_import"), displayValues.gridImport, "rose", "", "metric.gridImport")}
@@ -2311,9 +2324,13 @@ class EvSmartChargerDashboard extends HTMLElement {
     const chargerCurrent = this._displayValue(this._config.current_entity, this._t("fallback.current_entity"));
 
     // v1.10.0: dispatch into Dashboard or Settings view depending on _view.
+    // v1.11.9: include nightSessionId so the hero banner can read the
+    // runtime session state without going through _integrationState().
+    const nightSessionId = this._entityId("nightSession");
     const ids = {
       forceChargeId, boostEnabledId, boostAmperageId, boostTargetSocId,
       chargingProfileId, nightEnabledId, nightTimeId, carReadyTimeId,
+      nightSessionId,
     };
     const displayValues = { chargingPower, solarPower, gridImport, chargerCurrent };
 
@@ -2403,6 +2420,10 @@ class EvSmartChargerDashboard extends HTMLElement {
     // innerHTML rebuild here is acceptable.
     const forceChargeOn = states[this._entityId("forceCharge")]?.state === "on";
     const boostOn = states[this._entityId("boostEnabled")]?.state === "on";
+    // v1.11.9: night session is structural — banner appears/disappears and
+    // the wrapper class flips, so the fast path can't patch it.
+    const nightSessionState = states[this._entityId("nightSession")]?.state;
+    const nightOn = nightSessionState === "battery" || nightSessionState === "grid";
 
     return JSON.stringify({
       view: this._view,
@@ -2415,6 +2436,7 @@ class EvSmartChargerDashboard extends HTMLElement {
       ps: priorityState,
       fc: forceChargeOn,
       bo: boostOn,
+      ni: nightOn,
     });
   }
 
@@ -2721,6 +2743,40 @@ class EvSmartChargerDashboard extends HTMLElement {
            light DOM, so this MUST be re-declared inside the shadow root. */
         *, *::before, *::after {
           box-sizing: border-box;
+        }
+
+        /* v1.11.8: touch scroll sanitization. When a finger swipes vertically
+           and lands on a tap target (toggle, stepper, chip, day cell, accordion
+           head, tab, button), mobile browsers default to waiting ~300ms to
+           disambiguate tap vs. double-tap-zoom — this freezes the scroll until
+           the timer expires, which the user perceives as "scroll got stuck
+           inside a section". The touch-action:manipulation declaration opts
+           out of the double-tap-zoom gesture so the browser passes vertical
+           pan through immediately. -webkit-tap-highlight-color:transparent
+           removes the visual flash that would otherwise reinforce the (false)
+           impression that the element captured the gesture. Applied to every
+           interactive surface; layout / scroll containers are left untouched
+           so HA's native vertical scroll keeps its default touch-action:auto.
+           v1.11.9 nota: i backtick come delimitatori di code-quote in questo
+           commento erano la causa di un crash totale del bundle in v1.11.8 —
+           rimossi. */
+        button,
+        [role="button"],
+        .control-toggle,
+        .stepper-button,
+        .profile-chip,
+        .day-cell,
+        .day-soc-cell,
+        .switch-shell,
+        .evsc-set-toggle,
+        .evsc-wp-tog,
+        .evsc-acc-head,
+        .evsc-tab,
+        .evsc-toast-dismiss,
+        .stepper-value,
+        .time-value {
+          touch-action: manipulation;
+          -webkit-tap-highlight-color: transparent;
         }
 
         ha-card {
@@ -3698,6 +3754,19 @@ class EvSmartChargerDashboard extends HTMLElement {
             var(--evsc-shadow-soft);
           animation: evsc-hero-border-pulse 2.2s ease-in-out infinite;
         }
+        /* v1.11.9: Night Smart Charge live state. Uses Apple system indigo
+           — a true blue-violet that reads as "nocturnal smart" rather than
+           urgent (red) or transactional (orange). Same border-pulse cadence
+           as Force / Boost so the three states feel like one family. */
+        .evsc-hero-state-night {
+          --evsc-hero-accent: var(--evsc-sys-indigo);
+          --evsc-hero-glow: color-mix(in srgb, var(--evsc-sys-indigo) 45%, transparent);
+          box-shadow:
+            0 0 0 2px var(--evsc-hero-accent),
+            0 0 24px 4px var(--evsc-hero-glow),
+            var(--evsc-shadow-soft);
+          animation: evsc-hero-border-pulse 2.2s ease-in-out infinite;
+        }
         @keyframes evsc-hero-border-pulse {
           0%, 100% {
             box-shadow:
@@ -3726,6 +3795,7 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
         .evsc-hero-banner.banner-force { background: var(--evsc-sys-red); }
         .evsc-hero-banner.banner-boost { background: var(--evsc-deep-orange); }
+        .evsc-hero-banner.banner-night { background: var(--evsc-sys-indigo); }
         .evsc-hero-banner-dot {
           width: 8px;
           height: 8px;
@@ -3740,7 +3810,8 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
         @media (prefers-reduced-motion: reduce) {
           .evsc-hero-state-force,
-          .evsc-hero-state-boost { animation: none; }
+          .evsc-hero-state-boost,
+          .evsc-hero-state-night { animation: none; }
           .evsc-hero-banner-dot { animation: none; }
         }
 
@@ -3780,13 +3851,6 @@ class EvSmartChargerDashboard extends HTMLElement {
           font-weight: 700;
           letter-spacing: -0.02em;
           color: var(--evsc-fg);
-        }
-        .evsc-hero-sub {
-          color: var(--evsc-fg-mid);
-          font-size: 13px;
-          line-height: 1.55;
-          margin: 0 0 20px;
-          max-width: 42ch;
         }
         .evsc-metric-row {
           /* v1.11.1: adaptive grid — was hard-coded 2×2 since v1.10.4.
