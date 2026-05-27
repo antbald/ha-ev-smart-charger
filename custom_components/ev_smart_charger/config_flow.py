@@ -21,6 +21,7 @@ from .const import (
     CONF_HOME_CONSUMPTION,
     CONF_NOTIFY_SERVICES,
     CONF_PV_FORECAST,
+    CONF_PV_FORECAST_TOMORROW,
     CONF_SOC_CAR,
     CONF_SOC_HOME,
     DEFAULT_BATTERY_CAPACITY,
@@ -146,14 +147,29 @@ def _sensor_schema(current_data: dict[str, Any] | None = None) -> vol.Schema:
 
 
 def _pv_forecast_schema(current_data: dict[str, Any] | None = None) -> vol.Schema:
-    """Build the PV forecast schema."""
+    """Build the PV forecast schema.
+
+    Two independent optional sensors:
+      - CONF_PV_FORECAST: drives Night Smart Charge's battery-vs-grid
+        decision. Semantically the "next-day" forecast for that logic,
+        but kept named generically because existing installs map various
+        sensor flavours (remaining-today, tomorrow, custom templates).
+      - CONF_PV_FORECAST_TOMORROW (v1.11.14): dedicated to the dashboard
+        "Forecast Domani" chip. Lets users map a true tomorrow-forecast
+        sensor (e.g. `sensor.solcast_pv_forecast_forecast_tomorrow`)
+        without disturbing their existing Night Smart Charge wiring.
+    """
     current_data = current_data or {}
     return vol.Schema(
         {
             vol.Optional(
                 CONF_PV_FORECAST,
                 **_field_config(current_data.get(CONF_PV_FORECAST)),
-            ): _entity_selector("sensor")
+            ): _entity_selector("sensor"),
+            vol.Optional(
+                CONF_PV_FORECAST_TOMORROW,
+                **_field_config(current_data.get(CONF_PV_FORECAST_TOMORROW)),
+            ): _entity_selector("sensor"),
         }
     )
 

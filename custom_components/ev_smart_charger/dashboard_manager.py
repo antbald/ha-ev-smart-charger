@@ -60,6 +60,7 @@ from .const import (
     CONF_GRID_IMPORT,
     CONF_HOME_CONSUMPTION,
     CONF_PV_FORECAST,
+    CONF_PV_FORECAST_TOMORROW,
     CONF_SOC_CAR,
     CONF_SOC_HOME,
     DASHBOARD_ICON,
@@ -212,6 +213,10 @@ def _build_card_config(entry: ConfigEntry) -> dict[str, Any]:
         "current_entity": CONF_EV_CHARGER_CURRENT,
         "charger_switch_entity": CONF_EV_CHARGER_SWITCH,
         "pv_forecast_entity": CONF_PV_FORECAST,
+        # v1.11.14: distinct from pv_forecast_entity. Drives the
+        # "Forecast Domani" / "Tomorrow Forecast" orange chip on the
+        # hero card. Optional — chip is omitted if not mapped.
+        "pv_forecast_tomorrow_entity": CONF_PV_FORECAST_TOMORROW,
     }
     for card_key, conf_key in mapping.items():
         value = data.get(conf_key)

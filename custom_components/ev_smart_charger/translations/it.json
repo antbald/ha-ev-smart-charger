@@ -47,10 +47,12 @@
         "title": "Forecast Solare - Passo {step}/{total_steps}",
         "description": "Sensore opzionale usato da Night Smart Charge per decidere se caricare di notte dalla batteria di casa o dalla rete.",
         "data": {
-          "pv_forecast": "Sensore forecast solare"
+          "pv_forecast": "Sensore forecast solare (Night Smart Charge)",
+          "pv_forecast_tomorrow": "Forecast solare domani (chip dashboard)"
         },
         "data_description": {
-          "pv_forecast": "Sensore forecast opzionale in kWh."
+          "pv_forecast": "Sensore opzionale in kWh — usato da Night Smart Charge per decidere se caricare di notte dalla batteria di casa o dalla rete.",
+          "pv_forecast_tomorrow": "Opzionale. Mappa un sensore che riporta la previsione di produzione solare per il giorno successivo in kWh (es. `sensor.solcast_pv_forecast_forecast_tomorrow`). Attiva la chip arancione 'Forecast Domani' sulla dashboard auto-generata."
         }
       },
       "notifications": {
@@ -123,10 +125,12 @@
         "title": "Riconfigura Forecast Solare - Passo {step}/{total_steps}",
         "description": "Aggiorna o rimuovi il sensore forecast opzionale usato da Night Smart Charge.",
         "data": {
-          "pv_forecast": "Sensore forecast solare"
+          "pv_forecast": "Sensore forecast solare (Night Smart Charge)",
+          "pv_forecast_tomorrow": "Forecast solare domani (chip dashboard)"
         },
         "data_description": {
-          "pv_forecast": "Sensore forecast opzionale in kWh."
+          "pv_forecast": "Sensore opzionale in kWh — usato da Night Smart Charge per decidere se caricare di notte dalla batteria di casa o dalla rete.",
+          "pv_forecast_tomorrow": "Opzionale. Mappa un sensore che riporta la previsione di produzione solare per il giorno successivo in kWh (es. `sensor.solcast_pv_forecast_forecast_tomorrow`). Attiva la chip arancione 'Forecast Domani' sulla dashboard auto-generata."
         }
       },
       "reconfigure_notifications": {
@@ -214,10 +218,12 @@
         "title": "Aggiorna Forecast Solare - Passo {step}/{total_steps}",
         "description": "Aggiorna o rimuovi il sensore forecast opzionale usato da Night Smart Charge.",
         "data": {
-          "pv_forecast": "Sensore forecast solare"
+          "pv_forecast": "Sensore forecast solare (Night Smart Charge)",
+          "pv_forecast_tomorrow": "Forecast solare domani (chip dashboard)"
         },
         "data_description": {
-          "pv_forecast": "Sensore forecast opzionale in kWh."
+          "pv_forecast": "Sensore opzionale in kWh — usato da Night Smart Charge per decidere se caricare di notte dalla batteria di casa o dalla rete.",
+          "pv_forecast_tomorrow": "Opzionale. Mappa un sensore che riporta la previsione di produzione solare per il giorno successivo in kWh (es. `sensor.solcast_pv_forecast_forecast_tomorrow`). Attiva la chip arancione 'Forecast Domani' sulla dashboard auto-generata."
         }
       },
       "notifications": {

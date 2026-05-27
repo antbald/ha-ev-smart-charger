@@ -47,10 +47,12 @@
         "title": "Solar Forecast - Step {step}/{total_steps}",
         "description": "Optional sensor used by Night Smart Charge to decide whether to charge from home battery or from the grid overnight.",
         "data": {
-          "pv_forecast": "Solar forecast sensor"
+          "pv_forecast": "Solar forecast sensor (Night Smart Charge)",
+          "pv_forecast_tomorrow": "Tomorrow's solar forecast (dashboard chip)"
         },
         "data_description": {
-          "pv_forecast": "Optional forecast sensor in kWh."
+          "pv_forecast": "Optional forecast sensor in kWh — used by Night Smart Charge to decide whether to charge from home battery or from the grid overnight.",
+          "pv_forecast_tomorrow": "Optional. Map a sensor that reports the next-day solar production forecast in kWh (e.g. `sensor.solcast_pv_forecast_forecast_tomorrow`). Surfaces the orange 'Tomorrow Forecast' chip on the auto-dashboard."
         }
       },
       "notifications": {
@@ -123,10 +125,12 @@
         "title": "Reconfigure Solar Forecast - Step {step}/{total_steps}",
         "description": "Update or clear the optional forecast sensor used by Night Smart Charge.",
         "data": {
-          "pv_forecast": "Solar forecast sensor"
+          "pv_forecast": "Solar forecast sensor (Night Smart Charge)",
+          "pv_forecast_tomorrow": "Tomorrow's solar forecast (dashboard chip)"
         },
         "data_description": {
-          "pv_forecast": "Optional forecast sensor in kWh."
+          "pv_forecast": "Optional forecast sensor in kWh — used by Night Smart Charge to decide whether to charge from home battery or from the grid overnight.",
+          "pv_forecast_tomorrow": "Optional. Map a sensor that reports the next-day solar production forecast in kWh (e.g. `sensor.solcast_pv_forecast_forecast_tomorrow`). Surfaces the orange 'Tomorrow Forecast' chip on the auto-dashboard."
         }
       },
       "reconfigure_notifications": {
@@ -214,10 +218,12 @@
         "title": "Update Solar Forecast - Step {step}/{total_steps}",
         "description": "Update or clear the optional forecast sensor used by Night Smart Charge.",
         "data": {
-          "pv_forecast": "Solar forecast sensor"
+          "pv_forecast": "Solar forecast sensor (Night Smart Charge)",
+          "pv_forecast_tomorrow": "Tomorrow's solar forecast (dashboard chip)"
         },
         "data_description": {
-          "pv_forecast": "Optional forecast sensor in kWh."
+          "pv_forecast": "Optional forecast sensor in kWh — used by Night Smart Charge to decide whether to charge from home battery or from the grid overnight.",
+          "pv_forecast_tomorrow": "Optional. Map a sensor that reports the next-day solar production forecast in kWh (e.g. `sensor.solcast_pv_forecast_forecast_tomorrow`). Surfaces the orange 'Tomorrow Forecast' chip on the auto-dashboard."
         }
       },
       "notifications": {

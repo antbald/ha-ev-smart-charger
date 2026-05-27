@@ -969,9 +969,15 @@ class EvSmartChargerDashboard extends HTMLElement {
       // mapping back in v1.9.0 (and consumed by _renderNightCardV2 since
       // then), but setConfig's whitelist was never extended — so every
       // call site that reads `this._config.pv_forecast_entity` (Night
-      // card forecast string + the new v1.11.10 forecast chip) silently
+      // card forecast string + the v1.11.10 forecast chip) silently
       // got undefined. Fixed.
       pv_forecast_entity: config?.pv_forecast_entity,
+      // v1.11.14: dedicated tomorrow-forecast entity for the orange
+      // "Forecast Domani" hero chip. Independent of pv_forecast_entity
+      // (which stays wired to Night Smart Charge) so users can map a
+      // proper next-day sensor without disturbing their existing
+      // overnight-charge logic.
+      pv_forecast_tomorrow_entity: config?.pv_forecast_tomorrow_entity,
     };
 
     // v1.11.4: capture the build version injected by dashboard_manager.py.
@@ -987,7 +993,10 @@ class EvSmartChargerDashboard extends HTMLElement {
       console.info(
         "[EVSC Dashboard] forecast chip diagnostic:",
         {
-          pv_forecast_entity_in_card_config: config?.pv_forecast_entity || "(missing — reconfigure the integration's PV Forecast step or reload the integration)",
+          // v1.11.14: the chip now reads from the *new* dedicated key.
+          // pv_forecast_entity stays wired to Night Smart Charge only.
+          pv_forecast_tomorrow_entity_in_card_config: config?.pv_forecast_tomorrow_entity || "(missing — open Configure → Solar Forecast and map the 'Tomorrow's solar forecast' field)",
+          pv_forecast_entity_in_card_config_night_charge: config?.pv_forecast_entity || "(missing)",
           ev_soc_entity_in_card_config: config?.ev_soc_entity || "(missing)",
           home_battery_soc_entity_in_card_config: config?.home_battery_soc_entity || "(missing)",
         }
@@ -1601,19 +1610,19 @@ class EvSmartChargerDashboard extends HTMLElement {
    * stays live without forcing a structural rebuild.
    */
   _renderForecastPill() {
-    const entityId = this._config.pv_forecast_entity;
-    // v1.11.12: high-visibility one-shot diagnostic — uses console.warn so
-    // it surfaces even with the default console filter on. Helps the
-    // maintainer triage "I configured the sensor but the chip is missing"
-    // reports from a single DevTools screenshot.
+    // v1.11.14: chip now reads from the dedicated `pv_forecast_tomorrow_entity`.
+    // The legacy `pv_forecast_entity` keeps driving Night Smart Charge only.
+    // This split is the resolution of a UX bug where users were mapping
+    // "remaining today" sensors and seeing them labelled "Tomorrow Forecast".
+    const entityId = this._config.pv_forecast_tomorrow_entity;
     if (!entityId) {
       if (!window.__EVSC_NO_FORECAST_LOGGED__) {
         window.__EVSC_NO_FORECAST_LOGGED__ = true;
         // eslint-disable-next-line no-console
         console.warn(
-          "[EVSC Dashboard] forecast chip omitted — pv_forecast_entity is NOT present in the card config. "
+          "[EVSC Dashboard] forecast chip omitted — pv_forecast_tomorrow_entity is NOT present in the card config. "
           + "Open Settings → Devices & Services → EV Smart Charger → Configure → step 'Solar Forecast', "
-          + "map the sensor, then either restart HA or run 'Reload' from the integration's overflow menu."
+          + "map the 'Tomorrow's solar forecast' field, then either restart HA or run 'Reload' from the integration's overflow menu."
         );
       }
       return "";
@@ -2581,13 +2590,15 @@ class EvSmartChargerDashboard extends HTMLElement {
       }
     }
 
-    // v1.11.8 / v1.11.11: forecast pill value — kept live so the chip
-    // refreshes when the PV forecast sensor updates (typically hourly)
-    // without forcing a structural rebuild. v1.11.11: render "—" when
-    // the entity is mapped but the state is momentarily unavailable,
-    // so the chip stays visible (matches _renderForecastPill()).
+    // v1.11.8 / v1.11.11 / v1.11.14: forecast pill value — kept live so
+    // the chip refreshes when the PV forecast sensor updates (typically
+    // hourly) without forcing a structural rebuild. v1.11.11: render "—"
+    // when the entity is mapped but the state is momentarily unavailable.
+    // v1.11.14: reads the dedicated `pv_forecast_tomorrow_entity` so the
+    // chip can't be hijacked by a "remaining today" sensor mapped on the
+    // Night Smart Charge field.
     let forecastValue = "";
-    const fcEntity = this._config.pv_forecast_entity;
+    const fcEntity = this._config.pv_forecast_tomorrow_entity;
     if (fcEntity) {
       const fcObj = this._stateObj(fcEntity);
       if (fcObj && fcObj.state && fcObj.state !== "unknown" && fcObj.state !== "unavailable") {

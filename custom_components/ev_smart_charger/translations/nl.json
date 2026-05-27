@@ -47,10 +47,12 @@
         "title": "Zonneverwachting - Stap {step}/{total_steps}",
         "description": "Optionele sensor die door Night Smart Charge wordt gebruikt om te beslissen of er 's nachts vanuit de thuisbatterij of het net geladen moet worden.",
         "data": {
-          "pv_forecast": "Sensor zonneverwachting"
+          "pv_forecast": "Sensor zonneverwachting (Night Smart Charge)",
+          "pv_forecast_tomorrow": "Zonneverwachting morgen (dashboard-chip)"
         },
         "data_description": {
-          "pv_forecast": "Optionele verwachtingssensor in kWh."
+          "pv_forecast": "Optionele verwachtingssensor in kWh — gebruikt door Night Smart Charge om te beslissen of er 's nachts vanuit de thuisbatterij of het net geladen moet worden.",
+          "pv_forecast_tomorrow": "Optioneel. Koppel een sensor die de zonneverwachting voor morgen in kWh rapporteert (bijv. `sensor.solcast_pv_forecast_forecast_tomorrow`). Activeert de oranje 'Verwachting morgen'-chip op het automatisch gegenereerde dashboard."
         }
       },
       "notifications": {
@@ -123,10 +125,12 @@
         "title": "Zonneverwachting opnieuw configureren - Stap {step}/{total_steps}",
         "description": "Werk de optionele verwachtingssensor bij of verwijder deze voor Night Smart Charge.",
         "data": {
-          "pv_forecast": "Sensor zonneverwachting"
+          "pv_forecast": "Sensor zonneverwachting (Night Smart Charge)",
+          "pv_forecast_tomorrow": "Zonneverwachting morgen (dashboard-chip)"
         },
         "data_description": {
-          "pv_forecast": "Optionele verwachtingssensor in kWh."
+          "pv_forecast": "Optionele verwachtingssensor in kWh — gebruikt door Night Smart Charge om te beslissen of er 's nachts vanuit de thuisbatterij of het net geladen moet worden.",
+          "pv_forecast_tomorrow": "Optioneel. Koppel een sensor die de zonneverwachting voor morgen in kWh rapporteert (bijv. `sensor.solcast_pv_forecast_forecast_tomorrow`). Activeert de oranje 'Verwachting morgen'-chip op het automatisch gegenereerde dashboard."
         }
       },
       "reconfigure_notifications": {
@@ -214,10 +218,12 @@
         "title": "Zonneverwachting bijwerken - Stap {step}/{total_steps}",
         "description": "Werk de optionele verwachtingssensor bij of verwijder deze voor Night Smart Charge.",
         "data": {
-          "pv_forecast": "Sensor zonneverwachting"
+          "pv_forecast": "Sensor zonneverwachting (Night Smart Charge)",
+          "pv_forecast_tomorrow": "Zonneverwachting morgen (dashboard-chip)"
         },
         "data_description": {
-          "pv_forecast": "Optionele verwachtingssensor in kWh."
+          "pv_forecast": "Optionele verwachtingssensor in kWh — gebruikt door Night Smart Charge om te beslissen of er 's nachts vanuit de thuisbatterij of het net geladen moet worden.",
+          "pv_forecast_tomorrow": "Optioneel. Koppel een sensor die de zonneverwachting voor morgen in kWh rapporteert (bijv. `sensor.solcast_pv_forecast_forecast_tomorrow`). Activeert de oranje 'Verwachting morgen'-chip op het automatisch gegenereerde dashboard."
         }
       },
       "notifications": {

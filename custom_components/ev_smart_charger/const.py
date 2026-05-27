@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.11.13"
+VERSION = "1.11.14"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -73,6 +73,11 @@ CONF_FV_PRODUCTION = "fv_production"
 CONF_HOME_CONSUMPTION = "home_consumption"
 CONF_GRID_IMPORT = "grid_import"
 CONF_PV_FORECAST = "pv_forecast"
+# v1.11.14: distinct from CONF_PV_FORECAST. Optional sensor that reports
+# the *next-day* solar production forecast in kWh. Consumed only by the
+# auto-dashboard "Forecast Domani" chip — Night Smart Charge stays wired
+# to CONF_PV_FORECAST so existing installs keep their current behaviour.
+CONF_PV_FORECAST_TOMORROW = "pv_forecast_tomorrow"
 
 # Mobile Notifications
 CONF_NOTIFY_SERVICES = "notify_services"
