@@ -9,9 +9,7 @@ from homeassistant.helpers.event import async_track_time_interval, async_track_s
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CHARGER_AMP_LEVELS,
     CHARGER_STATUS_FREE,
-    VOLTAGE_EU,
     CONF_EV_CHARGER_STATUS,
     CONF_FV_PRODUCTION,
     CONF_HOME_CONSUMPTION,
@@ -35,6 +33,7 @@ from .const import (
     NIGHT_CHARGE_COOLDOWN_SECONDS,
     has_home_battery,
 )
+from .power_model import ChargingModel
 from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
 from .utils.state_helper import get_state, get_float, get_bool, validate_sensor
@@ -94,6 +93,16 @@ class SolarSurplusAutomation:
         self._soc_home = config.get(CONF_SOC_HOME)
         # v1.7.0: PV-only mode (no home battery configured)
         self._has_home_battery = has_home_battery(config)
+
+        # v2.0.0: phase mode + charger model. Single source = runtime power_model
+        # (built once in __init__.py); fall back to building from config so direct
+        # construction in tests still works. Single-phase + Tuya = unchanged values.
+        _pm = runtime_data.power_model if runtime_data is not None else None
+        self._power_model = (
+            _pm if isinstance(_pm, ChargingModel) else ChargingModel.from_config(config)
+        )
+        self._effective_voltage = self._power_model.effective_voltage
+        self._amp_levels = self._power_model.amp_levels
 
         # Helper entities (discovered during setup)
         self._forza_ricarica_entity = None
@@ -586,12 +595,11 @@ class SolarSurplusAutomation:
             self.logger.info("Priority Balancer disabled - using fallback mode")
 
         # === 9. Validate Sensors (with throttled logging to prevent spam) ===
+        # v2.0.0: validate EVERY mapped phase sensor (L1/L2/L3 in three-phase)
+        # BEFORE summing — a single unavailable phase would otherwise be read as
+        # 0 W by get_float and silently halve production/consumption.
         sensor_errors = []
-        sensors_to_validate = [
-            (self._fv_production, "Solar Production"),
-            (self._home_consumption, "Home Consumption"),
-            (self._grid_import, "Grid Import"),
-        ]
+        sensors_to_validate = self._power_model.labelled_power_entities()
 
         # Check each sensor and track error state changes
         new_errors = False
@@ -628,11 +636,14 @@ class SolarSurplusAutomation:
             return
 
         # === 10. Calculate Surplus ===
-        fv_production = get_float(self.hass, self._fv_production)
-        home_consumption = get_float(self.hass, self._home_consumption)
-        grid_import = get_float(self.hass, self._grid_import)
+        # v2.0.0: power readers sum across phases (single-phase = single sensor),
+        # and the watt→amp conversion uses the effective voltage (230 V single,
+        # 690 V three-phase) so surplus_amps stays a valid per-phase amperage.
+        fv_production = self._power_model.read_production(self.hass)
+        home_consumption = self._power_model.read_consumption(self.hass)
+        grid_import = self._power_model.read_grid_import(self.hass)
         surplus_watts = fv_production - home_consumption
-        surplus_amps = surplus_watts / VOLTAGE_EU
+        surplus_amps = surplus_watts / self._effective_voltage
 
         self.logger.info(f"Solar Production: {fv_production}W")
         self.logger.info(f"Home Consumption: {home_consumption}W")
@@ -687,13 +698,13 @@ class SolarSurplusAutomation:
         target_amps = self._calculate_target_amperage(surplus_watts, current_amps)
 
         # Apply user-configured maximum amperage cap (issue #11: wallboxes with <32A limit).
-        # Always cap to the highest valid CHARGER_AMP_LEVELS value that doesn't exceed max_amps
+        # Always cap to the highest valid amp level that doesn't exceed max_amps
         # to avoid sending non-standard amperages to the wallbox.
         if target_amps > 0:
             max_amps = int(get_float(self.hass, self._solar_max_amperage_entity, DEFAULT_SOLAR_MAX_AMPERAGE))
             if target_amps > max_amps:
-                valid_below_max = [l for l in CHARGER_AMP_LEVELS if l <= max_amps]
-                capped = valid_below_max[-1] if valid_below_max else CHARGER_AMP_LEVELS[0]
+                valid_below_max = [l for l in self._amp_levels if l <= max_amps]
+                capped = valid_below_max[-1] if valid_below_max else self._amp_levels[0]
                 self.logger.info(f"Target capped: {target_amps}A → {capped}A (solar max amperage: {max_amps}A)")
                 target_amps = capped
 
@@ -714,7 +725,7 @@ class SolarSurplusAutomation:
             else:
                 elapsed = (dt_util.now() - self._deadband_start_time).total_seconds()
                 if elapsed >= SURPLUS_DEADBAND_START_DELAY:
-                    target_amps = CHARGER_AMP_LEVELS[0]  # 6A minimum
+                    target_amps = self._amp_levels[0]  # 6A minimum
                     self.logger.info(
                         f"Dead band surplus persistent for {elapsed:.0f}s >= "
                         f"{SURPLUS_DEADBAND_START_DELAY}s - "
@@ -1155,14 +1166,15 @@ class SolarSurplusAutomation:
         - Stop threshold: 5.5A (SURPLUS_STOP_THRESHOLD)
         - Dead band: 5.5A - 6.5A (maintain current level, no changes)
         """
-        # ALWAYS calculate from surplus first
-        surplus_amps = surplus_watts / VOLTAGE_EU
+        # ALWAYS calculate from surplus first (effective voltage = 230 V single,
+        # 690 V three-phase → surplus_amps stays a valid per-phase amperage)
+        surplus_amps = surplus_watts / self._effective_voltage
         is_charging = current_amperage > 0
 
         # CASE 1: Surplus sufficient to START or INCREASE (>= 6.5A)
         if surplus_amps >= SURPLUS_START_THRESHOLD:
-            target = CHARGER_AMP_LEVELS[0]
-            for level in CHARGER_AMP_LEVELS:
+            target = self._amp_levels[0]
+            for level in self._amp_levels:
                 if level <= surplus_amps:
                     target = level
                 else:
@@ -1260,7 +1272,7 @@ class SolarSurplusAutomation:
         self._last_grid_import_high = None
 
         # Gradual ramp down: one level at a time via AmperageCalculator
-        next_amps = AmperageCalculator.get_next_level_down(current_amps)
+        next_amps = AmperageCalculator.get_next_level_down(current_amps, self._amp_levels)
 
         if next_amps > 0:
             self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")
@@ -1307,7 +1319,7 @@ class SolarSurplusAutomation:
             # At minimum level or non-standard level — stop charger
             reason = (
                 "Grid import protection - minimum level reached"
-                if current_amps in CHARGER_AMP_LEVELS
+                if current_amps in self._amp_levels
                 else f"Grid import protection - non-standard level {current_amps}A"
             )
             self.logger.info(f"Stopping charger: {reason}")
@@ -1362,7 +1374,7 @@ class SolarSurplusAutomation:
         self._last_surplus_sufficient = None
 
         # Gradual ramp down: one level at a time via AmperageCalculator
-        next_amps = AmperageCalculator.get_next_level_down(current_amps)
+        next_amps = AmperageCalculator.get_next_level_down(current_amps, self._amp_levels)
 
         if next_amps > 0:
             self.logger.info(f"Stepping down ONE level: {current_amps}A -> {next_amps}A")

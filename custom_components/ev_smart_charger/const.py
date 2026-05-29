@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "1.11.15"
+VERSION = "2.0.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -60,8 +60,26 @@ LEGACY_CHARGING_PROFILES = [
 ]
 
 # ========== CHARGER AMPERAGE LEVELS ==========
-CHARGER_AMP_LEVELS = [6, 8, 10, 13, 16, 20, 24, 32]
-VOLTAGE_EU = 230  # European standard voltage
+CHARGER_AMP_LEVELS = [6, 8, 10, 13, 16, 20, 24, 32]  # Tuya-style discrete levels
+# Generic (non-Tuya) wallboxes accept any integer amperage → 1 A steps (v2.0.0)
+GENERIC_AMP_LEVELS = list(range(6, 33))  # [6, 7, 8, ..., 32]
+VOLTAGE_EU = 230  # European standard voltage (per phase)
+
+# ========== PHASE MODE & CHARGER MODEL (v2.0.0, opt-in) ==========
+# Phase mode: single-phase (default, unchanged behaviour) or three-phase.
+# In three-phase, production/consumption/grid are THREE sensors each (summed)
+# and the watt→amp conversion uses 3 × VOLTAGE_EU = 690 V, so per-phase amperage
+# thresholds and amp levels stay valid downstream.
+PHASE_MODE_SINGLE = "single"
+PHASE_MODE_THREE = "three"
+DEFAULT_PHASE_MODE = PHASE_MODE_SINGLE
+
+# Charger model: tuya (discrete CHARGER_AMP_LEVELS, safe stop/set/start on decrease,
+# default = current behaviour) or generic (1 A steps, live amperage decrease without
+# stopping the charger).
+CHARGER_MODEL_TUYA = "tuya"
+CHARGER_MODEL_GENERIC = "generic"
+DEFAULT_CHARGER_MODEL = CHARGER_MODEL_TUYA
 
 # ========== CONFIGURATION FLOW KEYS ==========
 CONF_EV_CHARGER_SWITCH = "ev_charger_switch"
@@ -73,6 +91,19 @@ CONF_FV_PRODUCTION = "fv_production"
 CONF_HOME_CONSUMPTION = "home_consumption"
 CONF_GRID_IMPORT = "grid_import"
 CONF_PV_FORECAST = "pv_forecast"
+
+# Phase mode + per-phase sensors (v2.0.0). The existing keys above act as L1
+# (so single-phase installs are byte-for-byte unchanged); L2/L3 are only mapped
+# and read when CONF_PHASE_MODE == PHASE_MODE_THREE. NOTE: only power quantities
+# are per-phase — soc_car / soc_home stay single (they are battery percentages).
+CONF_PHASE_MODE = "phase_mode"
+CONF_CHARGER_MODEL = "charger_model"
+CONF_FV_PRODUCTION_L2 = "fv_production_l2"
+CONF_FV_PRODUCTION_L3 = "fv_production_l3"
+CONF_HOME_CONSUMPTION_L2 = "home_consumption_l2"
+CONF_HOME_CONSUMPTION_L3 = "home_consumption_l3"
+CONF_GRID_IMPORT_L2 = "grid_import_l2"
+CONF_GRID_IMPORT_L3 = "grid_import_l3"
 # v1.11.14: distinct from CONF_PV_FORECAST. Optional sensor that reports
 # the *next-day* solar production forecast in kWh. Consumed only by the
 # auto-dashboard "Forecast Domani" chip — Night Smart Charge stays wired
@@ -312,6 +343,42 @@ TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 52
 def has_home_battery(config: dict) -> bool:
     """Return True if the user configured a home battery SOC sensor (v1.7.0)."""
     return bool(config.get(CONF_SOC_HOME))
+
+
+def is_three_phase(config: dict) -> bool:
+    """Return True if the install is configured as three-phase (v2.0.0)."""
+    return config.get(CONF_PHASE_MODE, DEFAULT_PHASE_MODE) == PHASE_MODE_THREE
+
+
+def get_phase_count(config: dict) -> int:
+    """Return the number of phases (1 single, 3 three-phase) (v2.0.0)."""
+    return 3 if is_three_phase(config) else 1
+
+
+def get_effective_voltage(config: dict) -> float:
+    """Return the watt→amp conversion voltage (phase_count × VOLTAGE_EU).
+
+    Single-phase → 230 V (unchanged). Three-phase → 690 V, so that
+    ``surplus_watts / effective_voltage`` yields the per-phase amperage a
+    balanced three-phase charger can sustain (P = 3 · V · I).
+    """
+    return get_phase_count(config) * VOLTAGE_EU
+
+
+def get_charger_model(config: dict) -> str:
+    """Return the configured charger model (v2.0.0)."""
+    return config.get(CONF_CHARGER_MODEL, DEFAULT_CHARGER_MODEL)
+
+
+def get_amp_levels(config: dict) -> list[int]:
+    """Return the amperage level set for the configured charger model (v2.0.0).
+
+    ``tuya`` → discrete CHARGER_AMP_LEVELS (default, unchanged).
+    ``generic`` → GENERIC_AMP_LEVELS (1 A steps, 6–32 A).
+    """
+    if get_charger_model(config) == CHARGER_MODEL_GENERIC:
+        return GENERIC_AMP_LEVELS
+    return CHARGER_AMP_LEVELS
 
 # ========== ANONYMOUS TELEMETRY ==========
 # Google Apps Script Web App endpoint (insert-only, no personal data).

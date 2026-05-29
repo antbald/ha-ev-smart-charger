@@ -13,14 +13,16 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
     CHARGER_AMPERAGE_STABILIZATION_DELAY,
-    CHARGER_AMP_LEVELS,
     CHARGER_COMMAND_DELAY,
     CHARGER_MIN_OPERATION_INTERVAL,
+    CHARGER_MODEL_TUYA,
     CHARGER_START_SEQUENCE_DELAY,
     CHARGER_STOP_SEQUENCE_DELAY,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_SWITCH,
     SERVICE_CALL_TIMEOUT,
+    get_amp_levels,
+    get_charger_model,
 )
 from .runtime import EVSCRuntimeData
 from .utils.amperage_helper import AmperageCalculator
@@ -152,15 +154,21 @@ class ChargerController:
         self._charger_current = config.get(CONF_EV_CHARGER_CURRENT)
         self._current_control = CurrentControlAdapter(hass, self._charger_current)
 
+        # Charger model (v2.0.0): governs the amperage level set and whether the
+        # safe stop/set/start decrease sequence is used (tuya) or a live set (generic).
+        self._amp_levels = get_amp_levels(config)
+        self._charger_model = get_charger_model(config)
+
         self._last_operation_time: Optional[datetime] = None
         self._current_amperage: Optional[int] = None
         self._is_on: Optional[bool] = None
         self._lock = asyncio.Lock()
 
         self.logger.info(
-            "Initialized ChargerController - Switch: %s, Current: %s",
+            "Initialized ChargerController - Switch: %s, Current: %s, Model: %s",
             self._charger_switch,
             self._charger_current,
+            self._charger_model,
         )
 
     async def _emit_operation_diagnostic(
@@ -394,7 +402,9 @@ class ChargerController:
                 await self._refresh_state()
 
                 current_amps = self._current_amperage or 0
-                next_amps = AmperageCalculator.get_next_level_down(current_amps)
+                next_amps = AmperageCalculator.get_next_level_down(
+                    current_amps, self._amp_levels
+                )
                 await self._wait_for_rate_limit()
 
                 if next_amps == 0:
@@ -462,6 +472,7 @@ class ChargerController:
                 next_amps = AmperageCalculator.get_next_level_up(
                     current_amps,
                     normalized_target,
+                    self._amp_levels,
                 )
                 operation = await self._set_amperage_unlocked(next_amps)
                 return OperationResult(
@@ -509,12 +520,22 @@ class ChargerController:
         await self._refresh_state()
 
     async def _set_amperage_unlocked(self, target_amps: int) -> str:
-        """Set charger amperage without reacquiring the controller lock."""
+        """Set charger amperage without reacquiring the controller lock.
+
+        On DECREASE, Tuya chargers need the safe stop/set/start sequence
+        (changing current while charging misbehaves). Generic (non-Tuya)
+        wallboxes accept a live current reduction, so we set the lower value
+        directly — no stop, no ~6-8s interruption per step (v2.0.0).
+        """
         await self._refresh_state()
         current_amps = self._current_amperage or 0
         is_on = bool(self._is_on)
 
-        if is_on and target_amps < current_amps:
+        if (
+            is_on
+            and target_amps < current_amps
+            and self._charger_model == CHARGER_MODEL_TUYA
+        ):
             await self._decrease_amperage_unlocked(target_amps)
             return "adjust_down"
 
@@ -567,8 +588,8 @@ class ChargerController:
     def _normalize_target_amps(self, target_amps: int | float | None) -> int:
         """Normalize a target amperage to the nearest supported level."""
         if target_amps is None:
-            return CHARGER_AMP_LEVELS[0]
-        return min(CHARGER_AMP_LEVELS, key=lambda value: abs(value - int(target_amps)))
+            return self._amp_levels[0]
+        return min(self._amp_levels, key=lambda value: abs(value - int(target_amps)))
 
     async def _call_service(self, domain: str, service: str, data: dict):
         """Call a Home Assistant service with timeout and error handling."""

@@ -27,20 +27,32 @@
       },
       "sensors": {
         "title": "Sensori Energia - Passo {step}/{total_steps}",
-        "description": "Mappa i sensori usati da Solar Surplus, Priority Balancer e Night Smart Charge.",
+        "description": "Mappa i sensori usati da Solar Surplus, Priority Balancer e Night Smart Charge. In trifase mappi tre sensori per grandezza (uno per fase).",
         "data": {
           "soc_car": "SOC batteria EV",
           "soc_home": "SOC batteria casa",
           "fv_production": "Produzione solare",
           "home_consumption": "Consumo casa",
-          "grid_import": "Prelievo da rete"
+          "grid_import": "Prelievo da rete",
+          "fv_production_l2": "Produzione solare (L2)",
+          "fv_production_l3": "Produzione solare (L3)",
+          "home_consumption_l2": "Consumo casa (L2)",
+          "home_consumption_l3": "Consumo casa (L3)",
+          "grid_import_l2": "Prelievo rete (L2)",
+          "grid_import_l3": "Prelievo rete (L3)"
         },
         "data_description": {
           "soc_car": "Sensore con lo stato di carica EV in percentuale.",
           "soc_home": "Sensore con lo stato di carica della batteria di casa in percentuale.",
           "fv_production": "Sensore con la produzione FV corrente in watt.",
           "home_consumption": "Sensore con il consumo di casa in watt, preferibilmente senza includere la ricarica EV.",
-          "grid_import": "Sensore con la potenza importata dalla rete in watt. Valori positivi indicano import."
+          "grid_import": "Sensore con la potenza importata dalla rete in watt. Valori positivi indicano import.",
+          "fv_production_l2": "Produzione solare sulla fase L2, in watt.",
+          "fv_production_l3": "Produzione solare sulla fase L3, in watt.",
+          "home_consumption_l2": "Consumo casa sulla fase L2, in watt.",
+          "home_consumption_l3": "Consumo casa sulla fase L3, in watt.",
+          "grid_import_l2": "Prelievo rete sulla fase L2, in watt.",
+          "grid_import_l3": "Prelievo rete sulla fase L3, in watt."
         }
       },
       "pv_forecast": {
@@ -90,35 +102,43 @@
         }
       },
       "reconfigure": {
-        "title": "Riconfigura Entita Charger - Passo {step}/{total_steps}",
-        "description": "Aggiorna le entita del charger per questa config entry.",
+        "title": "Riconfigura modalità impianto - Passo {step}/{total_steps}",
+        "description": "Scegli com'è fatto il tuo impianto elettrico.\n\n**Monofase** — una sola fase (230 V, ricarica fino a ~3,7 kW): mappi un sensore per la produzione, uno per il consumo e uno per il prelievo dalla rete, come adesso. È il caso più comune.\n\n**Trifase** — tre fasi (230 V ciascuna, ricarica ~11–22 kW): mappi tre sensori per la produzione, tre per il consumo e tre per il prelievo (uno per fase); l'integrazione li somma e bilancia la velocità di ricarica sulle tre fasi. In trifase ogni valore di amperaggio vale circa 3× la potenza del monofase (es. 16 A ≈ 11 kW) e il minimo è ~4,1 kW: assicurati che l'inverter della batteria regga la potenza scelta.",
         "data": {
-          "ev_charger_switch": "Switch charger",
-          "ev_charger_current": "Controllo corrente di ricarica",
-          "ev_charger_status": "Sensore stato charger"
+          "phase_mode": "Fasi elettriche"
         },
         "data_description": {
-          "ev_charger_switch": "Entita switch che accende o spegne il charger.",
-          "ev_charger_current": "Entita per la corrente. Domini supportati: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Sensore stato che riporta `charger_charging`, `charger_free`, `charger_end` o `charger_wait`."
+          "phase_mode": "Il monofase è il default e va bene per la maggior parte delle case. Scegli trifase solo se il tuo impianto è davvero trifase."
         }
       },
       "reconfigure_sensors": {
         "title": "Riconfigura Sensori Energia - Passo {step}/{total_steps}",
-        "description": "Aggiorna i sensori energia e SOC usati dall'integrazione.",
+        "description": "Aggiorna i sensori energia e SOC usati dall'integrazione. In trifase mappi tre sensori per grandezza (uno per fase).",
         "data": {
           "soc_car": "SOC batteria EV",
           "soc_home": "SOC batteria casa",
           "fv_production": "Produzione solare",
           "home_consumption": "Consumo casa",
-          "grid_import": "Prelievo da rete"
+          "grid_import": "Prelievo da rete",
+          "fv_production_l2": "Produzione solare (L2)",
+          "fv_production_l3": "Produzione solare (L3)",
+          "home_consumption_l2": "Consumo casa (L2)",
+          "home_consumption_l3": "Consumo casa (L3)",
+          "grid_import_l2": "Prelievo rete (L2)",
+          "grid_import_l3": "Prelievo rete (L3)"
         },
         "data_description": {
           "soc_car": "Sensore con lo stato di carica EV in percentuale.",
           "soc_home": "Sensore con lo stato di carica della batteria di casa in percentuale.",
           "fv_production": "Sensore con la produzione FV corrente in watt.",
           "home_consumption": "Sensore con il consumo di casa in watt, preferibilmente senza includere la ricarica EV.",
-          "grid_import": "Sensore con la potenza importata dalla rete in watt. Valori positivi indicano import."
+          "grid_import": "Sensore con la potenza importata dalla rete in watt. Valori positivi indicano import.",
+          "fv_production_l2": "Produzione solare sulla fase L2, in watt.",
+          "fv_production_l3": "Produzione solare sulla fase L3, in watt.",
+          "home_consumption_l2": "Consumo casa sulla fase L2, in watt.",
+          "home_consumption_l3": "Consumo casa sulla fase L3, in watt.",
+          "grid_import_l2": "Prelievo rete sulla fase L2, in watt.",
+          "grid_import_l3": "Prelievo rete sulla fase L3, in watt."
         }
       },
       "reconfigure_pv_forecast": {
@@ -166,6 +186,50 @@
         "data_description": {
           "create_dashboard": "Attiva/disattiva la dashboard EV Smart Charger dedicata."
         }
+      },
+      "reconfigure_entities": {
+        "title": "Riconfigura Entita Charger - Passo {step}/{total_steps}",
+        "description": "Aggiorna le entita del charger per questa config entry.",
+        "data": {
+          "ev_charger_switch": "Switch charger",
+          "ev_charger_current": "Controllo corrente di ricarica",
+          "ev_charger_status": "Sensore stato charger"
+        },
+        "data_description": {
+          "ev_charger_switch": "Entita switch che accende o spegne il charger.",
+          "ev_charger_current": "Entita per la corrente. Domini supportati: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Sensore stato che riporta `charger_charging`, `charger_free`, `charger_end` o `charger_wait`."
+        }
+      },
+      "phase_mode": {
+        "title": "Modalità impianto - Passo {step}/{total_steps}",
+        "description": "Scegli com'è fatto il tuo impianto elettrico.\n\n**Monofase** — una sola fase (230 V, ricarica fino a ~3,7 kW): mappi un sensore per la produzione, uno per il consumo e uno per il prelievo dalla rete, come adesso. È il caso più comune.\n\n**Trifase** — tre fasi (230 V ciascuna, ricarica ~11–22 kW): mappi tre sensori per la produzione, tre per il consumo e tre per il prelievo (uno per fase); l'integrazione li somma e bilancia la velocità di ricarica sulle tre fasi. In trifase ogni valore di amperaggio vale circa 3× la potenza del monofase (es. 16 A ≈ 11 kW) e il minimo è ~4,1 kW: assicurati che l'inverter della batteria regga la potenza scelta.",
+        "data": {
+          "phase_mode": "Fasi elettriche"
+        },
+        "data_description": {
+          "phase_mode": "Il monofase è il default e va bene per la maggior parte delle case. Scegli trifase solo se il tuo impianto è davvero trifase."
+        }
+      },
+      "charger_model": {
+        "title": "Modello wallbox - Passo {step}/{total_steps}",
+        "description": "Scegli come la tua wallbox regola la corrente di ricarica.\n\n**Tuya** — la corrente si imposta solo su valori fissi (6, 8, 10, 13, 16, 20, 24, 32 A); per abbassarla la wallbox viene spenta e riaccesa (qualche secondo di pausa). È il default e funziona con i wallbox più diffusi: scegli questa se non sai.\n\n**Generica** — accetta qualsiasi valore intero di corrente (6, 7, 8, … 32 A) tramite un'entità `number`: regolazione più fine e, in diminuzione, la corrente cala al volo senza interrompere la ricarica.",
+        "data": {
+          "charger_model": "Tipo di wallbox"
+        },
+        "data_description": {
+          "charger_model": "Tuya = scatti fissi (default). Generica = scatti da 1 A per wallbox non-Tuya che espongono la corrente come entità number."
+        }
+      },
+      "reconfigure_charger_model": {
+        "title": "Riconfigura modello wallbox - Passo {step}/{total_steps}",
+        "description": "Scegli come la tua wallbox regola la corrente di ricarica.\n\n**Tuya** — la corrente si imposta solo su valori fissi (6, 8, 10, 13, 16, 20, 24, 32 A); per abbassarla la wallbox viene spenta e riaccesa (qualche secondo di pausa). È il default e funziona con i wallbox più diffusi: scegli questa se non sai.\n\n**Generica** — accetta qualsiasi valore intero di corrente (6, 7, 8, … 32 A) tramite un'entità `number`: regolazione più fine e, in diminuzione, la corrente cala al volo senza interrompere la ricarica.",
+        "data": {
+          "charger_model": "Tipo di wallbox"
+        },
+        "data_description": {
+          "charger_model": "Tuya = scatti fissi (default). Generica = scatti da 1 A per wallbox non-Tuya che espongono la corrente come entità number."
+        }
       }
     },
     "error": {
@@ -183,35 +247,43 @@
   "options": {
     "step": {
       "init": {
-        "title": "Aggiorna Entita Charger - Passo {step}/{total_steps}",
-        "description": "Wrapper di compatibilita del flow canonico di reconfigure. Aggiorna le entita del charger per questa entry.",
+        "title": "Aggiorna modalità impianto - Passo {step}/{total_steps}",
+        "description": "Scegli com'è fatto il tuo impianto elettrico.\n\n**Monofase** — una sola fase (230 V, ricarica fino a ~3,7 kW): mappi un sensore per la produzione, uno per il consumo e uno per il prelievo dalla rete, come adesso. È il caso più comune.\n\n**Trifase** — tre fasi (230 V ciascuna, ricarica ~11–22 kW): mappi tre sensori per la produzione, tre per il consumo e tre per il prelievo (uno per fase); l'integrazione li somma e bilancia la velocità di ricarica sulle tre fasi. In trifase ogni valore di amperaggio vale circa 3× la potenza del monofase (es. 16 A ≈ 11 kW) e il minimo è ~4,1 kW: assicurati che l'inverter della batteria regga la potenza scelta.",
         "data": {
-          "ev_charger_switch": "Switch charger",
-          "ev_charger_current": "Controllo corrente di ricarica",
-          "ev_charger_status": "Sensore stato charger"
+          "phase_mode": "Fasi elettriche"
         },
         "data_description": {
-          "ev_charger_switch": "Entita switch che accende o spegne il charger.",
-          "ev_charger_current": "Entita per la corrente. Domini supportati: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Sensore stato che riporta `charger_charging`, `charger_free`, `charger_end` o `charger_wait`."
+          "phase_mode": "Il monofase è il default e va bene per la maggior parte delle case. Scegli trifase solo se il tuo impianto è davvero trifase."
         }
       },
       "sensors": {
         "title": "Aggiorna Sensori Energia - Passo {step}/{total_steps}",
-        "description": "Aggiorna i sensori energia e SOC usati dall'integrazione.",
+        "description": "Aggiorna i sensori energia e SOC usati dall'integrazione. In trifase mappi tre sensori per grandezza (uno per fase).",
         "data": {
           "soc_car": "SOC batteria EV",
           "soc_home": "SOC batteria casa",
           "fv_production": "Produzione solare",
           "home_consumption": "Consumo casa",
-          "grid_import": "Prelievo da rete"
+          "grid_import": "Prelievo da rete",
+          "fv_production_l2": "Produzione solare (L2)",
+          "fv_production_l3": "Produzione solare (L3)",
+          "home_consumption_l2": "Consumo casa (L2)",
+          "home_consumption_l3": "Consumo casa (L3)",
+          "grid_import_l2": "Prelievo rete (L2)",
+          "grid_import_l3": "Prelievo rete (L3)"
         },
         "data_description": {
           "soc_car": "Sensore con lo stato di carica EV in percentuale.",
           "soc_home": "Sensore con lo stato di carica della batteria di casa in percentuale.",
           "fv_production": "Sensore con la produzione FV corrente in watt.",
           "home_consumption": "Sensore con il consumo di casa in watt, preferibilmente senza includere la ricarica EV.",
-          "grid_import": "Sensore con la potenza importata dalla rete in watt. Valori positivi indicano import."
+          "grid_import": "Sensore con la potenza importata dalla rete in watt. Valori positivi indicano import.",
+          "fv_production_l2": "Produzione solare sulla fase L2, in watt.",
+          "fv_production_l3": "Produzione solare sulla fase L3, in watt.",
+          "home_consumption_l2": "Consumo casa sulla fase L2, in watt.",
+          "home_consumption_l3": "Consumo casa sulla fase L3, in watt.",
+          "grid_import_l2": "Prelievo rete sulla fase L2, in watt.",
+          "grid_import_l3": "Prelievo rete sulla fase L3, in watt."
         }
       },
       "pv_forecast": {
@@ -258,6 +330,30 @@
         },
         "data_description": {
           "create_dashboard": "Se attivo, viene creata una dashboard Lovelace precaricata con tutte le entita su /ev-smart-charger."
+        }
+      },
+      "entities": {
+        "title": "Aggiorna Entita Charger - Passo {step}/{total_steps}",
+        "description": "Wrapper di compatibilita del flow canonico di reconfigure. Aggiorna le entita del charger per questa entry.",
+        "data": {
+          "ev_charger_switch": "Switch charger",
+          "ev_charger_current": "Controllo corrente di ricarica",
+          "ev_charger_status": "Sensore stato charger"
+        },
+        "data_description": {
+          "ev_charger_switch": "Entita switch che accende o spegne il charger.",
+          "ev_charger_current": "Entita per la corrente. Domini supportati: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Sensore stato che riporta `charger_charging`, `charger_free`, `charger_end` o `charger_wait`."
+        }
+      },
+      "charger_model": {
+        "title": "Aggiorna modello wallbox - Passo {step}/{total_steps}",
+        "description": "Scegli come la tua wallbox regola la corrente di ricarica.\n\n**Tuya** — la corrente si imposta solo su valori fissi (6, 8, 10, 13, 16, 20, 24, 32 A); per abbassarla la wallbox viene spenta e riaccesa (qualche secondo di pausa). È il default e funziona con i wallbox più diffusi: scegli questa se non sai.\n\n**Generica** — accetta qualsiasi valore intero di corrente (6, 7, 8, … 32 A) tramite un'entità `number`: regolazione più fine e, in diminuzione, la corrente cala al volo senza interrompere la ricarica.",
+        "data": {
+          "charger_model": "Tipo di wallbox"
+        },
+        "data_description": {
+          "charger_model": "Tuya = scatti fissi (default). Generica = scatti da 1 A per wallbox non-Tuya che espongono la corrente come entità number."
         }
       }
     },
@@ -440,6 +536,20 @@
       },
       "evsc_car_ready_time": {
         "name": "Ora auto pronta"
+      }
+    }
+  },
+  "selector": {
+    "phase_mode": {
+      "options": {
+        "single": "Monofase",
+        "three": "Trifase"
+      }
+    },
+    "charger_model": {
+      "options": {
+        "tuya": "Tuya (standard)",
+        "generic": "Generica (scatti da 1 A)"
       }
     }
   }

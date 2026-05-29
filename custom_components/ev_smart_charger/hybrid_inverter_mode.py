@@ -101,6 +101,7 @@ from .const import (
     PRIORITY_HOME,
     SURPLUS_STOP_THRESHOLD,
 )
+from .power_model import ChargingModel
 from .runtime import EVSCRuntimeData
 from .utils.amperage_helper import AmperageCalculator
 from .utils.astral_time_service import AstralTimeService
@@ -144,6 +145,17 @@ class HybridInverterMode:
         self._grid_import = config.get(CONF_GRID_IMPORT)
         self._soc_home = config.get(CONF_SOC_HOME)
         self._charger_status = config.get(CONF_EV_CHARGER_STATUS)
+
+        # v2.0.0: phase model. Levels follow the charger model; the negative-surplus
+        # floor scales with phase count (the 6 A probe draws phase_count× the power).
+        _pm = runtime_data.power_model if runtime_data is not None else None
+        self._power_model = (
+            _pm if isinstance(_pm, ChargingModel) else ChargingModel.from_config(config)
+        )
+        self._amp_levels = self._power_model.amp_levels
+        self._max_negative_surplus_w = (
+            HYBRID_MAX_NEGATIVE_SURPLUS_W * self._power_model.phase_count
+        )
 
         # Helper entities resolved in async_setup()
         self._enabled_entity: str | None = None
@@ -349,7 +361,7 @@ class HybridInverterMode:
 
         # 6A floor protection: if the house consumes much more than PV ceiling,
         # there is no plausible headroom even with curtailment.
-        if surplus_watts < HYBRID_MAX_NEGATIVE_SURPLUS_W:
+        if surplus_watts < self._max_negative_surplus_w:
             self._grid_import_below_threshold_since = None
             return False
 
@@ -537,8 +549,8 @@ class HybridInverterMode:
             return f"charger status now {status}"
 
         # 6A floor + plausibility
-        if surplus_watts < HYBRID_MAX_NEGATIVE_SURPLUS_W:
-            return f"surplus dropped below {HYBRID_MAX_NEGATIVE_SURPLUS_W}W (no plausible headroom)"
+        if surplus_watts < self._max_negative_surplus_w:
+            return f"surplus dropped below {self._max_negative_surplus_w}W (no plausible headroom)"
 
         # PRIORITY checks
         if priority == PRIORITY_HOME:
@@ -703,7 +715,7 @@ class HybridInverterMode:
                 self._import_violation_since = now
             violation_elapsed = (now - self._import_violation_since).total_seconds()
             if violation_elapsed >= max_import_duration:
-                next_down = AmperageCalculator.get_next_level_down(current_amps)
+                next_down = AmperageCalculator.get_next_level_down(current_amps, self._amp_levels)
                 if next_down >= 6:
                     self.logger.info(
                         f"{self.logger.ACTION} RIDING_EDGE: grid {grid_import:.0f}W "
@@ -748,7 +760,7 @@ class HybridInverterMode:
                 and current_amps < solar_max_amperage
             ):
                 next_up = AmperageCalculator.get_next_level_up(
-                    current_amps, solar_max_amperage
+                    current_amps, solar_max_amperage, self._amp_levels
                 )
                 if next_up > current_amps:
                     self.logger.info(

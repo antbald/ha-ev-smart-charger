@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 1.8.0
+**Current Version:** 2.0.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -391,7 +391,7 @@ This allows automations to find helper entities regardless of entry_id.
 
 **Integration Metadata:**
 - `DOMAIN = "ev_smart_charger"`
-- `VERSION = "1.4.14"`
+- `VERSION = "2.0.0"`
 - `DEFAULT_NAME = "EV Smart Charger"`
 
 **Platforms:**
@@ -755,6 +755,34 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.0.0 (2026-05-29) — MAJOR
+**Universal compatibility: any electrical system (single-phase / three-phase) + any wallbox (Tuya / generic, cloud or local) — opt-in ([discussion #18](https://github.com/antbald/ha-ev-smart-charger/discussions/18))**
+
+Major version: EV Smart Charger now covers *every* installation shape on the market (1φ/3φ, any HA-integrated wallbox). But it is **100% backward compatible** — existing installs default to single-phase + Tuya, no migration, no behaviour change.
+
+Two independent opt-in dimensions, both defaulting to the current behaviour so existing installs are byte-for-byte unchanged (no migration; missing keys resolve to defaults via `.get`).
+
+**1. Phase mode (`CONF_PHASE_MODE` = `single` default | `three`).**
+In three-phase, production / home-consumption / grid-import are mapped as **three sensors each** (L1 reuses the existing single-phase key; L2/L3 are new keys, required only in three-phase) and summed. The watt→amp conversion uses an **effective voltage** of `phase_count × 230` (690 V in three-phase) instead of 230 V — so `surplus_amps = surplus_watts / effective_voltage` yields the per-phase amperage a balanced three-phase charger sustains (P = 3·V·I), and all downstream amperage thresholds / levels / caps stay valid unchanged. SOC sensors stay single (battery percentages, not per-phase).
+
+**2. Charger model (`CONF_CHARGER_MODEL` = `tuya` default | `generic`).** Governs two behaviours:
+- **Granularity**: `tuya` keeps discrete `CHARGER_AMP_LEVELS` `[6,8,10,13,16,20,24,32]`; `generic` uses 1 A steps `GENERIC_AMP_LEVELS = range(6,33)`. The amperage `number` entities use `step=1` in generic mode.
+- **Decrease sequence**: `tuya` keeps the safe stop → set → start sequence (Tuya/`select` chargers misbehave on a live current change); `generic` lowers the current **live, without stopping** the charger (non-Tuya `number`-controlled wallboxes accept it). The existing `CurrentControlAdapter` (number/input_number/select/input_select) already handled non-Tuya wallbox *control*; v2.0.0 adds the granularity + live-decrease that completes it.
+
+**Architecture — single source of truth.** New `power_model.py` defines `ChargingModel` (phase_count, effective_voltage, amp_levels, charger_model, per-phase power readers). Built once in `__init__` and stored on `runtime_data.power_model`; consumed by `charger_controller`, `solar_surplus`, `night_smart_charge`, `hybrid_inverter_mode`. Pure config helpers (`is_three_phase`, `get_phase_count`, `get_effective_voltage`, `get_amp_levels`, `get_charger_model`) live in `const.py` for the config flow / `number.py` / `dashboard_manager` (which run without runtime_data).
+
+**Config flow.** Initial flow 7 → **9 steps** (name → phase_mode → charger_model → entities → sensors[phase-aware] → pv_forecast → notifications → external_connectors → dashboard). Reconfigure & options flows mirror it (6 → **8 steps**; entry point becomes phase_mode, charger-entities moved to a dedicated step) so existing users can opt in. Radio labels are localized in Python (cross-HA-version safe; older cores reject `translation_key` during selector serialization); step titles/descriptions in `strings.json` + EN/IT/NL with the R1 power note.
+
+**Dashboard.** `dashboard_manager` passes `phase_mode`, `charger_model` and per-phase entity lists; the bundled card whitelists them in `setConfig` (the v1.11.13 silent-drop class of bug), sums the phase sensors for the Solar/Grid tiles, and derives charging power with `amps × 690` in three-phase.
+
+**Known limitation (R1, documented not capped).** All amperage settings are per-phase, so in three-phase each means ~3× the single-phase power (16 A ≈ 11 kW; minimum ~4.1 kW). Battery support / night charge can exceed a home battery inverter's discharge limit — documented in the config flow + README; a power cap is a possible follow-up. Telemetry intentionally untouched (fixed GAS schema).
+
+**Files**: NEW `power_model.py`; `const.py`, `runtime.py`, `__init__.py`, `utils/amperage_helper.py`, `charger_controller.py`, `solar_surplus.py`, `night_smart_charge.py`, `hybrid_inverter_mode.py`, `number.py`, `config_flow.py`, `dashboard_manager.py`, `frontend/ev-smart-charger-dashboard.js`, `strings.json`, `translations/{en,it,nl}.json`, `manifest.json`, `docs/SSOT.md`, `docs/CODEBASE_MAP.md`, `README.md`, `info.md`; tests: NEW `tests/test_power_model_and_charger_model.py`, updated `tests/test_config_flow*.py`. `VERSION = "2.0.0"`. Entity counts unchanged (phase/model are config, not helpers).
+
+**Upgrade priority**: 🟢 RECOMMENDED for three-phase / non-Tuya wallbox owners (opt-in via reconfigure). ⚪ NO-OP for everyone else — defaults preserve single-phase + Tuya behaviour exactly.
+
+---
 
 ### v1.11.7 (2026-05-27)
 **HOTFIX: Boost rejection visibility + Charging Power lenient computation**

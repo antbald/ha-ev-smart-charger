@@ -27,20 +27,32 @@
       },
       "sensors": {
         "title": "Energiesensoren - Stap {step}/{total_steps}",
-        "description": "Koppel de sensoren die door Solar Surplus, Priority Balancer en Night Smart Charge worden gebruikt.",
+        "description": "Koppel de sensoren die door Solar Surplus, Priority Balancer en Night Smart Charge worden gebruikt. In driefase koppel je drie sensoren per grootheid (één per fase).",
         "data": {
           "soc_car": "EV-batterij-SOC",
           "soc_home": "Thuisbatterij-SOC",
           "fv_production": "Zonneproductie",
           "home_consumption": "Woningverbruik",
-          "grid_import": "Netafname"
+          "grid_import": "Netafname",
+          "fv_production_l2": "Zonneproductie (L2)",
+          "fv_production_l3": "Zonneproductie (L3)",
+          "home_consumption_l2": "Verbruik woning (L2)",
+          "home_consumption_l3": "Verbruik woning (L3)",
+          "grid_import_l2": "Netafname (L2)",
+          "grid_import_l3": "Netafname (L3)"
         },
         "data_description": {
           "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
           "soc_home": "Sensor met de laadtoestand van de thuisbatterij in procenten.",
           "fv_production": "Sensor met de actuele PV-productie in watt.",
           "home_consumption": "Sensor met het actuele huishoudelijke verbruik in watt, indien mogelijk exclusief EV-laden.",
-          "grid_import": "Sensor met uit het net afgenomen vermogen in watt. Positieve waarden betekenen afname uit het net."
+          "grid_import": "Sensor met uit het net afgenomen vermogen in watt. Positieve waarden betekenen afname uit het net.",
+          "fv_production_l2": "Zonneproductie op fase L2, in watt.",
+          "fv_production_l3": "Zonneproductie op fase L3, in watt.",
+          "home_consumption_l2": "Verbruik woning op fase L2, in watt.",
+          "home_consumption_l3": "Verbruik woning op fase L3, in watt.",
+          "grid_import_l2": "Netafname op fase L2, in watt.",
+          "grid_import_l3": "Netafname op fase L3, in watt."
         }
       },
       "pv_forecast": {
@@ -90,35 +102,43 @@
         }
       },
       "reconfigure": {
-        "title": "Lader-entiteiten opnieuw configureren - Stap {step}/{total_steps}",
-        "description": "Werk de lader-entiteiten voor deze config entry bij.",
+        "title": "Fasemodus opnieuw configureren - Stap {step}/{total_steps}",
+        "description": "Kies hoe je elektrische installatie is bekabeld.\n\n**Eénfase** — één fase (230 V, laden tot ~3,7 kW): je koppelt één sensor voor zonneproductie, één voor verbruik en één voor netafname, zoals nu. Dit is de meest voorkomende opstelling.\n\n**Driefase** — drie fasen (230 V elk, laden ~11–22 kW): je koppelt drie sensoren voor productie, drie voor verbruik en drie voor netafname (één per fase); de integratie telt ze op en verdeelt de laadsnelheid over de drie fasen. Bij driefase staat elke ampèrewaarde voor ongeveer 3× het vermogen van éénfase (bijv. 16 A ≈ 11 kW) en het minimum is ~4,1 kW — zorg dat je thuisbatterij-omvormer dat vermogen aankan.",
         "data": {
-          "ev_charger_switch": "Lader-schakelaar",
-          "ev_charger_current": "Laadstroomregeling",
-          "ev_charger_status": "Laderstatussensor"
+          "phase_mode": "Elektrische fasen"
         },
         "data_description": {
-          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
-          "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Statussensor die `charger_charging`, `charger_free`, `charger_end` of `charger_wait` rapporteert."
+          "phase_mode": "Eénfase is de standaard en past bij de meeste woningen. Kies alleen driefase als je installatie echt driefase is."
         }
       },
       "reconfigure_sensors": {
         "title": "Energiesensoren opnieuw configureren - Stap {step}/{total_steps}",
-        "description": "Werk de energie- en SOC-sensoren bij die door de integratie worden gebruikt.",
+        "description": "Werk de energie- en SOC-sensoren bij die door de integratie worden gebruikt. In driefase koppel je drie sensoren per grootheid (één per fase).",
         "data": {
           "soc_car": "EV-batterij-SOC",
           "soc_home": "Thuisbatterij-SOC",
           "fv_production": "Zonneproductie",
           "home_consumption": "Woningverbruik",
-          "grid_import": "Netafname"
+          "grid_import": "Netafname",
+          "fv_production_l2": "Zonneproductie (L2)",
+          "fv_production_l3": "Zonneproductie (L3)",
+          "home_consumption_l2": "Verbruik woning (L2)",
+          "home_consumption_l3": "Verbruik woning (L3)",
+          "grid_import_l2": "Netafname (L2)",
+          "grid_import_l3": "Netafname (L3)"
         },
         "data_description": {
           "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
           "soc_home": "Sensor met de laadtoestand van de thuisbatterij in procenten.",
           "fv_production": "Sensor met de actuele PV-productie in watt.",
           "home_consumption": "Sensor met het actuele huishoudelijke verbruik in watt, indien mogelijk exclusief EV-laden.",
-          "grid_import": "Sensor met uit het net afgenomen vermogen in watt. Positieve waarden betekenen afname uit het net."
+          "grid_import": "Sensor met uit het net afgenomen vermogen in watt. Positieve waarden betekenen afname uit het net.",
+          "fv_production_l2": "Zonneproductie op fase L2, in watt.",
+          "fv_production_l3": "Zonneproductie op fase L3, in watt.",
+          "home_consumption_l2": "Verbruik woning op fase L2, in watt.",
+          "home_consumption_l3": "Verbruik woning op fase L3, in watt.",
+          "grid_import_l2": "Netafname op fase L2, in watt.",
+          "grid_import_l3": "Netafname op fase L3, in watt."
         }
       },
       "reconfigure_pv_forecast": {
@@ -166,6 +186,50 @@
         "data_description": {
           "create_dashboard": "Schakelen om het toegewijde EV Smart Charger Lovelace-dashboard aan te maken of te verwijderen."
         }
+      },
+      "reconfigure_entities": {
+        "title": "Lader-entiteiten opnieuw configureren - Stap {step}/{total_steps}",
+        "description": "Werk de lader-entiteiten voor deze config entry bij.",
+        "data": {
+          "ev_charger_switch": "Lader-schakelaar",
+          "ev_charger_current": "Laadstroomregeling",
+          "ev_charger_status": "Laderstatussensor"
+        },
+        "data_description": {
+          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
+          "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Statussensor die `charger_charging`, `charger_free`, `charger_end` of `charger_wait` rapporteert."
+        }
+      },
+      "phase_mode": {
+        "title": "Fasemodus - Stap {step}/{total_steps}",
+        "description": "Kies hoe je elektrische installatie is bekabeld.\n\n**Eénfase** — één fase (230 V, laden tot ~3,7 kW): je koppelt één sensor voor zonneproductie, één voor verbruik en één voor netafname, zoals nu. Dit is de meest voorkomende opstelling.\n\n**Driefase** — drie fasen (230 V elk, laden ~11–22 kW): je koppelt drie sensoren voor productie, drie voor verbruik en drie voor netafname (één per fase); de integratie telt ze op en verdeelt de laadsnelheid over de drie fasen. Bij driefase staat elke ampèrewaarde voor ongeveer 3× het vermogen van éénfase (bijv. 16 A ≈ 11 kW) en het minimum is ~4,1 kW — zorg dat je thuisbatterij-omvormer dat vermogen aankan.",
+        "data": {
+          "phase_mode": "Elektrische fasen"
+        },
+        "data_description": {
+          "phase_mode": "Eénfase is de standaard en past bij de meeste woningen. Kies alleen driefase als je installatie echt driefase is."
+        }
+      },
+      "charger_model": {
+        "title": "Wallbox-model - Stap {step}/{total_steps}",
+        "description": "Kies hoe je wallbox de laadstroom regelt.\n\n**Tuya** — de stroom kan alleen op vaste waarden (6, 8, 10, 13, 16, 20, 24, 32 A); om te verlagen wordt de wallbox uit- en weer ingeschakeld (een paar seconden pauze). Dit is de standaard en werkt met de meeste wallboxen — kies dit bij twijfel.\n\n**Generiek** — accepteert elke hele ampèrewaarde (6, 7, 8, … 32 A) via een `number`-entiteit: fijnere regeling en bij verlagen daalt de stroom live zonder de sessie te onderbreken.",
+        "data": {
+          "charger_model": "Type wallbox"
+        },
+        "data_description": {
+          "charger_model": "Tuya = vaste stappen (standaard). Generiek = stappen van 1 A voor niet-Tuya-wallboxen die de stroom als number-entiteit aanbieden."
+        }
+      },
+      "reconfigure_charger_model": {
+        "title": "Wallbox-model opnieuw configureren - Stap {step}/{total_steps}",
+        "description": "Kies hoe je wallbox de laadstroom regelt.\n\n**Tuya** — de stroom kan alleen op vaste waarden (6, 8, 10, 13, 16, 20, 24, 32 A); om te verlagen wordt de wallbox uit- en weer ingeschakeld (een paar seconden pauze). Dit is de standaard en werkt met de meeste wallboxen — kies dit bij twijfel.\n\n**Generiek** — accepteert elke hele ampèrewaarde (6, 7, 8, … 32 A) via een `number`-entiteit: fijnere regeling en bij verlagen daalt de stroom live zonder de sessie te onderbreken.",
+        "data": {
+          "charger_model": "Type wallbox"
+        },
+        "data_description": {
+          "charger_model": "Tuya = vaste stappen (standaard). Generiek = stappen van 1 A voor niet-Tuya-wallboxen die de stroom als number-entiteit aanbieden."
+        }
       }
     },
     "error": {
@@ -183,35 +247,43 @@
   "options": {
     "step": {
       "init": {
-        "title": "Lader-entiteiten bijwerken - Stap {step}/{total_steps}",
-        "description": "Compatibiliteitslaag rond de canonieke herconfiguratiestroom. Werk de lader-entiteiten voor deze entry bij.",
+        "title": "Fasemodus bijwerken - Stap {step}/{total_steps}",
+        "description": "Kies hoe je elektrische installatie is bekabeld.\n\n**Eénfase** — één fase (230 V, laden tot ~3,7 kW): je koppelt één sensor voor zonneproductie, één voor verbruik en één voor netafname, zoals nu. Dit is de meest voorkomende opstelling.\n\n**Driefase** — drie fasen (230 V elk, laden ~11–22 kW): je koppelt drie sensoren voor productie, drie voor verbruik en drie voor netafname (één per fase); de integratie telt ze op en verdeelt de laadsnelheid over de drie fasen. Bij driefase staat elke ampèrewaarde voor ongeveer 3× het vermogen van éénfase (bijv. 16 A ≈ 11 kW) en het minimum is ~4,1 kW — zorg dat je thuisbatterij-omvormer dat vermogen aankan.",
         "data": {
-          "ev_charger_switch": "Lader-schakelaar",
-          "ev_charger_current": "Laadstroomregeling",
-          "ev_charger_status": "Laderstatussensor"
+          "phase_mode": "Elektrische fasen"
         },
         "data_description": {
-          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
-          "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Statussensor die `charger_charging`, `charger_free`, `charger_end` of `charger_wait` rapporteert."
+          "phase_mode": "Eénfase is de standaard en past bij de meeste woningen. Kies alleen driefase als je installatie echt driefase is."
         }
       },
       "sensors": {
         "title": "Energiesensoren bijwerken - Stap {step}/{total_steps}",
-        "description": "Werk de energie- en SOC-sensoren bij die door de integratie worden gebruikt.",
+        "description": "Werk de energie- en SOC-sensoren bij die door de integratie worden gebruikt. In driefase koppel je drie sensoren per grootheid (één per fase).",
         "data": {
           "soc_car": "EV-batterij-SOC",
           "soc_home": "Thuisbatterij-SOC",
           "fv_production": "Zonneproductie",
           "home_consumption": "Woningverbruik",
-          "grid_import": "Netafname"
+          "grid_import": "Netafname",
+          "fv_production_l2": "Zonneproductie (L2)",
+          "fv_production_l3": "Zonneproductie (L3)",
+          "home_consumption_l2": "Verbruik woning (L2)",
+          "home_consumption_l3": "Verbruik woning (L3)",
+          "grid_import_l2": "Netafname (L2)",
+          "grid_import_l3": "Netafname (L3)"
         },
         "data_description": {
           "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
           "soc_home": "Sensor met de laadtoestand van de thuisbatterij in procenten.",
           "fv_production": "Sensor met de actuele PV-productie in watt.",
           "home_consumption": "Sensor met het actuele huishoudelijke verbruik in watt, indien mogelijk exclusief EV-laden.",
-          "grid_import": "Sensor met uit het net afgenomen vermogen in watt. Positieve waarden betekenen afname uit het net."
+          "grid_import": "Sensor met uit het net afgenomen vermogen in watt. Positieve waarden betekenen afname uit het net.",
+          "fv_production_l2": "Zonneproductie op fase L2, in watt.",
+          "fv_production_l3": "Zonneproductie op fase L3, in watt.",
+          "home_consumption_l2": "Verbruik woning op fase L2, in watt.",
+          "home_consumption_l3": "Verbruik woning op fase L3, in watt.",
+          "grid_import_l2": "Netafname op fase L2, in watt.",
+          "grid_import_l3": "Netafname op fase L3, in watt."
         }
       },
       "pv_forecast": {
@@ -258,6 +330,30 @@
         },
         "data_description": {
           "create_dashboard": "Indien ingeschakeld wordt een Lovelace-dashboard met alle integratie-entiteiten toegevoegd aan de zijbalk op /ev-smart-charger."
+        }
+      },
+      "entities": {
+        "title": "Lader-entiteiten bijwerken - Stap {step}/{total_steps}",
+        "description": "Compatibiliteitslaag rond de canonieke herconfiguratiestroom. Werk de lader-entiteiten voor deze entry bij.",
+        "data": {
+          "ev_charger_switch": "Lader-schakelaar",
+          "ev_charger_current": "Laadstroomregeling",
+          "ev_charger_status": "Laderstatussensor"
+        },
+        "data_description": {
+          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
+          "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Statussensor die `charger_charging`, `charger_free`, `charger_end` of `charger_wait` rapporteert."
+        }
+      },
+      "charger_model": {
+        "title": "Wallbox-model bijwerken - Stap {step}/{total_steps}",
+        "description": "Kies hoe je wallbox de laadstroom regelt.\n\n**Tuya** — de stroom kan alleen op vaste waarden (6, 8, 10, 13, 16, 20, 24, 32 A); om te verlagen wordt de wallbox uit- en weer ingeschakeld (een paar seconden pauze). Dit is de standaard en werkt met de meeste wallboxen — kies dit bij twijfel.\n\n**Generiek** — accepteert elke hele ampèrewaarde (6, 7, 8, … 32 A) via een `number`-entiteit: fijnere regeling en bij verlagen daalt de stroom live zonder de sessie te onderbreken.",
+        "data": {
+          "charger_model": "Type wallbox"
+        },
+        "data_description": {
+          "charger_model": "Tuya = vaste stappen (standaard). Generiek = stappen van 1 A voor niet-Tuya-wallboxen die de stroom als number-entiteit aanbieden."
         }
       }
     },
@@ -440,6 +536,20 @@
       },
       "evsc_car_ready_time": {
         "name": "Tijd auto klaar"
+      }
+    }
+  },
+  "selector": {
+    "phase_mode": {
+      "options": {
+        "single": "Eénfase",
+        "three": "Driefase"
+      }
+    },
+    "charger_model": {
+      "options": {
+        "tuya": "Tuya (standaard)",
+        "generic": "Generiek (stappen van 1 A)"
       }
     }
   }

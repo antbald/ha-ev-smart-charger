@@ -196,7 +196,7 @@ const SETTINGS_CATALOG = [
           it: "Tetto massimo di corrente che Solar Surplus puo richiedere. Limita l'uso del wallbox al di sotto della portata fisica.",
           nl: "Maximale stroom die Solar Surplus mag opvragen. Beperkt wallboxgebruik onder de fysieke limiet.",
         },
-        hint: { en: "Default 32 A · Levels 6/8/10/13/16/20/24/32", it: "Default 32 A · Livelli 6/8/10/13/16/20/24/32", nl: "Standaard 32 A · Niveaus 6/8/10/13/16/20/24/32" } },
+        hint: { en: "Default 32 A · Tuya: 6/8/10/13/16/20/24/32 · Generic: 6–32 A (1 A)", it: "Default 32 A · Tuya: 6/8/10/13/16/20/24/32 · Generica: 6–32 A (1 A)", nl: "Standaard 32 A · Tuya: 6/8/10/13/16/20/24/32 · Generiek: 6–32 A (1 A)" } },
     ],
   },
   {
@@ -512,6 +512,7 @@ const FRONTEND_LOCALES = {
     "hero.banner.force_charging": "Force Charging Active",
     "hero.banner.boost_session": "Boost Session Active",
     "hero.banner.night_charge": "Night Smart Charge Active",
+    "hero.banner.charging": "EV Charging",
     "hero.forecast_tomorrow": "Tomorrow Forecast",
     "toast.boost.target_reached": "Boost can't start: EV at {ev}% (≥ target {target}%). Raise the target or wait for the battery to drain.",
     "toast.boost.missing_soc": "Boost can't start: EV SOC sensor unavailable. Check the mapped sensor.",
@@ -658,6 +659,7 @@ const FRONTEND_LOCALES = {
     "hero.banner.force_charging": "Force Charging in corso",
     "hero.banner.boost_session": "Boost Session in corso",
     "hero.banner.night_charge": "Night Smart Charge in corso",
+    "hero.banner.charging": "EV in ricarica",
     "hero.forecast_tomorrow": "Forecast Domani",
     "toast.boost.target_reached": "Boost non può partire: EV al {ev}% (≥ target {target}%). Alza il target o aspetta che la batteria scenda.",
     "toast.boost.missing_soc": "Boost non può partire: sensore SOC EV non disponibile. Controlla la mappatura.",
@@ -804,6 +806,7 @@ const FRONTEND_LOCALES = {
     "hero.banner.force_charging": "Force Charging actief",
     "hero.banner.boost_session": "Boost Sessie actief",
     "hero.banner.night_charge": "Slim nachtelijk laden actief",
+    "hero.banner.charging": "EV aan het laden",
     "hero.forecast_tomorrow": "Verwachting morgen",
     "toast.boost.target_reached": "Boost kan niet starten: EV op {ev}% (≥ doel {target}%). Verhoog het doel of wacht tot de batterij zakt.",
     "toast.boost.missing_soc": "Boost kan niet starten: EV SOC-sensor niet beschikbaar. Controleer de mapping.",
@@ -978,6 +981,16 @@ class EvSmartChargerDashboard extends HTMLElement {
       // proper next-day sensor without disturbing their existing
       // overnight-charge logic.
       pv_forecast_tomorrow_entity: config?.pv_forecast_tomorrow_entity,
+      // v2.0.0: phase mode + charger model. In three-phase the *_entities
+      // arrays carry the per-phase sensors so the power tiles can sum them;
+      // phase_mode drives the 230 V vs 690 V charging-power derivation.
+      // MUST be whitelisted here or they are silently dropped (cf. the
+      // v1.11.13 pv_forecast_entity regression above).
+      phase_mode: config?.phase_mode,
+      charger_model: config?.charger_model,
+      solar_power_entities: config?.solar_power_entities,
+      home_consumption_entities: config?.home_consumption_entities,
+      grid_import_entities: config?.grid_import_entities,
     };
 
     // v1.11.4: capture the build version injected by dashboard_manager.py.
@@ -1483,8 +1496,57 @@ class EvSmartChargerDashboard extends HTMLElement {
       );
       return null;
     }
-    const kw = (amps * VOLTAGE_EU) / 1000;
+    // v2.0.0: three-phase chargers draw on all phases → P = amps × 3 × 230.
+    const kw = (amps * this._effectiveVoltage()) / 1000;
     return Math.round(kw * 10) / 10;
+  }
+
+  /**
+   * v2.0.0: per-phase conversion voltage. Single-phase = 230 V, three-phase =
+   * 690 V (3 × 230). Used for the derived charging-power reading so a 16 A/phase
+   * session reads ~11 kW instead of ~3.7 kW.
+   */
+  _effectiveVoltage() {
+    return this._config.phase_mode === "three" ? VOLTAGE_EU * 3 : VOLTAGE_EU;
+  }
+
+  /**
+   * v2.0.0: sum the numeric states of a list of per-phase power sensors.
+   * Strict: returns null if ANY phase is unreadable — a partial sum would
+   * silently misreport the total (e.g. show 4 kW when one of three 2 kW phases
+   * dropped), so we surface "unavailable" instead.
+   */
+  _sumEntities(ids) {
+    if (!Array.isArray(ids) || ids.length === 0) return null;
+    let total = 0;
+    for (const id of ids) {
+      const v = this._numericState(id);
+      if (v == null) return null; // any unreadable phase → no reliable total
+      total += v;
+    }
+    return total;
+  }
+
+  /**
+   * v2.0.0: format a power quantity (solar / grid) honouring three-phase mode.
+   * When the per-phase `*_entities` array is present the phases are summed
+   * (all-or-nothing) and formatted — unit taken from the first phase that
+   * reports one (default "W"), value kept to 1 decimal so kW sensors don't
+   * lose precision. Otherwise the single-entity `_displayValue` path is used,
+   * so single-phase installs render exactly as before.
+   */
+  _phaseAwareDisplay(entitiesKey, singleKey, fallback) {
+    const ids = this._config[entitiesKey];
+    if (Array.isArray(ids) && ids.length > 0) {
+      const summed = this._sumEntities(ids);
+      if (summed == null) return fallback || this._t("common.unavailable");
+      const unit =
+        ids
+          .map((id) => this._stateObj(id)?.attributes?.unit_of_measurement)
+          .find((u) => u) || "W";
+      return `${Math.round(summed * 10) / 10} ${unit}`;
+    }
+    return this._displayValue(this._config[singleKey], fallback);
   }
 
   /**
@@ -2263,16 +2325,30 @@ class EvSmartChargerDashboard extends HTMLElement {
     const boostOn = this._isOn(ids.boostEnabledId);
     const nightSessionState = this._stateObj(ids.nightSessionId)?.state;
     const nightOn = nightSessionState === "battery" || nightSessionState === "grid";
+    // v1.11.16: generic "EV charging" green banner. Lowest precedence — only
+    // shown when none of Force / Boost / Night is active, so the more
+    // specific banners aren't hidden by the generic one. Derived from the
+    // mapped charger_status_entity ("charger_charging") OR a positive
+    // reading on the charging_power_entity, mirroring _renderHeroRing().
+    const chargerStatusForBanner = this._stateObj(this._config.charger_status_entity)?.state;
+    const chargingPowerObjForBanner = this._stateObj(this._config.charging_power_entity);
+    const chargingOn =
+      chargerStatusForBanner === "charger_charging" ||
+      (chargingPowerObjForBanner && Number(chargingPowerObjForBanner.state) > 0.05);
     const heroState = forceChargeOn
       ? "force"
       : (boostOn
         ? "boost"
-        : (nightOn ? "night" : "normal"));
+        : (nightOn
+          ? "night"
+          : (chargingOn ? "charging" : "normal")));
     const heroBannerKey = heroState === "force"
       ? "hero.banner.force_charging"
       : (heroState === "boost"
         ? "hero.banner.boost_session"
-        : "hero.banner.night_charge");
+        : (heroState === "night"
+          ? "hero.banner.night_charge"
+          : "hero.banner.charging"));
     const heroBanner = heroState === "normal"
       ? ""
       : `
@@ -2443,8 +2519,10 @@ class EvSmartChargerDashboard extends HTMLElement {
       this._config.home_battery_soc_entity,
       this._t("fallback.home_battery_soc_entity"),
     );
-    const solarPower = this._displayValue(this._config.solar_power_entity, this._t("fallback.solar_power_entity"));
-    const gridImport = this._displayValue(this._config.grid_import_entity, this._t("fallback.grid_import_entity"));
+    // v2.0.0: sum the per-phase sensors in three-phase mode (single-phase
+    // falls through to the original single-entity display path).
+    const solarPower = this._phaseAwareDisplay("solar_power_entities", "solar_power_entity", this._t("fallback.solar_power_entity"));
+    const gridImport = this._phaseAwareDisplay("grid_import_entities", "grid_import_entity", this._t("fallback.grid_import_entity"));
     const chargerCurrent = this._displayValue(this._config.current_entity, this._t("fallback.current_entity"));
 
     // v1.10.0: dispatch into Dashboard or Settings view depending on _view.
@@ -2548,6 +2626,19 @@ class EvSmartChargerDashboard extends HTMLElement {
     // the wrapper class flips, so the fast path can't patch it.
     const nightSessionState = states[this._entityId("nightSession")]?.state;
     const nightOn = nightSessionState === "battery" || nightSessionState === "grid";
+    // v1.11.16: generic charging banner is structural too — flipping
+    // between charging/normal swaps the banner DOM + wrapper class, which
+    // the fast path can't patch. We collapse the boolean derivation into
+    // the key so any transition (status flip or power crossing 0.05 kW)
+    // triggers exactly one full rebuild. Already covered transitively by
+    // `cs` for status changes, but include the derived value explicitly so
+    // a power-only signal (no status entity mapped) also rebuilds.
+    const chargingPowerStateForKey = this._config.charging_power_entity
+      ? Number(states[this._config.charging_power_entity]?.state)
+      : NaN;
+    const chargingOnForKey =
+      chargerStatus === "charger_charging" ||
+      (Number.isFinite(chargingPowerStateForKey) && chargingPowerStateForKey > 0.05);
 
     return JSON.stringify({
       view: this._view,
@@ -2561,6 +2652,7 @@ class EvSmartChargerDashboard extends HTMLElement {
       fc: forceChargeOn,
       bo: boostOn,
       ni: nightOn,
+      ch: chargingOnForKey,
     });
   }
 
@@ -3944,6 +4036,20 @@ class EvSmartChargerDashboard extends HTMLElement {
             var(--evsc-shadow-soft);
           animation: evsc-hero-border-pulse 2.2s ease-in-out infinite;
         }
+        /* v1.11.16: Generic "EV charging" live state. Uses Apple system green
+           — the universal "in progress, healthy" signal. Lowest precedence
+           after Force / Boost / Night so the more specific banners always
+           win when they're active. Same border-pulse cadence keeps the
+           four states visually consistent. */
+        .evsc-hero-state-charging {
+          --evsc-hero-accent: var(--evsc-sys-green);
+          --evsc-hero-glow: color-mix(in srgb, var(--evsc-sys-green) 45%, transparent);
+          box-shadow:
+            0 0 0 2px var(--evsc-hero-accent),
+            0 0 24px 4px var(--evsc-hero-glow),
+            var(--evsc-shadow-soft);
+          animation: evsc-hero-border-pulse 2.2s ease-in-out infinite;
+        }
         @keyframes evsc-hero-border-pulse {
           0%, 100% {
             box-shadow:
@@ -3973,6 +4079,7 @@ class EvSmartChargerDashboard extends HTMLElement {
         .evsc-hero-banner.banner-force { background: var(--evsc-sys-red); }
         .evsc-hero-banner.banner-boost { background: var(--evsc-deep-orange); }
         .evsc-hero-banner.banner-night { background: var(--evsc-sys-indigo); }
+        .evsc-hero-banner.banner-charging { background: var(--evsc-sys-green); }
         .evsc-hero-banner-dot {
           width: 8px;
           height: 8px;
@@ -3988,7 +4095,8 @@ class EvSmartChargerDashboard extends HTMLElement {
         @media (prefers-reduced-motion: reduce) {
           .evsc-hero-state-force,
           .evsc-hero-state-boost,
-          .evsc-hero-state-night { animation: none; }
+          .evsc-hero-state-night,
+          .evsc-hero-state-charging { animation: none; }
           .evsc-hero-banner-dot { animation: none; }
         }
 

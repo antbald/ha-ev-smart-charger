@@ -24,6 +24,8 @@ class AmperageCalculator:
         surplus_watts: float,
         current_amps: int = 0,
         battery_support_amps: Optional[int] = None,
+        amp_levels: Optional[list] = None,
+        voltage: Optional[float] = None,
     ) -> Tuple[int, str]:
         """Calculate target amperage from surplus with battery support fallback.
 
@@ -47,14 +49,15 @@ class AmperageCalculator:
             >>> AmperageCalculator.calculate_from_surplus(500, 8, 16)
             (16, 'Battery fallback (2.2A)')
         """
-        surplus_amps = surplus_watts / VOLTAGE_EU
+        levels = amp_levels if amp_levels is not None else CHARGER_AMP_LEVELS
+        surplus_amps = surplus_watts / (voltage if voltage is not None else VOLTAGE_EU)
         is_charging = current_amps > 0
 
         # CASE 1: Surplus sufficient to charge (>= 6.5A)
         if surplus_amps >= SURPLUS_START_THRESHOLD:
             # Find highest amp level that fits within surplus
-            target = CHARGER_AMP_LEVELS[0]  # Start with minimum (6A)
-            for level in CHARGER_AMP_LEVELS:
+            target = levels[0]  # Start with minimum (6A)
+            for level in levels:
                 if level <= surplus_amps:
                     target = level
                 else:
@@ -87,11 +90,12 @@ class AmperageCalculator:
         return 0, f"Insufficient surplus ({surplus_amps:.1f}A < {SURPLUS_STOP_THRESHOLD}A)"
 
     @staticmethod
-    def get_next_level_down(current_amps: int) -> int:
+    def get_next_level_down(current_amps: int, amp_levels: Optional[list] = None) -> int:
         """Calculate one level down for reduction (grid import protection).
 
         Args:
             current_amps: Current charging amperage
+            amp_levels: Level set to use (default: Tuya CHARGER_AMP_LEVELS)
 
         Returns:
             Next lower amperage level, or 0 if at minimum
@@ -102,22 +106,26 @@ class AmperageCalculator:
             >>> AmperageCalculator.get_next_level_down(6)
             0
         """
+        levels = amp_levels if amp_levels is not None else CHARGER_AMP_LEVELS
         try:
-            current_index = CHARGER_AMP_LEVELS.index(current_amps)
+            current_index = levels.index(current_amps)
             if current_index > 0:
-                return CHARGER_AMP_LEVELS[current_index - 1]
+                return levels[current_index - 1]
         except ValueError:
-            # Current amps not in standard levels, return 0
+            # Current amps not in the level set, return 0
             pass
         return 0
 
     @staticmethod
-    def get_next_level_up(current_amps: int, max_amps: int) -> int:
+    def get_next_level_up(
+        current_amps: int, max_amps: int, amp_levels: Optional[list] = None
+    ) -> int:
         """Calculate one level up for recovery (gradual ramp-up).
 
         Args:
             current_amps: Current charging amperage
             max_amps: Maximum allowed amperage (target)
+            amp_levels: Level set to use (default: Tuya CHARGER_AMP_LEVELS)
 
         Returns:
             Next higher amperage level, capped at max_amps
@@ -128,13 +136,14 @@ class AmperageCalculator:
             >>> AmperageCalculator.get_next_level_up(13, 16)
             16
         """
+        levels = amp_levels if amp_levels is not None else CHARGER_AMP_LEVELS
         try:
-            current_index = CHARGER_AMP_LEVELS.index(current_amps)
-            if current_index < len(CHARGER_AMP_LEVELS) - 1:
-                next_amps = CHARGER_AMP_LEVELS[current_index + 1]
+            current_index = levels.index(current_amps)
+            if current_index < len(levels) - 1:
+                next_amps = levels[current_index + 1]
                 return min(next_amps, max_amps)
         except ValueError:
-            # Current amps not in standard levels, return max
+            # Current amps not in the level set, return max
             pass
         return max_amps
 

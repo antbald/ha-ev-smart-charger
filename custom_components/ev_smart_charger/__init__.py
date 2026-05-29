@@ -44,6 +44,7 @@ from .night_smart_charge import NightSmartCharge
 from .boost_charge import BoostCharge
 from .automations import SmartChargerBlocker
 from .hybrid_inverter_mode import HybridInverterMode
+from .power_model import ChargingModel
 from .solar_surplus import SolarSurplusAutomation
 from .log_manager import LogManager
 from .diagnostic_manager import DiagnosticManager
@@ -122,6 +123,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config=dict(entry.data),
         expected_entity_count=expected_entities,
     )
+    # v2.0.0: build the single source of truth for phase mode + charger model
+    # once, and share it across all runtime components via runtime_data.
+    runtime_data.power_model = ChargingModel.from_config(entry.data)
     entry.runtime_data = runtime_data
 
     _LOGGER.info("=" * 64)
@@ -129,6 +133,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info(
         "🔋 Home battery: %s",
         "configured" if battery_configured else "NOT configured (PV-only mode)",
+    )
+    _LOGGER.info(
+        "⚡ Phase mode: %s (%.0f V) · Charger model: %s",
+        "three-phase" if runtime_data.power_model.phase_count == 3 else "single-phase",
+        runtime_data.power_model.effective_voltage,
+        runtime_data.power_model.charger_model,
     )
     _LOGGER.info("=" * 64)
 

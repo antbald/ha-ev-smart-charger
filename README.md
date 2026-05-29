@@ -2,9 +2,9 @@
 
 # ⚡ EV Smart Charger
 
-### Intelligent EV charging orchestration for Home Assistant
+### The universal EV charging solution for Home Assistant — *any* electrical system, *any* wallbox
 
-Maximise solar self-consumption · balance EV vs home battery · automate overnight charging · ride curtailment on zero-export inverters — all from a single Liquid Glass dashboard.
+**One integration for every setup.** Single-phase or three-phase. Tuya or any other wallbox. Cloud-connected or local. If your charger has a Home Assistant integration — cloud *or* local — and exposes its current as a `number`, `select`, `input_number` or `input_select` entity, **this works with it.** Maximise solar self-consumption · balance EV vs home battery · automate overnight charging · ride curtailment on zero-export inverters — all from a single Liquid Glass dashboard.
 
 [![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger?style=for-the-badge&logo=github&color=007AFF)](https://github.com/antbald/ha-ev-smart-charger/releases)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-FF6F00?style=for-the-badge&logo=home-assistant&logoColor=white)](https://github.com/custom-components/hacs)
@@ -32,9 +32,23 @@ Most "smart charging" integrations stop at "use solar surplus". This one orchest
 - ⚡ **Boost Charge** — manual or scheduled high-priority session with automatic SOC stop.
 - 🛡️ **Smart Charger Blocker** — prevents charging outside your allowed window (sunset → night-charge time, or sunset → sunrise).
 - ⚡ **Hybrid Inverter Mode** *(v1.8.0+)* — empirically probes for hidden PV capacity in zero-export hybrid systems (Deye, Sunsynk, Solis, Growatt, Goodwe…). Solves [issue #20](https://github.com/antbald/ha-ev-smart-charger/issues/20).
+- 🔌 **Three-phase + charger model** *(v2.0.0+)* — opt-in three-phase support (three production/consumption/grid sensors, speed balanced across phases) and a Tuya / generic wallbox selector (generic = 1 A steps + live current decrease). Defaults keep single-phase + Tuya unchanged. Solves [discussion #18](https://github.com/antbald/ha-ev-smart-charger/discussions/18).
 - 💾 **Cached EV SOC** — reliable fallback for flaky cloud-based car integrations.
 
-> **🎉 New in v1.10.0** — The bundled dashboard now splits into **Dashboard** (operational) and **Settings** (configuration) tabs. Every parameter is grouped under an expandable category with a full multilingual description (EN / IT / NL, picked from your HA profile automatically). [Jump to the preview ↓](#-preview)
+### 🌍 Universal by design
+
+Most projects target one charger brand or assume a single-phase home. EV Smart Charger is built to be the **one integration that fits every installation**:
+
+| Dimension | What's supported |
+|---|---|
+| **Electrical system** | ✅ Single-phase **and** three-phase (opt-in; speed balanced across all three phases) |
+| **Wallbox brand** | ✅ Tuya **and** any other — no brand lock-in. The logic drives whatever entities your charger's HA integration exposes |
+| **Connectivity** | ✅ Cloud **or** local Home Assistant integration — if HA can see your charger, this can drive it |
+| **Current control** | ✅ `number`, `input_number`, `select`, `input_select` — discrete Tuya levels **or** 1 A fine steps (generic) |
+| **Home battery** | ✅ With **or** without — full PV-only mode when you have no battery |
+| **Inverter** | ✅ Standard **and** hybrid zero-export (Deye, Sunsynk, Solis, Growatt, Goodwe…) |
+
+> **🎉 New in v2.0.0** — Universal compatibility lands: opt-in **three-phase** support and a **Tuya / generic wallbox** selector mean EV Smart Charger now adapts to *any* solar + EV setup on the market. **Upgrading changes nothing for existing users** — defaults stay single-phase + Tuya, with no migration. [Jump to the setup ↓](#three-phase-support--charger-model--v200)
 
 ---
 
@@ -318,6 +332,24 @@ If you do not have a home battery installed, leave the **Home battery SOC** fiel
 - Hybrid Inverter Mode (v1.8.0+) is technically available but stays IDLE in PV-only mode — its entry conditions require a home battery SOC sensor.
 
 **Reconfigure restriction**: once a home battery sensor has been configured, the field stays required in the reconfigure / options flow. This prevents orphan helper entities from accumulating in the Home Assistant entity registry. To remove a home battery from an existing setup, delete the integration and add it again.
+
+---
+
+### Three-phase support + charger model — v2.0.0+
+
+Two opt-in choices appear in the first config-flow steps (and in Reconfigure / Options, so existing users can switch). Both default to the previous behaviour — **single-phase + Tuya** — so if you do nothing, nothing changes.
+
+**Phase mode**
+- **Single-phase** (default): one sensor each for solar production, home consumption and grid import; charging speed computed at 230 V. Identical to all previous versions.
+- **Three-phase**: you map **three sensors each** (one per phase L1/L2/L3) for production, consumption and grid import. The integration sums them and balances the charging speed across the three phases (conversion at 3 × 230 = 690 V). SOC sensors stay single.
+
+⚠️ **Power on three-phase**: every amperage setting is **per phase**, so it draws ~3× the power of single-phase. `16 A` ≈ **11 kW**, and the minimum a three-phase charger can draw is ~**4.1 kW** (6 A/phase). This matters for `evsc_battery_support_amperage` and `evsc_night_charge_amperage` — make sure your home-battery inverter can sustain the chosen power, otherwise the deficit is pulled from the grid and grid-import protection will throttle the session.
+
+**Charger model**
+- **Tuya** (default): current is set only to fixed levels `6/8/10/13/16/20/24/32 A`; to lower it the charger is switched off then back on (a few seconds' pause).
+- **Generic (1 A steps)**: for non-Tuya wallboxes that expose the current as a `number` entity. Any integer ampere (6–32) is allowed, and **lowering the current happens live without interrupting the session**. The amperage controls switch to 1 A steps.
+
+No data migration: existing config entries keep working unchanged. To enable three-phase or generic mode on an existing install, open the integration and run **Reconfigure** (or Configure / Options).
 
 ---
 
