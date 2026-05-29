@@ -50,7 +50,8 @@ Makefile
 
 | File | Responsibility | Notes |
 | --- | --- | --- |
-| `custom_components/ev_smart_charger/charger_controller.py` | Serialized charger start, stop, and current changes | Owns current-control adapter for `number`, `input_number`, `select`, `input_select` |
+| `custom_components/ev_smart_charger/charger_controller.py` | Serialized charger start, stop, and current changes | Owns current-control adapter for `number`, `input_number`, `select`, `input_select`. v2.0.0: charger-model-aware levels + decrease sequence (tuya stop/set/start, generic live) |
+| `custom_components/ev_smart_charger/power_model.py` | `ChargingModel`: phase mode (single/three) + charger model (tuya/generic) single source | v2.0.0. Built once in `__init__`, shared via `runtime_data.power_model`; sums per-phase power sensors, exposes effective voltage + amp levels |
 | `custom_components/ev_smart_charger/automation_coordinator.py` | Ownership arbitration across charger-driving automations | Single control plane for Boost, Blocker, Night, and Solar |
 | `custom_components/ev_smart_charger/priority_balancer.py` | EV vs home battery decision logic | Decision-only, not a charger actuator |
 | `custom_components/ev_smart_charger/boost_charge.py` | Fixed-current override with SOC auto-stop; supports manual trigger and daily scheduled window | High-priority automation |

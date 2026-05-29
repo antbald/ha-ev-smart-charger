@@ -27,20 +27,32 @@
       },
       "sensors": {
         "title": "Energy Sensors - Step {step}/{total_steps}",
-        "description": "Map the sensors used by Solar Surplus, Priority Balancer, and Night Smart Charge.",
+        "description": "Map the sensors used by Solar Surplus, Priority Balancer, and Night Smart Charge. In three-phase mode you map three sensors per quantity (one per phase).",
         "data": {
           "soc_car": "EV battery SOC",
           "soc_home": "Home battery SOC",
           "fv_production": "Solar production",
           "home_consumption": "Home consumption",
-          "grid_import": "Grid import"
+          "grid_import": "Grid import",
+          "fv_production_l2": "Solar production (L2)",
+          "fv_production_l3": "Solar production (L3)",
+          "home_consumption_l2": "Home consumption (L2)",
+          "home_consumption_l3": "Home consumption (L3)",
+          "grid_import_l2": "Grid import (L2)",
+          "grid_import_l3": "Grid import (L3)"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
           "soc_home": "Sensor with the home battery state of charge in percent.",
           "fv_production": "Sensor with current PV production in watts.",
           "home_consumption": "Sensor with current household consumption in watts, excluding EV charging when possible.",
-          "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid."
+          "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid.",
+          "fv_production_l2": "Solar production on phase L2, in watts.",
+          "fv_production_l3": "Solar production on phase L3, in watts.",
+          "home_consumption_l2": "Home consumption on phase L2, in watts.",
+          "home_consumption_l3": "Home consumption on phase L3, in watts.",
+          "grid_import_l2": "Grid import on phase L2, in watts.",
+          "grid_import_l3": "Grid import on phase L3, in watts."
         }
       },
       "pv_forecast": {
@@ -90,35 +102,43 @@
         }
       },
       "reconfigure": {
-        "title": "Reconfigure Charger Entities - Step {step}/{total_steps}",
-        "description": "Update the charger entities for this config entry.",
+        "title": "Reconfigure Phase Mode - Step {step}/{total_steps}",
+        "description": "Choose how your electrical system is wired.\n\n**Single-phase** — one phase (230 V, charging up to ~3.7 kW): you map one sensor each for solar production, home consumption and grid import, as before. This is the most common setup.\n\n**Three-phase** — three phases (230 V each, charging ~11–22 kW): you map three sensors each for production, consumption and grid import (one per phase); the integration sums them and balances the charging speed across all three phases. In three-phase every amperage setting means roughly 3× the power of single-phase (e.g. 16 A ≈ 11 kW) and the minimum is ~4.1 kW — make sure your battery inverter can sustain the chosen power.",
         "data": {
-          "ev_charger_switch": "Charger switch",
-          "ev_charger_current": "Charging current control",
-          "ev_charger_status": "Charger status sensor"
+          "phase_mode": "Electrical phases"
         },
         "data_description": {
-          "ev_charger_switch": "Switch entity that turns the charger on or off.",
-          "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Status sensor that reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`."
+          "phase_mode": "Single-phase is the default and matches most homes. Choose three-phase only if your installation is genuinely three-phase."
         }
       },
       "reconfigure_sensors": {
         "title": "Reconfigure Energy Sensors - Step {step}/{total_steps}",
-        "description": "Update the energy and SOC sensors used by the integration.",
+        "description": "Update the energy and SOC sensors used by the integration. In three-phase mode you map three sensors per quantity (one per phase).",
         "data": {
           "soc_car": "EV battery SOC",
           "soc_home": "Home battery SOC",
           "fv_production": "Solar production",
           "home_consumption": "Home consumption",
-          "grid_import": "Grid import"
+          "grid_import": "Grid import",
+          "fv_production_l2": "Solar production (L2)",
+          "fv_production_l3": "Solar production (L3)",
+          "home_consumption_l2": "Home consumption (L2)",
+          "home_consumption_l3": "Home consumption (L3)",
+          "grid_import_l2": "Grid import (L2)",
+          "grid_import_l3": "Grid import (L3)"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
           "soc_home": "Sensor with the home battery state of charge in percent.",
           "fv_production": "Sensor with current PV production in watts.",
           "home_consumption": "Sensor with current household consumption in watts, excluding EV charging when possible.",
-          "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid."
+          "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid.",
+          "fv_production_l2": "Solar production on phase L2, in watts.",
+          "fv_production_l3": "Solar production on phase L3, in watts.",
+          "home_consumption_l2": "Home consumption on phase L2, in watts.",
+          "home_consumption_l3": "Home consumption on phase L3, in watts.",
+          "grid_import_l2": "Grid import on phase L2, in watts.",
+          "grid_import_l3": "Grid import on phase L3, in watts."
         }
       },
       "reconfigure_pv_forecast": {
@@ -166,6 +186,50 @@
         "data_description": {
           "create_dashboard": "Toggle to create or remove the EV Smart Charger Lovelace dashboard."
         }
+      },
+      "reconfigure_entities": {
+        "title": "Reconfigure Charger Entities - Step {step}/{total_steps}",
+        "description": "Update the charger entities for this config entry.",
+        "data": {
+          "ev_charger_switch": "Charger switch",
+          "ev_charger_current": "Charging current control",
+          "ev_charger_status": "Charger status sensor"
+        },
+        "data_description": {
+          "ev_charger_switch": "Switch entity that turns the charger on or off.",
+          "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Status sensor that reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`."
+        }
+      },
+      "phase_mode": {
+        "title": "Phase Mode - Step {step}/{total_steps}",
+        "description": "Choose how your electrical system is wired.\n\n**Single-phase** — one phase (230 V, charging up to ~3.7 kW): you map one sensor each for solar production, home consumption and grid import, as before. This is the most common setup.\n\n**Three-phase** — three phases (230 V each, charging ~11–22 kW): you map three sensors each for production, consumption and grid import (one per phase); the integration sums them and balances the charging speed across all three phases. In three-phase every amperage setting means roughly 3× the power of single-phase (e.g. 16 A ≈ 11 kW) and the minimum is ~4.1 kW — make sure your battery inverter can sustain the chosen power.",
+        "data": {
+          "phase_mode": "Electrical phases"
+        },
+        "data_description": {
+          "phase_mode": "Single-phase is the default and matches most homes. Choose three-phase only if your installation is genuinely three-phase."
+        }
+      },
+      "charger_model": {
+        "title": "Wallbox Model - Step {step}/{total_steps}",
+        "description": "Choose how your wallbox adjusts the charging current.\n\n**Tuya** — current is set only to fixed values (6, 8, 10, 13, 16, 20, 24, 32 A); to lower it the wallbox is switched off and on (a few seconds' pause). This is the default and works with the most common wallboxes — pick it if unsure.\n\n**Generic** — accepts any whole-ampere value (6, 7, 8, … 32 A) via a `number` entity: finer control and, when decreasing, the current drops live without interrupting the session.",
+        "data": {
+          "charger_model": "Wallbox type"
+        },
+        "data_description": {
+          "charger_model": "Tuya = fixed steps (default). Generic = 1 A steps for non-Tuya wallboxes that expose the current as a number entity."
+        }
+      },
+      "reconfigure_charger_model": {
+        "title": "Reconfigure Wallbox Model - Step {step}/{total_steps}",
+        "description": "Choose how your wallbox adjusts the charging current.\n\n**Tuya** — current is set only to fixed values (6, 8, 10, 13, 16, 20, 24, 32 A); to lower it the wallbox is switched off and on (a few seconds' pause). This is the default and works with the most common wallboxes — pick it if unsure.\n\n**Generic** — accepts any whole-ampere value (6, 7, 8, … 32 A) via a `number` entity: finer control and, when decreasing, the current drops live without interrupting the session.",
+        "data": {
+          "charger_model": "Wallbox type"
+        },
+        "data_description": {
+          "charger_model": "Tuya = fixed steps (default). Generic = 1 A steps for non-Tuya wallboxes that expose the current as a number entity."
+        }
       }
     },
     "error": {
@@ -183,35 +247,43 @@
   "options": {
     "step": {
       "init": {
-        "title": "Update Charger Entities - Step {step}/{total_steps}",
-        "description": "Compatibility wrapper around the canonical reconfigure flow. Update the charger entities for this entry.",
+        "title": "Update Phase Mode - Step {step}/{total_steps}",
+        "description": "Choose how your electrical system is wired.\n\n**Single-phase** — one phase (230 V, charging up to ~3.7 kW): you map one sensor each for solar production, home consumption and grid import, as before. This is the most common setup.\n\n**Three-phase** — three phases (230 V each, charging ~11–22 kW): you map three sensors each for production, consumption and grid import (one per phase); the integration sums them and balances the charging speed across all three phases. In three-phase every amperage setting means roughly 3× the power of single-phase (e.g. 16 A ≈ 11 kW) and the minimum is ~4.1 kW — make sure your battery inverter can sustain the chosen power.",
         "data": {
-          "ev_charger_switch": "Charger switch",
-          "ev_charger_current": "Charging current control",
-          "ev_charger_status": "Charger status sensor"
+          "phase_mode": "Electrical phases"
         },
         "data_description": {
-          "ev_charger_switch": "Switch entity that turns the charger on or off.",
-          "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Status sensor that reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`."
+          "phase_mode": "Single-phase is the default and matches most homes. Choose three-phase only if your installation is genuinely three-phase."
         }
       },
       "sensors": {
         "title": "Update Energy Sensors - Step {step}/{total_steps}",
-        "description": "Update the energy and SOC sensors used by the integration.",
+        "description": "Update the energy and SOC sensors used by the integration. In three-phase mode you map three sensors per quantity (one per phase).",
         "data": {
           "soc_car": "EV battery SOC",
           "soc_home": "Home battery SOC",
           "fv_production": "Solar production",
           "home_consumption": "Home consumption",
-          "grid_import": "Grid import"
+          "grid_import": "Grid import",
+          "fv_production_l2": "Solar production (L2)",
+          "fv_production_l3": "Solar production (L3)",
+          "home_consumption_l2": "Home consumption (L2)",
+          "home_consumption_l3": "Home consumption (L3)",
+          "grid_import_l2": "Grid import (L2)",
+          "grid_import_l3": "Grid import (L3)"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
           "soc_home": "Sensor with the home battery state of charge in percent.",
           "fv_production": "Sensor with current PV production in watts.",
           "home_consumption": "Sensor with current household consumption in watts, excluding EV charging when possible.",
-          "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid."
+          "grid_import": "Sensor with imported grid power in watts. Positive values mean import from the grid.",
+          "fv_production_l2": "Solar production on phase L2, in watts.",
+          "fv_production_l3": "Solar production on phase L3, in watts.",
+          "home_consumption_l2": "Home consumption on phase L2, in watts.",
+          "home_consumption_l3": "Home consumption on phase L3, in watts.",
+          "grid_import_l2": "Grid import on phase L2, in watts.",
+          "grid_import_l3": "Grid import on phase L3, in watts."
         }
       },
       "pv_forecast": {
@@ -258,6 +330,30 @@
         },
         "data_description": {
           "create_dashboard": "When enabled, a Lovelace dashboard preloaded with all integration entities is added to the sidebar at /ev-smart-charger."
+        }
+      },
+      "entities": {
+        "title": "Update Charger Entities - Step {step}/{total_steps}",
+        "description": "Compatibility wrapper around the canonical reconfigure flow. Update the charger entities for this entry.",
+        "data": {
+          "ev_charger_switch": "Charger switch",
+          "ev_charger_current": "Charging current control",
+          "ev_charger_status": "Charger status sensor"
+        },
+        "data_description": {
+          "ev_charger_switch": "Switch entity that turns the charger on or off.",
+          "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
+          "ev_charger_status": "Status sensor that reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`."
+        }
+      },
+      "charger_model": {
+        "title": "Update Wallbox Model - Step {step}/{total_steps}",
+        "description": "Choose how your wallbox adjusts the charging current.\n\n**Tuya** — current is set only to fixed values (6, 8, 10, 13, 16, 20, 24, 32 A); to lower it the wallbox is switched off and on (a few seconds' pause). This is the default and works with the most common wallboxes — pick it if unsure.\n\n**Generic** — accepts any whole-ampere value (6, 7, 8, … 32 A) via a `number` entity: finer control and, when decreasing, the current drops live without interrupting the session.",
+        "data": {
+          "charger_model": "Wallbox type"
+        },
+        "data_description": {
+          "charger_model": "Tuya = fixed steps (default). Generic = 1 A steps for non-Tuya wallboxes that expose the current as a number entity."
         }
       }
     },
@@ -440,6 +536,20 @@
       },
       "evsc_car_ready_time": {
         "name": "Car ready time"
+      }
+    }
+  },
+  "selector": {
+    "phase_mode": {
+      "options": {
+        "single": "Single-phase",
+        "three": "Three-phase"
+      }
+    },
+    "charger_model": {
+      "options": {
+        "tuya": "Tuya (standard)",
+        "generic": "Generic (1 A steps)"
       }
     }
   }

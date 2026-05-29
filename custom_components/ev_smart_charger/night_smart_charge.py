@@ -52,6 +52,7 @@ from .const import (
     has_home_battery,
 )
 from .localization import translate_runtime
+from .power_model import ChargingModel
 from .runtime import EVSCRuntimeData
 from .charger_controller import CurrentControlAdapter
 from .utils.logging_helper import EVSCLogger
@@ -122,6 +123,13 @@ class NightSmartCharge:
         self._grid_import = config.get(CONF_GRID_IMPORT)  # v1.3.23: Grid import sensor
         # v1.7.0: PV-only mode (no home battery configured)
         self._has_home_battery = has_home_battery(config)
+
+        # v2.0.0: phase-aware grid-import reader (sums L1/L2/L3 in three-phase).
+        # Single source = runtime power_model; fall back to building from config.
+        _pm = runtime_data.power_model if runtime_data is not None else None
+        self._power_model = (
+            _pm if isinstance(_pm, ChargingModel) else ChargingModel.from_config(config)
+        )
 
         # Helper entities (discovered in async_setup)
         self._night_charge_enabled_entity = None
@@ -1695,8 +1703,8 @@ class NightSmartCharge:
         grid_threshold = self._get_grid_import_threshold()
         grid_delay = self._get_grid_import_delay()
 
-        # Read grid import
-        grid_import = state_helper.get_float(self.hass, self._grid_import, default=0.0)
+        # Read grid import (v2.0.0: sums all phases in three-phase mode)
+        grid_import = self._power_model.read_grid_import(self.hass)
 
         self.logger.info(f"{self.logger.CHARGER} Dynamic amperage check:")
         self.logger.info(f"   Current: {current_amps}A, Target: {target_amps}A")

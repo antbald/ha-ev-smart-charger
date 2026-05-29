@@ -29,6 +29,7 @@ class EVSCRuntimeData:
     hybrid_mode: Any | None = None  # Hybrid Inverter Mode (v1.8.0 — issue #20)
     log_manager: Any | None = None
     diagnostic_manager: Any | None = None
+    power_model: Any | None = None  # ChargingModel (phase mode + charger model, v2.0.0)
 
     def register_entity(self, key: str, entity_id: str, entity: Any) -> None:
         """Register an integration-owned entity."""

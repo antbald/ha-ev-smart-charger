@@ -11,6 +11,8 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     has_home_battery,
+    get_charger_model,
+    CHARGER_MODEL_GENERIC,
     DEFAULT_CHECK_INTERVAL,
     DEFAULT_GRID_IMPORT_THRESHOLD,
     DEFAULT_GRID_IMPORT_DELAY,
@@ -85,6 +87,15 @@ async def async_setup_entry(
     }
     if not battery_configured:
         _NUMBER_DEFS = [d for d in _NUMBER_DEFS if d[0] not in _BATTERY_ONLY_NUMBERS]
+
+    # v2.0.0: generic (non-Tuya) wallboxes support 1 A steps. Amperage number
+    # entities (unit "A") then use step=1 so the UI lets users pick 7/11/… A.
+    # Tuya keeps step=2. Min/max (6–32) unchanged.
+    if get_charger_model(entry.data) == CHARGER_MODEL_GENERIC:
+        _NUMBER_DEFS = [
+            (suf, name, icon, mn, mx, (1 if u == "A" else st), dv, u)
+            for (suf, name, icon, mn, mx, st, dv, u) in _NUMBER_DEFS
+        ]
 
     entities = [
         EVSCNumber(

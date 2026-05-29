@@ -11,6 +11,7 @@ from custom_components.ev_smart_charger.config_flow import EVSCConfigFlow, EVSCO
 from custom_components.ev_smart_charger.const import (
     CONF_BATTERY_CAPACITY,
     CONF_CAR_OWNER,
+    CONF_CHARGER_MODEL,
     CONF_ENERGY_FORECAST_TARGET,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
@@ -19,11 +20,14 @@ from custom_components.ev_smart_charger.const import (
     CONF_GRID_IMPORT,
     CONF_HOME_CONSUMPTION,
     CONF_NOTIFY_SERVICES,
+    CONF_PHASE_MODE,
     CONF_PV_FORECAST,
     CONF_SOC_CAR,
     CONF_SOC_HOME,
+    CHARGER_MODEL_TUYA,
     DEFAULT_BATTERY_CAPACITY,
     DOMAIN,
+    PHASE_MODE_SINGLE,
 )
 
 
@@ -63,6 +67,13 @@ async def _init_flow_to_external_connectors(hass) -> str:
         context={"source": config_entries.SOURCE_USER},
     )
     result = await hass.config_entries.flow.async_configure(result["flow_id"], name_payload)
+    # v2.0.0: phase_mode + charger_model steps now sit before charger entities.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_PHASE_MODE: PHASE_MODE_SINGLE}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CHARGER_MODEL: CHARGER_MODEL_TUYA}
+    )
     result = await hass.config_entries.flow.async_configure(result["flow_id"], entities_payload)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], sensors_payload)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], pv_payload)
@@ -151,7 +162,14 @@ async def test_options_flow_updates_entry_data(hass) -> None:
     flow = EVSCOptionsFlow(entry)
     flow.hass = hass
 
-    result = await flow.async_step_init(
+    # v2.0.0: init is now phase_mode → charger_model → entities → sensors → …
+    result = await flow.async_step_init({CONF_PHASE_MODE: PHASE_MODE_SINGLE})
+    assert result["step_id"] == "charger_model"
+
+    result = await flow.async_step_charger_model({CONF_CHARGER_MODEL: CHARGER_MODEL_TUYA})
+    assert result["step_id"] == "entities"
+
+    result = await flow.async_step_entities(
         {
             CONF_EV_CHARGER_SWITCH: "switch.new",
             CONF_EV_CHARGER_CURRENT: "number.new_current",
@@ -182,13 +200,16 @@ async def test_options_flow_updates_entry_data(hass) -> None:
     )
     assert result["step_id"] == "external_connectors"
 
+    result = await flow.async_step_external_connectors(
+        {
+            CONF_BATTERY_CAPACITY: 15.0,
+            CONF_ENERGY_FORECAST_TARGET: "number.energy_target",
+        }
+    )
+    assert result["step_id"] == "dashboard"
+
     with patch.object(hass.config_entries, "async_update_entry") as update_entry:
-        result = await flow.async_step_external_connectors(
-            {
-                CONF_BATTERY_CAPACITY: 15.0,
-                CONF_ENERGY_FORECAST_TARGET: "number.energy_target",
-            }
-        )
+        result = await flow.async_step_dashboard({"create_dashboard": False})
 
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     update_entry.assert_called_once()
@@ -295,7 +316,16 @@ async def test_reconfigure_flow_updates_entry_data(hass) -> None:
     flow.context = {"entry_id": entry.entry_id}
     flow._reconfigure_entry = entry
 
-    result = await flow.async_step_reconfigure(
+    # v2.0.0: reconfigure entry point is now phase_mode → charger_model → entities → sensors → …
+    result = await flow.async_step_reconfigure({CONF_PHASE_MODE: PHASE_MODE_SINGLE})
+    assert result["step_id"] == "reconfigure_charger_model"
+
+    result = await flow.async_step_reconfigure_charger_model(
+        {CONF_CHARGER_MODEL: CHARGER_MODEL_TUYA}
+    )
+    assert result["step_id"] == "reconfigure_entities"
+
+    result = await flow.async_step_reconfigure_entities(
         {
             CONF_EV_CHARGER_SWITCH: "switch.new",
             CONF_EV_CHARGER_CURRENT: "number.new_current",
@@ -328,13 +358,16 @@ async def test_reconfigure_flow_updates_entry_data(hass) -> None:
     )
     assert result["step_id"] == "reconfigure_external_connectors"
 
+    result = await flow.async_step_reconfigure_external_connectors(
+        {
+            CONF_BATTERY_CAPACITY: 15.0,
+            CONF_ENERGY_FORECAST_TARGET: "number.energy_target",
+        }
+    )
+    assert result["step_id"] == "reconfigure_dashboard"
+
     with patch.object(hass.config_entries, "async_update_entry") as update_entry:
-        result = await flow.async_step_reconfigure_external_connectors(
-            {
-                CONF_BATTERY_CAPACITY: 15.0,
-                CONF_ENERGY_FORECAST_TARGET: "number.energy_target",
-            }
-        )
+        result = await flow.async_step_reconfigure_dashboard({"create_dashboard": False})
 
     assert result["type"] == data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
@@ -366,7 +399,11 @@ async def test_reconfigure_flow_rejects_duplicate_switch(hass) -> None:
     flow.context = {"entry_id": target_entry.entry_id}
     flow._reconfigure_entry = target_entry
 
-    result = await flow.async_step_reconfigure(
+    # v2.0.0: the duplicate-switch guard now lives in reconfigure_entities,
+    # reached after the phase_mode + charger_model steps.
+    await flow.async_step_reconfigure({CONF_PHASE_MODE: PHASE_MODE_SINGLE})
+    await flow.async_step_reconfigure_charger_model({CONF_CHARGER_MODEL: CHARGER_MODEL_TUYA})
+    result = await flow.async_step_reconfigure_entities(
         {
             CONF_EV_CHARGER_SWITCH: "switch.duplicate",
             CONF_EV_CHARGER_CURRENT: "number.new_current",

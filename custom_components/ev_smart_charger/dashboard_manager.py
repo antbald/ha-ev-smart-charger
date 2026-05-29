@@ -57,8 +57,14 @@ from .const import (
     CONF_EV_CHARGER_STATUS,
     CONF_EV_CHARGER_SWITCH,
     CONF_FV_PRODUCTION,
+    CONF_FV_PRODUCTION_L2,
+    CONF_FV_PRODUCTION_L3,
     CONF_GRID_IMPORT,
+    CONF_GRID_IMPORT_L2,
+    CONF_GRID_IMPORT_L3,
     CONF_HOME_CONSUMPTION,
+    CONF_HOME_CONSUMPTION_L2,
+    CONF_HOME_CONSUMPTION_L3,
     CONF_PV_FORECAST,
     CONF_PV_FORECAST_TOMORROW,
     CONF_SOC_CAR,
@@ -69,7 +75,11 @@ from .const import (
     DOMAIN,
     FRONTEND_CARD_FILENAME,
     FRONTEND_URL_BASE,
+    PHASE_MODE_SINGLE,
+    PHASE_MODE_THREE,
     VERSION,
+    get_charger_model,
+    is_three_phase,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -222,6 +232,21 @@ def _build_card_config(entry: ConfigEntry) -> dict[str, Any]:
         value = data.get(conf_key)
         if value:
             config[card_key] = value
+
+    # v2.0.0: phase mode + charger model. In three-phase, pass the per-phase
+    # entity lists so the card sums them for the power tiles (and uses 690 V for
+    # the derived charging-power reading). Single-phase keeps the single keys.
+    config["phase_mode"] = PHASE_MODE_THREE if is_three_phase(data) else PHASE_MODE_SINGLE
+    config["charger_model"] = get_charger_model(data)
+    if is_three_phase(data):
+        for card_key, conf_keys in (
+            ("solar_power_entities", (CONF_FV_PRODUCTION, CONF_FV_PRODUCTION_L2, CONF_FV_PRODUCTION_L3)),
+            ("home_consumption_entities", (CONF_HOME_CONSUMPTION, CONF_HOME_CONSUMPTION_L2, CONF_HOME_CONSUMPTION_L3)),
+            ("grid_import_entities", (CONF_GRID_IMPORT, CONF_GRID_IMPORT_L2, CONF_GRID_IMPORT_L3)),
+        ):
+            entities = [data[k] for k in conf_keys if data.get(k)]
+            if entities:
+                config[card_key] = entities
 
     return config
 
