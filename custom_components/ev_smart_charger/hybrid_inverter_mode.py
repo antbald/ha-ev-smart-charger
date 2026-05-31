@@ -716,6 +716,25 @@ class HybridInverterMode:
 
         # Probe window completed?
         if elapsed >= probe_duration:
+            # v2.1.0 (issue #29): gate success on the battery NOT actively masking
+            # at completion. With the default 60s tick and 60s probe_duration the
+            # sustained timer above never accumulates (the first Phase B tick IS
+            # the completion tick: batt_elapsed = 0), so a probe masked for its
+            # whole run would otherwise "succeed" on pure battery drain — the exact
+            # false positive this feature exists to catch. The user-set limit still
+            # tolerates minor battery activity (only over-limit discharge blocks
+            # success); a slow-ramp inverter that hasn't handed off by completion
+            # is handled by raising probe_duration.
+            if batt_over is not None and batt_over > 0:
+                self.logger.warning(
+                    f"PROBING FAIL: battery still masking "
+                    f"({self._last_battery_discharge_w:.0f}W, over limit by "
+                    f"{batt_over:.0f}W) at probe completion — PV headroom not confirmed"
+                )
+                await self._fail_probe(
+                    now, reason="battery masking at probe completion"
+                )
+                return
             self.logger.success(
                 f"PROBING SUCCESS: probe completed without sustained import — "
                 f"transitioning to RIDING_EDGE"
