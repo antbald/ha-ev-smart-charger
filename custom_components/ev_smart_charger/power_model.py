@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CONF_BATTERY_POWER,
     CONF_FV_PRODUCTION,
     CONF_FV_PRODUCTION_L2,
     CONF_FV_PRODUCTION_L3,
@@ -66,6 +67,10 @@ class ChargingModel:
     _production_entities: list[str]
     _consumption_entities: list[str]
     _grid_import_entities: list[str]
+    # v2.1.0 (issue #29) — optional signed battery-power sensor. Single (never
+    # phase-summed, unlike the readers above): battery power is one inverter-level
+    # aggregate, like SOC. None when the user did not map a sensor.
+    _battery_power_entity: str | None = None
 
     @classmethod
     def from_config(cls, config: dict) -> "ChargingModel":
@@ -78,6 +83,7 @@ class ChargingModel:
             _production_entities=_entities_for(config, _PRODUCTION_KEYS),
             _consumption_entities=_entities_for(config, _CONSUMPTION_KEYS),
             _grid_import_entities=_entities_for(config, _GRID_IMPORT_KEYS),
+            _battery_power_entity=config.get(CONF_BATTERY_POWER),
         )
 
     # ----- entity lists (for validation / dashboard) -----
@@ -123,6 +129,19 @@ class ChargingModel:
     def read_grid_import(self, hass: HomeAssistant) -> float:
         """Total grid import (W, positive = importing), summed across phases."""
         return sum(get_float(hass, e) for e in self._grid_import_entities)
+
+    def read_battery_discharge(self, hass: HomeAssistant) -> float | None:
+        """Home-battery discharge in watts (>=0 = discharging), or None.
+
+        Single sensor (not phase-summed). Convention: the sensor reports
+        negative = discharging, positive = charging, so discharge is the
+        clamped negation. Returns None when no sensor is configured — the
+        explicit guard is what distinguishes "unconfigured" from a genuine 0 W
+        reading (``get_float`` defaults to 0.0 for missing/unknown states).
+        """
+        if not self._battery_power_entity:
+            return None
+        return max(0.0, -get_float(hass, self._battery_power_entity, default=0.0))
 
     # ----- conversion -----
     def watts_to_amps(self, watts: float) -> float:

@@ -14,6 +14,7 @@ from custom_components.ev_smart_charger.const import (
     CHARGER_AMP_LEVELS,
     CHARGER_MODEL_GENERIC,
     CHARGER_MODEL_TUYA,
+    CONF_BATTERY_POWER,
     CONF_CHARGER_MODEL,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_SWITCH,
@@ -151,6 +152,35 @@ async def test_read_production_single_phase_unchanged(hass):
     hass.states.async_set("sensor.pv", "2200")
     model = ChargingModel.from_config(SINGLE_CONFIG)
     assert model.read_production(hass) == pytest.approx(2200.0)
+
+
+# ----------------------------------------------------------------------------
+# Battery-discharge reader (v2.1.0 — issue #29)
+# ----------------------------------------------------------------------------
+
+
+def test_read_battery_discharge_none_when_unconfigured():
+    """No battery sensor mapped → None (distinct from a real 0 W reading)."""
+    model = ChargingModel.from_config(SINGLE_CONFIG)
+    assert model._battery_power_entity is None
+    # hass unused on the None path
+    assert model.read_battery_discharge(hass=None) is None
+
+
+async def test_read_battery_discharge_sign_convention(hass):
+    """Negative raw = discharging → positive watts; positive raw → 0."""
+    config = dict(SINGLE_CONFIG)
+    config[CONF_BATTERY_POWER] = "sensor.battery_power"
+    model = ChargingModel.from_config(config)
+
+    hass.states.async_set("sensor.battery_power", "-1800")  # discharging 1800 W
+    assert model.read_battery_discharge(hass) == pytest.approx(1800.0)
+
+    hass.states.async_set("sensor.battery_power", "1200")  # charging → no discharge
+    assert model.read_battery_discharge(hass) == pytest.approx(0.0)
+
+    hass.states.async_set("sensor.battery_power", "0")
+    assert model.read_battery_discharge(hass) == pytest.approx(0.0)
 
 
 # ----------------------------------------------------------------------------

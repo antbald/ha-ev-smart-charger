@@ -79,6 +79,7 @@ from .const import (
     HELPER_HYBRID_MAX_FAILED_PROBES_SUFFIX,
     HELPER_HYBRID_MAX_IMPORT_DURATION_SUFFIX,
     HELPER_HYBRID_PROBE_DURATION_SUFFIX,
+    HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX,
     HELPER_SOLAR_MAX_AMPERAGE_SUFFIX,
     HYBRID_COOLDOWN_LONG_SECONDS,
     HYBRID_COOLDOWN_SHORT_SECONDS,
@@ -165,6 +166,8 @@ class HybridInverterMode:
         self._max_failed_probes_entity: str | None = None
         self._grid_import_threshold_entity: str | None = None
         self._solar_max_amperage_entity: str | None = None
+        # v2.1.0 (issue #29): battery-discharge masking limit (W). 0 = off.
+        self._max_battery_discharge_entity: str | None = None
         self._diagnostic_sensor: Any | None = None
 
         # Back-reference to Solar Surplus for control acquisition
@@ -184,6 +187,13 @@ class HybridInverterMode:
         # PROBING phase tracking
         self._probe_started_at: datetime | None = None
         self._import_violation_since: datetime | None = None
+        # v2.1.0 (issue #29): independent battery-discharge violation clock.
+        # MUST stay separate from _import_violation_since — sharing one timestamp
+        # for two signals would let a battery violation trip the grid path.
+        self._battery_violation_since: datetime | None = None
+        # Last battery discharge (W) read this tick; None when unconfigured.
+        # Cached so get_diagnostic_snapshot() (which takes no hass) can surface it.
+        self._last_battery_discharge_w: float | None = None
 
         # RIDING_EDGE tracking
         self._headroom_ok_since: datetime | None = None
@@ -229,6 +239,10 @@ class HybridInverterMode:
         )
         self._solar_max_amperage_entity = self._find_entity_by_suffix(
             HELPER_SOLAR_MAX_AMPERAGE_SUFFIX
+        )
+        # v2.1.0 (issue #29): battery-only helper; None in PV-only mode → feature off.
+        self._max_battery_discharge_entity = self._find_entity_by_suffix(
+            HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX
         )
 
         if self._runtime_data is not None:
@@ -416,6 +430,13 @@ class HybridInverterMode:
     ) -> bool:
         """Drive one cycle of the state machine. Returns True if handled."""
         try:
+            # v2.1.0 (issue #29): cache the signed battery-discharge reading once
+            # per tick (None when no sensor mapped) so the PROBING/RIDING_EDGE
+            # masking checks and the diagnostic snapshot share one value.
+            self._last_battery_discharge_w = self._power_model.read_battery_discharge(
+                self.hass
+            )
+
             # Sanity: re-check sensor on EVERY tick
             is_valid, err = validate_sensor(self.hass, self._grid_import, "Grid Import")
             if not is_valid and self._state != HYBRID_STATE_IDLE:
@@ -478,6 +499,21 @@ class HybridInverterMode:
         await self._stop_charger(reason)
         await self._transition(HYBRID_STATE_IDLE, reason=f"forced exit: {reason}")
 
+    def _battery_violation_amount(self) -> float | None:
+        """Return discharge-over-limit watts, or None when the check is inactive.
+
+        Inactive (returns None) when no battery-power sensor is mapped
+        (``_last_battery_discharge_w`` is None) or the limit is 0/unset. Otherwise
+        returns ``discharge - limit`` (positive = the battery is masking more than
+        the user allows; <=0 = within budget). v2.1.0 (issue #29).
+        """
+        if self._last_battery_discharge_w is None:
+            return None
+        limit = get_float(self.hass, self._max_battery_discharge_entity, default=0)
+        if limit <= 0:
+            return None
+        return self._last_battery_discharge_w - limit
+
     def get_diagnostic_snapshot(self) -> dict[str, Any]:
         """Return a serializable snapshot of the state machine."""
         now = dt_util.now()
@@ -489,6 +525,11 @@ class HybridInverterMode:
             "hard_exit_until_sunrise": self._hard_exit_until_sunrise,
             "last_check": now.isoformat(),
         }
+        # v2.1.0 (issue #29): surface the battery-discharge reading. A flat 0 here
+        # while the battery is known to be discharging is the user's cue that their
+        # sensor sign is reversed (apply the template-sensor fix).
+        if self._last_battery_discharge_w is not None:
+            snapshot["battery_discharge_w"] = round(self._last_battery_discharge_w, 1)
         if self._state_entered_at is not None:
             snapshot["state_entered_at"] = self._state_entered_at.isoformat()
             snapshot["state_age_seconds"] = int(
@@ -589,6 +630,7 @@ class HybridInverterMode:
         self._current_target_amps = HYBRID_PROBE_AMPERAGE
         self._probe_started_at = now
         self._import_violation_since = None
+        self._battery_violation_since = None  # v2.1.0 (issue #29)
         self._headroom_ok_since = None
         await self._transition(HYBRID_STATE_PROBING, reason="probe started")
 
@@ -648,6 +690,30 @@ class HybridInverterMode:
         else:
             self._import_violation_since = None
 
+        # v2.1.0 (issue #29): battery-discharge masking check (closes Failure
+        # mode 1). A near-full battery can silently cover the 6A EV load with
+        # grid_import ≈ 0, so the grid check alone would "succeed" on pure
+        # battery drain. Independent sustained timer; no-op when no sensor /
+        # limit 0. Sustained (not point-in-time) → also tolerant of slow PV ramp.
+        batt_over = self._battery_violation_amount()
+        if batt_over is not None and batt_over > 0:
+            if self._battery_violation_since is None:
+                self._battery_violation_since = now
+                self.logger.info(
+                    f"PROBING Phase B: battery discharge over limit by "
+                    f"{batt_over:.0f}W — starting masking timer"
+                )
+            batt_elapsed = (now - self._battery_violation_since).total_seconds()
+            if batt_elapsed >= max_import_duration:
+                self.logger.warning(
+                    f"PROBING FAIL: battery masking sustained for {batt_elapsed:.0f}s "
+                    f"(limit {max_import_duration}s) — PV never unlocked"
+                )
+                await self._fail_probe(now, reason="battery discharge masking during probe")
+                return
+        else:
+            self._battery_violation_since = None
+
         # Probe window completed?
         if elapsed >= probe_duration:
             self.logger.success(
@@ -656,6 +722,7 @@ class HybridInverterMode:
             )
             self._headroom_ok_since = None
             self._import_violation_since = None
+            self._battery_violation_since = None  # v2.1.0 (issue #29)
             self._riding_edge_entered_at = now
             await self._transition(HYBRID_STATE_RIDING_EDGE, reason="probe succeeded")
         else:
@@ -751,6 +818,65 @@ class HybridInverterMode:
         # Reset violation tracking when we're back below threshold
         if grid_import <= grid_threshold / 2:
             self._import_violation_since = None
+
+            # v2.1.0 (issue #29): battery-discharge masking step-down. With grid
+            # import already low, a passing cloud can be covered silently by the
+            # battery. Independent clock (_battery_violation_since) — never shares
+            # storage with the grid timer. Step down (or FAIL at 6A) when the
+            # over-limit discharge is sustained; while violating we never ramp up.
+            batt_over = self._battery_violation_amount()
+            if batt_over is not None and batt_over > 0:
+                if self._battery_violation_since is None:
+                    self._battery_violation_since = now
+                    self.logger.info(
+                        f"RIDING_EDGE: battery discharge over limit by "
+                        f"{batt_over:.0f}W — starting masking timer"
+                    )
+                batt_elapsed = (now - self._battery_violation_since).total_seconds()
+                if batt_elapsed >= max_import_duration:
+                    next_down = AmperageCalculator.get_next_level_down(
+                        current_amps, self._amp_levels
+                    )
+                    if next_down >= 6:
+                        self.logger.info(
+                            f"{self.logger.ACTION} RIDING_EDGE: battery masking "
+                            f"sustained for {batt_elapsed:.0f}s — reducing "
+                            f"{current_amps}A → {next_down}A"
+                        )
+                        result = await self.charger_controller.set_amperage(
+                            target_amps=next_down,
+                            reason=(
+                                "Hybrid: reducing for battery discharge "
+                                f"{self._last_battery_discharge_w:.0f}W"
+                            ),
+                        )
+                        if result.success:
+                            self._current_target_amps = next_down
+                            self._battery_violation_since = None
+                            self._headroom_ok_since = None
+                            await self._publish_diagnostic(
+                                reason=f"RIDING_EDGE @ {next_down}A (reduced, battery)"
+                            )
+                        return
+                    self.logger.warning(
+                        f"RIDING_EDGE FAIL: at 6A but battery masking "
+                        f"{batt_elapsed:.0f}s — no PV headroom"
+                    )
+                    await self._fail_probe(
+                        now, reason="6A floor reached, battery masking persists"
+                    )
+                    return
+                # Violating but not yet sustained → hold, do NOT ramp up.
+                await self._publish_diagnostic(
+                    reason=(
+                        f"RIDING_EDGE @ {current_amps}A (battery "
+                        f"{self._last_battery_discharge_w:.0f}W, violation "
+                        f"{batt_elapsed:.0f}/{max_import_duration}s)"
+                    )
+                )
+                return
+            self._battery_violation_since = None
+
             if self._headroom_ok_since is None:
                 self._headroom_ok_since = now
             headroom_elapsed = (now - self._headroom_ok_since).total_seconds()
@@ -910,6 +1036,7 @@ class HybridInverterMode:
         if new_state == HYBRID_STATE_IDLE:
             self._probe_started_at = None
             self._import_violation_since = None
+            self._battery_violation_since = None  # v2.1.0 (issue #29)
             self._headroom_ok_since = None
             self._riding_edge_entered_at = None
             self._current_target_amps = 0

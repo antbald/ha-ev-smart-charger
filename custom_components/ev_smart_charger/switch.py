@@ -11,8 +11,10 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.const import STATE_ON
 
 from .const import (
+    CONF_HYBRID_INVERTER_MODE,
     DEFAULT_CAR_READY_WEEKDAY,
     DEFAULT_CAR_READY_WEEKEND,
+    DEFAULT_HYBRID_INVERTER_MODE,
     HELPER_HYBRID_INVERTER_MODE_SUFFIX,
     HELPER_PRESERVE_HOME_BATTERY_SUFFIX,
     HELPER_TRACE_LOGGING_ENABLED_SUFFIX,
@@ -36,6 +38,14 @@ async def async_setup_entry(
     runtime_data = get_runtime_data(entry)
     battery_configured = has_home_battery(entry.data)
 
+    # v2.1.0 (issue #29): the config flow's optional "enable" toggle seeds the
+    # FIRST-RUN state of the Hybrid Inverter Mode switch. RestoreEntity takes
+    # over after the first boot, so entry.data is a seed only (no ongoing dual
+    # source of truth). EVSCSwitch has no access to entry.data, so resolve it here.
+    hybrid_default = bool(
+        entry.data.get(CONF_HYBRID_INVERTER_MODE, DEFAULT_HYBRID_INVERTER_MODE)
+    )
+
     # ── Switch definition table ──────────────────────────────────
     # (suffix, name, icon, default_state)
     _SWITCH_DEFS: list[tuple[str, str, str, bool]] = [
@@ -49,7 +59,7 @@ async def async_setup_entry(
         ("evsc_night_smart_charge_enabled", "Night Smart Charge", "mdi:moon-waning-crescent", False),
         (HELPER_PRESERVE_HOME_BATTERY_SUFFIX, "Preserve Home Battery", "mdi:battery-heart-variant", False),
         # Hybrid Inverter Mode (v1.8.0 — issue #20: zero-export systems)
-        (HELPER_HYBRID_INVERTER_MODE_SUFFIX, "Hybrid Inverter Mode", "mdi:solar-power-variant-outline", False),
+        (HELPER_HYBRID_INVERTER_MODE_SUFFIX, "Hybrid Inverter Mode", "mdi:solar-power-variant-outline", hybrid_default),
         # Notification switches (default ON)
         ("evsc_notify_smart_blocker_enabled", "Notify Smart Blocker", "mdi:bell-outline", True),
         ("evsc_notify_priority_balancer_enabled", "Notify Priority Balancer", "mdi:bell-outline", True),

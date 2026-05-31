@@ -21,6 +21,8 @@ from .const import (
     DEFAULT_BATTERY_SUPPORT_AMPERAGE,
     DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
     DEFAULT_SOLAR_MAX_AMPERAGE,
+    DEFAULT_MAX_BATTERY_DISCHARGE_FOR_EV,
+    HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX,
     DEFAULT_EV_MIN_SOC_WEEKDAY,
     DEFAULT_EV_MIN_SOC_WEEKEND,
     DEFAULT_HOME_MIN_SOC,
@@ -66,6 +68,7 @@ async def async_setup_entry(
         ("evsc_home_battery_min_soc", "EVSC Home Battery Min SOC", "mdi:battery-50", 0, 100, 5, DEFAULT_HOME_BATTERY_MIN_SOC, "%"),
         ("evsc_battery_support_amperage", "EVSC Battery Support Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_BATTERY_SUPPORT_AMPERAGE, "A"),
         ("evsc_battery_support_sunset_buffer", "EVSC Battery Support Sunset Buffer", "mdi:weather-sunset-down", 0, 240, 5, DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN, "min"),
+        (HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX, "EVSC Max Battery Discharge For EV", "mdi:battery-arrow-down", 0, 5000, 100, DEFAULT_MAX_BATTERY_DISCHARGE_FOR_EV, "W"),
         # Night Smart Charge
         ("evsc_min_solar_forecast_threshold", "EVSC Min Solar Forecast Threshold", "mdi:solar-power-variant", 0, 100, 1, DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD, "kWh"),
         ("evsc_night_charge_amperage", "EVSC Night Charge Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_NIGHT_CHARGE_AMPERAGE, "A"),
@@ -84,6 +87,9 @@ async def async_setup_entry(
         "evsc_home_battery_min_soc",
         "evsc_battery_support_amperage",
         "evsc_battery_support_sunset_buffer",
+        # v2.1.0 (issue #29): masking the EV floor with battery discharge is
+        # meaningless without a home battery → skip in PV-only mode.
+        HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX,
     }
     if not battery_configured:
         _NUMBER_DEFS = [d for d in _NUMBER_DEFS if d[0] not in _BATTERY_ONLY_NUMBERS]

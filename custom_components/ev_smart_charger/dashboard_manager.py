@@ -53,6 +53,7 @@ except ImportError:  # pragma: no cover
     LovelaceStorage = None  # type: ignore[assignment,misc]
 
 from .const import (
+    CONF_BATTERY_POWER,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
     CONF_EV_CHARGER_SWITCH,
@@ -227,6 +228,8 @@ def _build_card_config(entry: ConfigEntry) -> dict[str, Any]:
         # "Forecast Domani" / "Tomorrow Forecast" orange chip on the
         # hero card. Optional — chip is omitted if not mapped.
         "pv_forecast_tomorrow_entity": CONF_PV_FORECAST_TOMORROW,
+        # v2.1.0 (issue #29): optional signed battery-power sensor.
+        "battery_power_entity": CONF_BATTERY_POWER,
     }
     for card_key, conf_key in mapping.items():
         value = data.get(conf_key)

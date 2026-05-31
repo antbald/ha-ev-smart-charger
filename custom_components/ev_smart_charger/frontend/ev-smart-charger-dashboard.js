@@ -106,6 +106,7 @@ const DOMAIN_SUFFIXES = {
   hybridProbeDuration: ["number", "evsc_hybrid_probe_duration"],
   hybridMaxImportDuration: ["number", "evsc_hybrid_max_import_duration"],
   hybridMaxFailedProbes: ["number", "evsc_hybrid_max_failed_probes"],
+  maxBatteryDischargeForEv: ["number", "evsc_max_battery_discharge_for_ev"],
   hybridDiagnostic: ["sensor", "evsc_hybrid_inverter_diagnostic"],
 
   // ── Safety / Protection
@@ -350,6 +351,14 @@ const SETTINGS_CATALOG = [
           nl: "Maximaal aantal mislukte probings binnen 30 minuten voordat een lange cooldown (15 min) ingaat.",
         },
         hint: { en: "Default 5 · Range 1–10", it: "Default 5 · Range 1–10", nl: "Standaard 5 · Bereik 1–10" } },
+      { entityKey: "maxBatteryDischargeForEv", kind: "stepper",
+        name: { en: "Max Battery Discharge for EV", it: "Scarica max batteria per EV", nl: "Max. batterijontlading voor EV" },
+        desc: {
+          en: "Watts of home-battery discharge allowed to cover the EV charging floor. Detects battery-discharge masking during probing and lets Solar Surplus ride out brief PV dips without stop-start cycling. Requires the signed battery-power sensor (Configure → Hybrid Inverter Mode). 0 = off.",
+          it: "Watt di scarica della batteria di casa consentiti per coprire la soglia minima di ricarica EV. Rileva il mascheramento da scarica batteria durante il probing e permette al Surplus Solare di superare brevi cali di PV senza cicli stop-start. Richiede il sensore di potenza batteria con segno (Configura → Modalita Inverter Ibrido). 0 = off.",
+          nl: "Watt thuisbatterijontlading toegestaan om de EV-laaddrempel te dekken. Detecteert batterijontlading-maskering tijdens probing en laat zonne-overschot korte PV-dips overbruggen zonder stop-startcycli. Vereist de batterijvermogenssensor met teken (Configureren → Hybride-omvormermodus). 0 = uit.",
+        },
+        hint: { en: "Default 0 W · Range 0–5000", it: "Default 0 W · Range 0–5000", nl: "Standaard 0 W · Bereik 0–5000" } },
     ],
   },
   {
@@ -647,6 +656,7 @@ const FRONTEND_LOCALES = {
     "diagnostic.hybrid_state": "State",
     "diagnostic.hybrid_failed_probes": "Failed Probes (30 min)",
     "diagnostic.hybrid_long_cooldowns": "Long Cooldowns Today",
+    "diagnostic.hybrid_battery_discharge": "Battery Discharge",
     "profile.manual": "Manual",
     "profile.solar_surplus": "Solar Surplus"
   },
@@ -794,6 +804,7 @@ const FRONTEND_LOCALES = {
     "diagnostic.hybrid_state": "Stato",
     "diagnostic.hybrid_failed_probes": "Probe falliti (30 min)",
     "diagnostic.hybrid_long_cooldowns": "Cooldown lunghi oggi",
+    "diagnostic.hybrid_battery_discharge": "Scarica batteria",
     "profile.manual": "Manuale",
     "profile.solar_surplus": "Surplus solare"
   },
@@ -941,6 +952,7 @@ const FRONTEND_LOCALES = {
     "diagnostic.hybrid_state": "Status",
     "diagnostic.hybrid_failed_probes": "Mislukte probes (30 min)",
     "diagnostic.hybrid_long_cooldowns": "Lange cooldowns vandaag",
+    "diagnostic.hybrid_battery_discharge": "Batterijontlading",
     "profile.manual": "Handmatig",
     "profile.solar_surplus": "Zonne-overschot"
   }
@@ -981,6 +993,9 @@ class EvSmartChargerDashboard extends HTMLElement {
       // proper next-day sensor without disturbing their existing
       // overnight-charge logic.
       pv_forecast_tomorrow_entity: config?.pv_forecast_tomorrow_entity,
+      // v2.1.0 (issue #29): signed battery-power sensor. MUST be whitelisted
+      // here or it is silently dropped (cf. the v1.11.13 regression above).
+      battery_power_entity: config?.battery_power_entity,
       // v2.0.0: phase mode + charger model. In three-phase the *_entities
       // arrays carry the per-phase sensors so the power tiles can sum them;
       // phase_mode drives the 230 V vs 690 V charging-power derivation.
@@ -1998,6 +2013,12 @@ class EvSmartChargerDashboard extends HTMLElement {
     const hybridState = hybrid?.state || this._t("common.unavailable");
     const hybridFailed = hybridAttrs.failed_probes_in_window;
     const hybridLongCooldowns = hybridAttrs.long_cooldowns_today;
+    // v2.1.0 (issue #29): battery discharge (W) the probe sees. A flat 0 while
+    // the battery is discharging means the sensor sign is reversed.
+    const hybridBatteryDischarge =
+      hybridAttrs.battery_discharge_w != null
+        ? `${hybridAttrs.battery_discharge_w} W`
+        : null;
     const cachedSocLabel =
       cachedEvSoc && cachedEvSoc.state && cachedEvSoc.state !== "unknown" && cachedEvSoc.state !== "unavailable"
         ? `${cachedEvSoc.state}%`
@@ -2030,6 +2051,7 @@ class EvSmartChargerDashboard extends HTMLElement {
           <div class="diag-grid">
             ${this._renderDiagnosticDetail(this._t("diagnostic.hybrid_failed_probes"), hybridFailed)}
             ${this._renderDiagnosticDetail(this._t("diagnostic.hybrid_long_cooldowns"), hybridLongCooldowns)}
+            ${hybridBatteryDischarge != null ? this._renderDiagnosticDetail(this._t("diagnostic.hybrid_battery_discharge"), hybridBatteryDischarge) : ""}
           </div>
         </div>
         <div class="diag-card">

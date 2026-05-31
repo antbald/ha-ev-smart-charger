@@ -10,6 +10,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.ev_smart_charger.config_flow import EVSCConfigFlow, EVSCOptionsFlow
 from custom_components.ev_smart_charger.const import (
     CONF_BATTERY_CAPACITY,
+    CONF_BATTERY_POWER,
     CONF_CAR_OWNER,
     CONF_CHARGER_MODEL,
     CONF_ENERGY_FORECAST_TARGET,
@@ -76,6 +77,8 @@ async def _init_flow_to_external_connectors(hass) -> str:
     )
     result = await hass.config_entries.flow.async_configure(result["flow_id"], entities_payload)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], sensors_payload)
+    # v2.1.0 (issue #29): hybrid_inverter step between sensors and pv_forecast
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     result = await hass.config_entries.flow.async_configure(result["flow_id"], pv_payload)
     result = await hass.config_entries.flow.async_configure(result["flow_id"], notifications_payload)
 
@@ -187,6 +190,12 @@ async def test_options_flow_updates_entry_data(hass) -> None:
             CONF_GRID_IMPORT: "sensor.new_grid",
         }
     )
+    # v2.1.0 (issue #29): hybrid_inverter step (sensor only in options flow)
+    assert result["step_id"] == "hybrid_inverter"
+
+    result = await flow.async_step_hybrid_inverter(
+        {CONF_BATTERY_POWER: "sensor.new_battery_power"}
+    )
     assert result["step_id"] == "pv_forecast"
 
     result = await flow.async_step_pv_forecast({CONF_PV_FORECAST: "sensor.new_forecast"})
@@ -217,6 +226,7 @@ async def test_options_flow_updates_entry_data(hass) -> None:
     assert updated_data[CONF_EV_CHARGER_SWITCH] == "switch.new"
     assert updated_data[CONF_CAR_OWNER] == "person.new_owner"
     assert updated_data[CONF_ENERGY_FORECAST_TARGET] == "number.energy_target"
+    assert updated_data[CONF_BATTERY_POWER] == "sensor.new_battery_power"
 
 
 async def test_options_flow_manager_can_open_init_step(hass) -> None:
@@ -343,6 +353,12 @@ async def test_reconfigure_flow_updates_entry_data(hass) -> None:
             CONF_GRID_IMPORT: "sensor.new_grid",
         }
     )
+    # v2.1.0 (issue #29): reconfigure_hybrid_inverter step (sensor only)
+    assert result["step_id"] == "reconfigure_hybrid_inverter"
+
+    result = await flow.async_step_reconfigure_hybrid_inverter(
+        {CONF_BATTERY_POWER: "sensor.new_battery_power"}
+    )
     assert result["step_id"] == "reconfigure_pv_forecast"
 
     result = await flow.async_step_reconfigure_pv_forecast(
@@ -377,6 +393,7 @@ async def test_reconfigure_flow_updates_entry_data(hass) -> None:
     assert updated_data[CONF_EV_CHARGER_SWITCH] == "switch.new"
     assert updated_data[CONF_CAR_OWNER] == "person.new_owner"
     assert updated_data[CONF_ENERGY_FORECAST_TARGET] == "number.energy_target"
+    assert updated_data[CONF_BATTERY_POWER] == "sensor.new_battery_power"
 
 
 async def test_reconfigure_flow_rejects_duplicate_switch(hass) -> None:

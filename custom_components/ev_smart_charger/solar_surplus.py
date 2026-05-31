@@ -23,6 +23,7 @@ from .const import (
     SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE,
     HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX,
     HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX,
+    HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX,
     HELPER_SOLAR_MAX_AMPERAGE_SUFFIX,
     DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
     DEFAULT_SOLAR_MAX_AMPERAGE,
@@ -116,6 +117,8 @@ class SolarSurplusAutomation:
         self._battery_support_amperage_entity = None
         self._battery_support_sunset_buffer_entity = None
         self._solar_max_amperage_entity = None
+        # v2.1.0 (issue #29): battery-only deadband buffer limit (W). 0 = off.
+        self._max_battery_discharge_entity = None
         self._solar_surplus_diagnostic_sensor_entity = None
         self._solar_surplus_diagnostic_sensor_obj = None
 
@@ -274,6 +277,8 @@ class SolarSurplusAutomation:
             self._home_battery_min_soc_entity = self._find_entity_by_suffix("evsc_home_battery_min_soc")
             self._battery_support_amperage_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
             self._battery_support_sunset_buffer_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX)
+            # v2.1.0 (issue #29): battery-only deadband buffer limit helper
+            self._max_battery_discharge_entity = self._find_entity_by_suffix(HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX)
         self._solar_max_amperage_entity = self._find_entity_by_suffix(HELPER_SOLAR_MAX_AMPERAGE_SUFFIX)
         self._solar_surplus_diagnostic_sensor_entity = self._find_entity_by_suffix("evsc_solar_surplus_diagnostic")
         if self._runtime_data is not None:
@@ -305,6 +310,8 @@ class SolarSurplusAutomation:
                 missing_entities.append(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
             if not self._battery_support_sunset_buffer_entity:
                 missing_entities.append(HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX)
+            if not self._max_battery_discharge_entity:
+                missing_entities.append(HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX)
 
         if missing_entities:
             self.logger.warning(
@@ -696,6 +703,32 @@ class SolarSurplusAutomation:
 
         # === 12. Calculate Target Amperage (with hysteresis) ===
         target_amps = self._calculate_target_amperage(surplus_watts, current_amps)
+
+        # === 12a. Battery-discharge deadband buffer (v2.1.0 — issue #29) ===
+        # On hybrid systems the inverter can curtail PV so surplus briefly dips
+        # below the 6A floor while the home battery silently covers the gap. If
+        # the user opted in (limit > 0) and mapped a battery-power sensor, let up
+        # to `limit` watts of battery discharge keep an ALREADY-charging session
+        # alive instead of stop-start cycling. Gated on charger_is_on so it never
+        # *starts* charging off the battery (start still needs the 6.5A threshold),
+        # which also leaves the opportunistic dead-band-start path (12b, requires
+        # not charger_is_on) completely untouched. No-op when the helper/sensor is
+        # absent (limit 0 / discharge None) — byte-for-byte v2.0.0.
+        if target_amps == 0 and charger_is_on:
+            limit = get_float(self.hass, self._max_battery_discharge_entity, default=0)
+            if limit > 0:
+                discharge = self._power_model.read_battery_discharge(self.hass)
+                if discharge is not None:
+                    buffer = min(discharge, limit)
+                    # 6A floor in watts: ≈1380W single-phase, ≈4140W three-phase.
+                    min_charging_watts = self._amp_levels[0] * self._effective_voltage
+                    if surplus_watts + buffer >= min_charging_watts:
+                        target_amps = current_amps
+                        self.logger.info(
+                            f"Deadband buffer: surplus {surplus_watts:.0f}W + battery "
+                            f"{buffer:.0f}W (limit {limit:.0f}W) >= floor "
+                            f"{min_charging_watts:.0f}W → keep charging at {current_amps}A"
+                        )
 
         # Apply user-configured maximum amperage cap (issue #11: wallboxes with <32A limit).
         # Always cap to the highest valid amp level that doesn't exceed max_amps

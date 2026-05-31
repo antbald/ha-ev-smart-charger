@@ -28,6 +28,8 @@ from custom_components.ev_smart_charger.const import (
     CONF_PV_FORECAST,
     CONF_NOTIFY_SERVICES,
     CONF_BATTERY_CAPACITY,
+    CONF_BATTERY_POWER,
+    CONF_HYBRID_INVERTER_MODE,
     CONF_CAR_OWNER,
     CONF_ENERGY_FORECAST_TARGET,
     CHARGER_MODEL_GENERIC,
@@ -85,7 +87,7 @@ async def test_form(hass: HomeAssistant):
     assert result4["type"] == data_entry_flow.FlowResultType.FORM
     assert result4["step_id"] == "sensors"
 
-    # Step 5: Sensors → pv_forecast
+    # Step 5: Sensors → hybrid_inverter
     result5 = await hass.config_entries.flow.async_configure(
         result4["flow_id"],
         {
@@ -97,11 +99,19 @@ async def test_form(hass: HomeAssistant):
         },
     )
     assert result5["type"] == data_entry_flow.FlowResultType.FORM
-    assert result5["step_id"] == "pv_forecast"
+    assert result5["step_id"] == "hybrid_inverter"
 
-    # Step 6: PV Forecast → notifications
-    result6 = await hass.config_entries.flow.async_configure(
+    # Step 6: Hybrid Inverter (v2.1.0 — issue #29) → pv_forecast
+    result5b = await hass.config_entries.flow.async_configure(
         result5["flow_id"],
+        {CONF_HYBRID_INVERTER_MODE: True, CONF_BATTERY_POWER: "sensor.battery_power"},
+    )
+    assert result5b["type"] == data_entry_flow.FlowResultType.FORM
+    assert result5b["step_id"] == "pv_forecast"
+
+    # Step 7: PV Forecast → notifications
+    result6 = await hass.config_entries.flow.async_configure(
+        result5b["flow_id"],
         {
             CONF_PV_FORECAST: "sensor.forecast",
         },
@@ -109,7 +119,7 @@ async def test_form(hass: HomeAssistant):
     assert result6["type"] == data_entry_flow.FlowResultType.FORM
     assert result6["step_id"] == "notifications"
 
-    # Step 7: Notifications → external_connectors
+    # Step 8: Notifications → external_connectors
     with patch(
         "custom_components.ev_smart_charger.async_setup_entry",
         return_value=True,
@@ -124,7 +134,7 @@ async def test_form(hass: HomeAssistant):
         assert result7["type"] == data_entry_flow.FlowResultType.FORM
         assert result7["step_id"] == "external_connectors"
 
-        # Step 8: External connectors → dashboard
+        # Step 9: External connectors → dashboard
         result8 = await hass.config_entries.flow.async_configure(
             result7["flow_id"],
             {
@@ -134,7 +144,7 @@ async def test_form(hass: HomeAssistant):
         assert result8["type"] == data_entry_flow.FlowResultType.FORM
         assert result8["step_id"] == "dashboard"
 
-        # Step 9: Dashboard → create entry
+        # Step 10: Dashboard → create entry
         result9 = await hass.config_entries.flow.async_configure(
             result8["flow_id"],
             {"create_dashboard": False},
@@ -146,6 +156,9 @@ async def test_form(hass: HomeAssistant):
         assert result9["data"][CONF_EV_CHARGER_SWITCH] == "switch.charger"
         assert result9["data"][CONF_PHASE_MODE] == PHASE_MODE_SINGLE
         assert result9["data"][CONF_CHARGER_MODEL] == CHARGER_MODEL_TUYA
+        # v2.1.0 (issue #29): hybrid step values round-trip into entry.data
+        assert result9["data"][CONF_HYBRID_INVERTER_MODE] is True
+        assert result9["data"][CONF_BATTERY_POWER] == "sensor.battery_power"
 
         await hass.async_block_till_done()
         assert len(mock_setup_entry.mock_calls) == 1
@@ -211,6 +224,12 @@ async def test_external_connectors_validates_energy_target_entity_exists(hass: H
             CONF_HOME_CONSUMPTION: "sensor.consumption",
             CONF_GRID_IMPORT: "sensor.grid",
         },
+    )
+    # v2.1.0 (issue #29): hybrid_inverter step between sensors and pv_forecast
+    assert result["step_id"] == "hybrid_inverter"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {},
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
@@ -306,6 +325,9 @@ async def test_three_phase_generic_flow(hass: HomeAssistant):
             CONF_GRID_IMPORT_L3: "sensor.grid3",
         },
     )
+    # v2.1.0 (issue #29): hybrid_inverter step (battery_power stays single, not per-phase)
+    assert result["step_id"] == "hybrid_inverter"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["step_id"] == "pv_forecast"
 
     result = await hass.config_entries.flow.async_configure(
