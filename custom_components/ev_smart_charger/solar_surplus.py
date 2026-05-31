@@ -716,7 +716,11 @@ class SolarSurplusAutomation:
         # absent (limit 0 / discharge None) — byte-for-byte v2.0.0.
         if target_amps == 0 and charger_is_on:
             limit = get_float(self.hass, self._max_battery_discharge_entity, default=0)
-            if limit > 0:
+            # Re-apply the battery-support safety guards (SOC floor / sunset /
+            # EV_FREE): the bridge only runs when battery support is *inactive*,
+            # so without this it would drain the home battery exactly where the
+            # guards said not to.
+            if limit > 0 and self._is_battery_bridge_allowed(priority):
                 discharge = self._power_model.read_battery_discharge(self.hass)
                 if discharge is not None:
                     buffer = min(discharge, limit)
@@ -1183,6 +1187,45 @@ class SolarSurplusAutomation:
             )
             self.logger.info(f"Using configured amperage: {battery_support_amps}A")
             self._battery_support_active = True
+
+    def _is_battery_bridge_allowed(self, priority: str | None) -> bool:
+        """Safety guards for the v2.1.0 deadband battery bridge (issue #29).
+
+        The bridge (section 12a) keeps an already-charging session alive off
+        capped battery discharge. It only runs when ``_calculate_target_amperage``
+        returned 0 — i.e. exactly when ``_battery_support_active`` is False — so it
+        must re-apply the same guards ``_handle_home_battery_usage`` uses, or it
+        would drain the home battery in situations the user opted out of:
+        - no home battery configured (PV-only),
+        - both SOC targets already met (PRIORITY_EV_FREE) — regression class fixed
+          in v1.3.24 (PRIORITY_HOME already returns earlier in the periodic check),
+        - sunset imminent (sunset buffer guard) — v1.6.22,
+        - home SOC at/below the configured minimum.
+        Balancer-disabled (priority None) is allowed: the explicit watt limit is the
+        opt-in and the SOC floor still bounds the drain.
+        """
+        if not self._has_home_battery:
+            return False
+        if priority == PRIORITY_EV_FREE:
+            return False
+        if self._battery_support_sunset_buffer_entity:
+            buffer_min = get_float(
+                self.hass,
+                self._battery_support_sunset_buffer_entity,
+                DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
+            )
+        else:
+            buffer_min = DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN
+        if buffer_min > 0:
+            now = dt_util.now()
+            sunset = self._astral_service.get_sunset(now)
+            if sunset and now + timedelta(minutes=buffer_min) >= sunset:
+                return False
+        home_soc = get_float(self.hass, self._soc_home, 0)
+        min_soc = get_float(self.hass, self._home_battery_min_soc_entity, 20)
+        if home_soc <= min_soc:
+            return False
+        return True
 
     def _calculate_target_amperage(self, surplus_watts: float, current_amperage: int = 0) -> int:
         """Calculate target amperage with hysteresis to prevent oscillation.

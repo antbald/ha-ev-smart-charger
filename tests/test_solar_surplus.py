@@ -77,6 +77,27 @@ async def test_calculate_target_amperage(hass, automation):
     target = automation._calculate_target_amperage(1150, current_amperage=6)
     assert target == 0  # Should stop
 
+
+async def test_battery_bridge_guard(hass, automation):
+    """v2.1.0 (issue #29): the deadband battery bridge re-applies the
+    battery-support safety guards (SOC floor / EV_FREE / sunset)."""
+    # Disable the sunset guard for this test (no sunset → guard skipped).
+    automation._astral_service.get_sunset = MagicMock(return_value=None)
+    hass.states.async_set("sensor.home_soc", "80")
+    hass.states.async_set("number.min_soc", "20")
+
+    # Allowed: EV priority with SOC above the minimum...
+    assert automation._is_battery_bridge_allowed(PRIORITY_EV) is True
+    # ...and when the balancer is disabled (priority None) — opt-in is the limit.
+    assert automation._is_battery_bridge_allowed(None) is True
+
+    # Blocked when both targets are met (EV_FREE) — v1.3.24 over-discharge guard.
+    assert automation._is_battery_bridge_allowed(PRIORITY_EV_FREE) is False
+
+    # Blocked when home SOC is at/below the configured minimum.
+    hass.states.async_set("sensor.home_soc", "20")
+    assert automation._is_battery_bridge_allowed(PRIORITY_EV) is False
+
 async def test_grid_import_protection(hass, automation):
     """Test grid import protection logic."""
     # Setup
