@@ -756,6 +756,25 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.2.1 (2026-06-01)
+**FIX: Touch scroll stuck on dashboard cards (could only scroll on empty gaps)**
+
+**Problem**: on touch devices a vertical swipe that LANDED on a card (rather than on the empty shell padding / `ha-card` background) failed to scroll the Lovelace view — the user had to find an empty gap to drag the page. The empty areas scrolled because they carry no `backdrop-filter`; the cards did not.
+
+**Root cause**: every glass surface (`.evsc-card`, `.evsc-hero-v2`, …) carries `-webkit-backdrop-filter` and declared no explicit `touch-action`. On iOS/WebKit a touch starting on a `backdrop-filter` layer can intermittently be captured by that layer instead of letting the vertical pan bubble up to the scroll container — the classic "I can only scroll on the gaps" symptom.
+
+**Fix** (frontend-only, two complementary CSS levers in [ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js)):
+1. **`touch-action: pan-y`** on the layout/card surfaces (`.dashboard-shell`, `.evsc-dash-grid` + children, `.evsc-stack`/`-inner`, `.evsc-card`, `.evsc-card-head`, `.evsc-hero-wrap`/`-v2`, `.evsc-acc-body`/`-inner`, `.weekly-grid`, `.evsc-wp-grid`, `.evsc-wp-mobile`). Declares vertical pan explicitly and **disables pinch-zoom** (intended — the dashboard is a control surface). There is no horizontal scroll region inside the card, so `pan-y` is safe. Tap targets keep `manipulation` (a superset that already allows pan-y), so toggles/steppers still scroll.
+2. **`transform: translateZ(0)`** on the two `backdrop-filter` surfaces (`.evsc-card`, `.evsc-hero-v2`) — promotes each to its own GPU compositing layer so hit-testing is clean and the gesture passes through. Effectively free: `backdrop-filter` already promotes these to a layer, so no new layers are added. Scoped to the surfaces that actually carry the filter (not the layout wrappers) to avoid needless containing blocks.
+
+**Verification**: confirmed in a standalone preview harness (mock `hass`, real bundle) — computed `touch-action: pan-y` on all card surfaces, `manipulation` on tap targets, `translateZ(0)` applied, no horizontal overflow, layout/blur intact. Note: the preview runs in desktop Chrome and does **not** reproduce the iOS WebKit bug; the definitive test is on a real touch device. If scrolling still fails there, the next lever is moving `translateZ(0)` / `will-change` onto Home Assistant's own scroll container.
+
+**Files**: `frontend/ev-smart-charger-dashboard.js` (CSS only), `const.py`, `manifest.json`. `VERSION = "2.2.1"`. The `?v=` + content-hash cache-busters pick up the new bundle on the next dashboard reload.
+
+**Backward compatible**: zero schema / entity / config-flow changes; purely visual/interaction. **Upgrade priority**: 🟢 RECOMMENDED for anyone who uses the dashboard on a phone or tablet.
+
+---
+
 ### v2.2.0 (2026-06-01)
 **FEATURE: Measured charging power as the charging-state SSOT (with legacy status fallback)**
 

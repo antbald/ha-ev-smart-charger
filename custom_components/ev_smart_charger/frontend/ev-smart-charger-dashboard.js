@@ -3103,6 +3103,51 @@ class EvSmartChargerDashboard extends HTMLElement {
           -webkit-tap-highlight-color: transparent;
         }
 
+        /* v2.2.1: touch scroll pass-through on card surfaces. Symptom:
+           on touch devices a vertical swipe that LANDS on a card (rather
+           than on the empty shell padding / ha-card background) failed to
+           scroll the view — the user had to find an empty gap to swipe.
+           Root cause: the card surfaces carry -webkit-backdrop-filter (the
+           glass effect) and declared no explicit touch-action, so iOS/WebKit
+           ambiguously captured the gesture on the filtered layer instead of
+           passing the vertical pan up to HA's scroll container. There is no
+           horizontal scroll region inside the dashboard, so forcing pan-y on
+           every layout/card surface is safe and makes vertical scroll start
+           from anywhere. Tap targets above keep manipulation (a superset
+           that already allows pan-y), so toggles/steppers still scroll too. */
+        .dashboard-shell,
+        .evsc-dash-grid,
+        .evsc-dash-grid > *,
+        .evsc-stack,
+        .evsc-stack-inner,
+        .evsc-card,
+        .evsc-card-head,
+        .evsc-hero-wrap,
+        .evsc-hero-v2,
+        .evsc-acc-body,
+        .evsc-acc-body-inner,
+        .weekly-grid,
+        .evsc-wp-grid,
+        .evsc-wp-mobile {
+          touch-action: pan-y;
+        }
+
+        /* v2.2.1: compositing promotion for the glass surfaces. This is the
+           belt-and-braces half of the scroll fix and targets the ACTUAL
+           root cause on iOS/WebKit: an element carrying -webkit-backdrop-filter
+           can intermittently capture a touch instead of letting the vertical
+           pan bubble to the scroll container (the "I can only scroll on the
+           empty gaps" symptom). Forcing each glass surface onto its own GPU
+           compositing layer makes its hit-testing clean so the gesture passes
+           through. translateZ(0) is effectively free here: backdrop-filter
+           already promotes these elements to their own layer, so no new layers
+           are added. Scoped to the surfaces that actually have backdrop-filter
+           — NOT the layout wrappers — to avoid needless containing blocks. */
+        .evsc-card,
+        .evsc-hero-v2 {
+          transform: translateZ(0);
+        }
+
         ha-card {
           /* v1.10.4: ha-card has implicit min-width (~280-360px) per HA
              community findings — must be overridden explicitly. */
