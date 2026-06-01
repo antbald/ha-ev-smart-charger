@@ -756,6 +756,29 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.1.1 (2026-06-01)
+**FIX: Tolerate user-disabled helper entities at startup ([issue #22](https://github.com/antbald/ha-ev-smart-charger/issues/22) — xion2000)**
+
+**Problem**: disabling *any* helper entity in Home Assistant (e.g. the Night Smart Charge controls + daily SOC targets a retired user on no overnight tariff doesn't need) stopped the integration from initializing after a HA restart, with the opaque `ConfigEntryNotReady` "Timed out while waiting for … registration". Re-enabling the entities fixed it.
+
+**Root cause**: the Phase 1 barrier in [`__init__.py`](custom_components/ev_smart_charger/__init__.py) waits on `runtime_data.registration_event`, which only fires when `registered_entity_count >= expected_entity_count` (66 / 52 PV-only). HA skips `async_added_to_hass` ([entity_base.py:51](custom_components/ev_smart_charger/entity_base.py:51)) for disabled entities, so the counter never reaches the target → 10 s `asyncio.wait_for` times out → `ConfigEntryNotReady`.
+
+**Fix**: new `_async_wait_for_helper_registration()` replaces the inline `try/except`. On timeout it reconciles against the **entity registry** (`disabled_by != None`):
+- `registered + disabled >= expected` → user consciously disabled them. Log a WARNING, surface a Home Assistant **Repairs** entry (`translation_key="disabled_helpers"`, severity WARNING, EN/IT/NL), proceed in degraded mode (`state_helper` already defaults safely on `None`/`unknown`/`unavailable`). The Repairs entry clears on the next clean boot.
+- real shortfall → log an ERROR with the count of genuinely missing entities and raise `ConfigEntryNotReady` so HA retries.
+
+This is a faithful re-implementation of the never-merged v1.11.2 work (PR #25, which was stranded ~10 versions behind master and whose only tester likely mis-installed a branch download instead of a release). The unique-id matcher (`_entity_key_from_unique_id`, format `{DOMAIN}_{entry_id}_{key}` per [entity_base.py:31](custom_components/ev_smart_charger/entity_base.py:31)) was re-verified against the real format.
+
+**Coupling note** added next to `TOTAL_INTEGRATION_ENTITIES` in [const.py](custom_components/ev_smart_charger/const.py): the disabled-helper tolerance assumes the constant equals the number of entities created when nothing is disabled; if it drifts above reality (cf. v1.6.20), a single disabled entity would silently tip the count back into a hard `ConfigEntryNotReady`.
+
+**Tests** ([tests/test_integration_setup.py](tests/test_integration_setup.py)): unit tests for `_entity_key_from_unique_id` (accept valid, reject foreign/cross-entry); a regression test mirroring xion2000's setup that builds **real `entity_registry` entries with `RegistryEntryDisabler.USER`**, fires the timeout, and asserts `async_setup_entry` returns `True` + a `disabled_helpers` Repairs issue exists; and a genuine-shortfall test that still raises `ConfigEntryNotReady` with no Repairs issue. Full suite green except the 19 pre-existing environment-only baseline failures (identical on clean master).
+
+**Files**: `__init__.py` (helpers + Phase 1 call), `const.py` (coupling comment + VERSION), `manifest.json`, `strings.json` + `translations/{en,it,nl}.json` (new `issues.disabled_helpers` block), `tests/test_integration_setup.py`. `VERSION = "2.1.1"`.
+
+**Backward compatible**: zero schema / entity / config-flow changes. Installs with all helpers enabled hit the unchanged happy path. **Upgrade priority**: 🟢 RECOMMENDED for anyone who has disabled helper entities; ⚪ NO-OP otherwise.
+
+---
+
 ### v2.1.0 (2026-05-31)
 **Battery-discharge masking detection for Hybrid Inverter Mode + Solar-Surplus deadband buffer ([issue #29](https://github.com/antbald/ha-ev-smart-charger/issues/29), DJm00n)**
 

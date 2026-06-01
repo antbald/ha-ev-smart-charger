@@ -587,5 +587,11 @@
         "generic": "Generica (scatti da 1 A)"
       }
     }
+  },
+  "issues": {
+    "disabled_helpers": {
+      "title": "Alcune entità helper di EV Smart Charger sono disabilitate",
+      "description": "{count} entità helper di \"{entry_title}\" risultano disabilitate in Home Assistant ({entities}). EV Smart Charger è partito in modalità degradata, usando valori predefiniti sicuri per quelle disabilitate. È tollerato, ma disabilitare le entità non è il modo supportato per spegnere le funzioni. Riabilitale in Impostazioni → Dispositivi e servizi, oppure attendi gli interruttori di opt-out per singola funzione (issue #24). Questo avviso si cancella da solo al prossimo avvio pulito."
+    }
   }
 }
