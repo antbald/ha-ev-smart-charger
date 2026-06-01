@@ -1,6 +1,6 @@
 # EV Smart Charger SSOT
 
-This file is the single source of truth for the current architecture as of 2026-04-11.
+This file is the single source of truth for the current architecture as of 2026-06-01 (v2.2.0).
 
 If it conflicts with historical notes, release files, or old session summaries, this file wins for maintainer-facing architecture. `README.md` remains the user-facing guide.
 
@@ -10,7 +10,10 @@ If it conflicts with historical notes, release files, or old session summaries, 
 
 - one switch to start or stop the charger
 - one current-control entity
-- one charger status sensor
+- one charger status sensor — **optional since v2.2.0** (fallback for charging
+  detection + plug/idle/finished lifecycle; see §4)
+- an **optional measured charging-power sensor** (v2.2.0; 1 in single-phase, 3
+  summed in three-phase) — the source of truth for "is the EV charging?" (§4)
 - SOC, solar, load, grid, and optional forecast sensors
 
 Phase mode (v2.0.0) is an opt-in chosen in the config flow. In **single-phase**
@@ -98,6 +101,38 @@ and shared via `runtime_data.power_model` (a `ChargingModel`):
   sequence (Tuya/`select` chargers misbehave on a live current change); `generic`
   sets the lower value live, without toggling the switch.
 
+### 4.1 Charging-state SSOT (v2.2.0)
+
+"Is the EV drawing current right now?" (`drawing_now`) has a single source of
+truth: **measured phase charging power (W)**, surfaced on the shared
+`ChargingModel` (`power_model.py`, on `runtime_data.power_model`):
+
+- `read_charging_power(hass)` — summed watts. Three-phase is **all-or-nothing**
+  (any unreadable mapped phase → `None`), clamped `max(0, …)` (a reversed-sign
+  sensor reads a flat 0 W), and **unit-normalized kW→W** so a kW wallbox sensor
+  agrees with the 200 W floor and the frontend. `None` when no power sensor is
+  mapped.
+- `is_charging(hass)` — stateless: `power > CHARGING_POWER_DRAWING_FLOOR_W (200)`
+  → else a **tolerant status blocklist** (charging unless the status is an
+  explicitly idle/done value — matches the frontend, so brand-specific charging
+  strings register) → else `False`.
+- `is_plugged_in(hass)` — lifecycle from the status string (measured 0 W cannot
+  tell "paused" from "unplugged").
+
+Three separate signals are kept distinct and never collapsed: **`drawing_now`**
+(measured power → status fallback), **plug/lifecycle** (status string),
+**commanded** (`charger_controller.is_charging()` = switch echo;
+`get_current_amperage()` = setpoint). **All charger *control* decisions stay on
+the commanded signal** (byte-for-byte v2.1.x); measured power is used for
+charging *detection* (dashboard banner, night-charge grid blind-spot stop) and
+*diagnostics* only. The controller caches measured power solely for its
+operation diagnostic.
+
+Backward compatible: with no power sensor mapped, `read_charging_power` returns
+`None` and every consumer falls back to the status string / switch echo exactly
+as v2.1.x. Constants: `CHARGING_POWER_DRAWING_FLOOR_W = 200`,
+`CHARGING_POWER_GRACE_SECONDS = 15`, `NIGHT_GRID_DRAW_START_GRACE_SECONDS = 90`.
+
 ## 5. Ownership and arbitration
 
 `custom_components/ev_smart_charger/automation_coordinator.py` is the canonical ownership plane for any automation that may start, stop, or adjust the charger.
@@ -113,16 +148,29 @@ The enforced model is:
 
 ## 6. Config and reconfiguration
 
-`custom_components/ev_smart_charger/config_flow.py` now exposes (v2.0.0):
+`custom_components/ev_smart_charger/config_flow.py` exposes (v2.0.0 +
+v2.1.0 hybrid step):
 
-- a 9-step initial setup flow: name → **phase_mode** → **charger_model** → entities →
-  sensors (phase-aware) → pv_forecast → notifications → external_connectors → dashboard
-- an 8-step native `async_step_reconfigure` path (entry point is phase_mode; charger
-  entities moved to `async_step_reconfigure_entities`) so existing entries can opt in
-- a matching 8-step compatibility `OptionsFlow` wrapper that reuses the same validation
+- a **10-step** initial setup flow: name → **phase_mode** → **charger_model** →
+  entities → sensors (phase-aware) → **hybrid_inverter** → pv_forecast →
+  notifications → external_connectors → dashboard
+- a **9-step** native `async_step_reconfigure` path (entry point is phase_mode;
+  charger entities moved to `async_step_reconfigure_entities`) so existing entries
+  can opt in
+- a matching **9-step** compatibility `OptionsFlow` wrapper that reuses the same
+  validation
 
-Missing `phase_mode` / `charger_model` keys default to `single` / `tuya`, so existing
-config entries are byte-for-byte unchanged with no migration.
+v2.2.0 config changes (additive, no migration, `ConfigFlow.VERSION` stays 1, step
+counts unchanged):
+
+- `CONF_EV_CHARGER_STATUS` changed **Required → Optional** (kept forever as the
+  charging-detection fallback / plug-lifecycle source; never locked).
+- `CONF_CHARGING_POWER` / `_L2` / `_L3` added as **Optional** to the phase-aware
+  sensors step (the measured charging-power SSOT; 1 single-phase, 3 three-phase).
+
+Missing `phase_mode` / `charger_model` / charging-power / status keys resolve to
+their defaults via `.get`, so existing config entries are byte-for-byte unchanged
+with no migration.
 
 The canonical unique ID is `ev_charger_switch`. Duplicate charger-switch mappings abort immediately.
 
@@ -145,7 +193,7 @@ Core runtime modules:
 
 - `__init__.py`
 - `runtime.py`
-- `power_model.py` (v2.0.0 — `ChargingModel`: phase mode + charger model single source)
+- `power_model.py` (`ChargingModel`: phase mode + charger model single source, v2.0.0; **+ charging-state SSOT** `read_charging_power` / `is_charging` / `is_plugged_in`, v2.2.0 — see §4.1)
 - `entity_base.py`
 - `charger_controller.py`
 - `automation_coordinator.py`
@@ -181,7 +229,16 @@ Observed result:
 
 v2.0.0 adds `tests/test_power_model_and_charger_model.py` (ChargingModel, const
 helpers, parametrized `AmperageCalculator`, charger-model-gated decrease) and updates
-the config-flow tests for the new 9-/8-step sequences.
+the config-flow tests for the new step sequences.
+
+v2.2.0 extends `tests/test_power_model_and_charger_model.py` (charging-power reader
+incl. kW→W normalization + all-or-nothing three-phase, stateless `is_charging`
+with tolerant status fallback, the `test_is_charging_no_power_sensor_uses_switch_echo`
+backward-compat guard), `tests/test_night_smart_charge.py` (grid-monitor blind-spot
+stop, startup-ramp grace, stale-clock clear, legacy fallback), and the config-flow
+tests (optional status, optional charging-power, unchanged 66/52 entity counts). On
+the pinned HA 2023.1.7 test venv the suite is green except 19 pre-existing
+environment-only baseline failures (identical on clean master).
 
 Release bar now met:
 

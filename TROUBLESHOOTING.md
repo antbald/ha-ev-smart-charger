@@ -67,7 +67,7 @@ Create the helpers manually via Home Assistant UI:
 **Check:**
 1. Verify all configured entities exist
 2. Check entity IDs are correct
-3. Ensure charger status sensor reports states: `charger_charging`, `charger_free`, `charger_end`
+3. Charging detection (v2.2.0): map an **EV charging-power sensor** (the source of truth for "is the car charging") and/or a **charger status sensor**. The status sensor is now optional; if mapped it should report states like `charger_charging`, `charger_free`, `charger_end`. If you map a charging-power sensor, verify the diagnostic `charging_power_w` tracks real draw (a flat 0 W while charging = reversed sign → fix with a `| abs` template).
 
 #### Entity Not Found Errors
 
@@ -184,4 +184,4 @@ A: Check that:
 1. Smart Charger Blocker helper is enabled
 2. Forza Ricarica helper is disabled
 3. It's actually nighttime or solar production is below threshold
-4. Charger status sensor reports "charger_charging" state
+4. The integration sees the car as charging: a mapped **charging-power sensor** reads above ~200 W, or (fallback) the **charger status sensor** reports a charging state. Since v2.2.0 either signal works; if neither is mapped/reporting, charging detection (and the green dashboard banner) can't engage.

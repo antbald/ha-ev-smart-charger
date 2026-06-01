@@ -24,8 +24,17 @@ If you leave it on (default), the integration:
    left sidebar automatically.
 3. Pre-populates the card with the **lowercased entity_prefix** of your config
    entry and every user-mapped energy sensor (EV SOC, home battery SOC, solar
-   production, grid import, charger status, etc.). You don't have to type a
+   production, grid import, charger status, and — v2.2.0 — the measured EV
+   charging-power sensor(s), single or per-phase). You don't have to type a
    single YAML line.
+
+> **Charging detection (v2.2.0)**: the green "EV charging" banner, the SOC ring
+> and the charging-power tile derive "is the car charging?" from the **measured
+> charging-power** sensor when mapped (`charging_power_entity`, or the per-phase
+> `charging_power_entities` array summed in three-phase), otherwise from a
+> **tolerant** charger-status check (so a wallbox reporting any charging string,
+> not just `charger_charging`, lights the banner). `charger_status_entity` is
+> optional since v2.2.0.
 
 You can toggle this off at any time via the integration's options. Disabling
 removes the sidebar entry; re-enabling recreates it with the current mapping.
@@ -36,8 +45,13 @@ Visual language:
 
 - **Activity-style dual SOC ring** in the hero: outer arc EV SOC
   (`--evsc-sys-green`), inner arc Home Battery SOC (`--evsc-sys-purple`).
-  The center shows live charging power when the charger is active, otherwise
-  the EV SOC percentage. A pulsing green dot indicates active charging.
+  The center shows live charging power when the car is drawing (measured-power
+  SSOT, v2.2.0), otherwise the EV SOC percentage. A pulsing green dot indicates
+  active charging.
+- **Live charging banner** (v2.2.0): when the car is charging, the green hero
+  banner animates — the aurora green breathes while a white energy current
+  sweeps across it and a charge-pulse ring radiates from the dot (all neutralized
+  under `prefers-reduced-motion`).
 - **Liquid Glass cards**: `backdrop-filter: saturate(180%) blur(40px)` over a
   layered gradient background with two soft auroras that float continuously.
   Cards lift on hover (1px translateY + softer-to-stronger shadow).
