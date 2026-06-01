@@ -55,6 +55,18 @@
           "grid_import_l3": "Netafname op fase L3, in watt."
         }
       },
+      "hybrid_inverter": {
+        "title": "Hybride-omvormermodus - Stap {step}/{total_steps}",
+        "description": "Hybride-omvormermodus — voor zonder-teruglevering-systemen met een thuisbatterij (Deye, Sunsynk, Solis, Goodwe, Growatt…).\n\nAls de batterij vol is, knijpt een hybride omvormer de zonneproductie af om teruglevering aan het net te voorkomen, dus de productie is bijna gelijk aan het verbruik en het overschot lijkt nul — ook al zijn er kilowatts aan PV beschikbaar. De hybride modus ontdekt deze verborgen ruimte door de EV-lader kort als testbelasting te starten en het net te observeren: als de omvormer de PV laat oplopen 'rijdt hij op de rand', anders trekt hij terug. De netkost in het slechtste geval is begrensd (~350 Wh/dag).\n\nBij batterijsystemen kan de batterij de testbelasting stil opvangen (het net blijft ≈ 0) en verbergen of PV echt is vrijgemaakt. Koppel hieronder de optionele batterijvermogenssensor zodat de sonde batterijontlading van echte zonneruimte kan onderscheiden.\n\nStem de numerieke parameters (max. batterijontlading, sonde-/importduur, batterij-vol-drempel) later af in het instellingenpaneel van het dashboard.",
+        "data": {
+          "hybrid_inverter_mode": "Hybride-omvormermodus inschakelen",
+          "battery_power": "Batterijvermogenssensor (W, met teken)"
+        },
+        "data_description": {
+          "hybrid_inverter_mode": "Schakelt de empirische curtailment-sonde in voor hybride omvormers zonder teruglevering. Je kunt het later altijd via het dashboard omschakelen — dit stelt alleen de begintoestand in.",
+          "battery_power": "Optioneel. Batterijvermogen met teken in watt — NEGATIEF = ontladen, POSITIEF = laden. Laat de sonde detecteren wanneer de thuisbatterij (niet de zon) de EV dekt, om valse 'ruimte gevonden'-resultaten te voorkomen. Gebruikt je sensor het omgekeerde teken, maak dan een template-sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
+        }
+      },
       "pv_forecast": {
         "title": "Zonneverwachting - Stap {step}/{total_steps}",
         "description": "Optionele sensor die door Night Smart Charge wordt gebruikt om te beslissen of er 's nachts vanuit de thuisbatterij of het net geladen moet worden.",
@@ -139,6 +151,16 @@
           "home_consumption_l3": "Verbruik woning op fase L3, in watt.",
           "grid_import_l2": "Netafname op fase L2, in watt.",
           "grid_import_l3": "Netafname op fase L3, in watt."
+        }
+      },
+      "reconfigure_hybrid_inverter": {
+        "title": "Hybride-omvormermodus opnieuw instellen - Stap {step}/{total_steps}",
+        "description": "Het in- of uitschakelen van de hybride-omvormermodus gebeurt via het dashboard; hier koppel of wis je alleen de optionele batterijvermogenssensor (met teken) die gebruikt wordt om batterijontlading-maskering tijdens de sonde te detecteren.",
+        "data": {
+          "battery_power": "Batterijvermogenssensor (W, met teken)"
+        },
+        "data_description": {
+          "battery_power": "Optioneel. Batterijvermogen met teken in watt — NEGATIEF = ontladen, POSITIEF = laden. Laat de sonde detecteren wanneer de thuisbatterij (niet de zon) de EV dekt, om valse 'ruimte gevonden'-resultaten te voorkomen. Gebruikt je sensor het omgekeerde teken, maak dan een template-sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
         }
       },
       "reconfigure_pv_forecast": {
@@ -284,6 +306,16 @@
           "home_consumption_l3": "Verbruik woning op fase L3, in watt.",
           "grid_import_l2": "Netafname op fase L2, in watt.",
           "grid_import_l3": "Netafname op fase L3, in watt."
+        }
+      },
+      "hybrid_inverter": {
+        "title": "Hybride-omvormermodus bijwerken - Stap {step}/{total_steps}",
+        "description": "Het in- of uitschakelen van de hybride-omvormermodus gebeurt via het dashboard; hier koppel of wis je alleen de optionele batterijvermogenssensor (met teken) die gebruikt wordt om batterijontlading-maskering tijdens de sonde te detecteren.",
+        "data": {
+          "battery_power": "Batterijvermogenssensor (W, met teken)"
+        },
+        "data_description": {
+          "battery_power": "Optioneel. Batterijvermogen met teken in watt — NEGATIEF = ontladen, POSITIEF = laden. Laat de sonde detecteren wanneer de thuisbatterij (niet de zon) de EV dekt, om valse 'ruimte gevonden'-resultaten te voorkomen. Gebruikt je sensor het omgekeerde teken, maak dan een template-sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
         }
       },
       "pv_forecast": {
@@ -496,6 +528,9 @@
       },
       "evsc_boost_target_soc": {
         "name": "Boostdoel-SOC"
+      },
+      "evsc_max_battery_discharge_for_ev": {
+        "name": "Max. batterijontlading voor EV"
       }
     },
     "select": {

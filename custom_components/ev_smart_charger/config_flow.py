@@ -10,6 +10,7 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_BATTERY_CAPACITY,
+    CONF_BATTERY_POWER,
     CONF_CAR_OWNER,
     CONF_CHARGER_MODEL,
     CONF_CREATE_DASHBOARD,
@@ -26,6 +27,7 @@ from .const import (
     CONF_HOME_CONSUMPTION,
     CONF_HOME_CONSUMPTION_L2,
     CONF_HOME_CONSUMPTION_L3,
+    CONF_HYBRID_INVERTER_MODE,
     CONF_NOTIFY_SERVICES,
     CONF_PHASE_MODE,
     CONF_PV_FORECAST,
@@ -37,6 +39,7 @@ from .const import (
     DEFAULT_BATTERY_CAPACITY,
     DEFAULT_CHARGER_MODEL,
     DEFAULT_CREATE_DASHBOARD,
+    DEFAULT_HYBRID_INVERTER_MODE,
     DEFAULT_NAME,
     DEFAULT_PHASE_MODE,
     DOMAIN,
@@ -261,6 +264,40 @@ def _pv_forecast_schema(current_data: dict[str, Any] | None = None) -> vol.Schem
     )
 
 
+def _hybrid_inverter_schema(
+    current_data: dict[str, Any] | None = None,
+    *,
+    include_toggle: bool = False,
+) -> vol.Schema:
+    """Build the Hybrid Inverter Mode step schema (v2.1.0 — issue #29).
+
+    Always offers the optional signed battery-power sensor (CONF_BATTERY_POWER,
+    single — never per-phase, like SOC). The enable toggle is shown only in the
+    initial flow (``include_toggle=True``): it seeds the first-run state of the
+    ``evsc_hybrid_inverter_mode`` switch. In reconfigure/options the switch is
+    the live source of truth, so only the sensor is editable there (omitting the
+    toggle key preserves the existing entry.data value via ``_merge_entry_data``).
+    """
+    current_data = current_data or {}
+    fields: dict[Any, Any] = {}
+    if include_toggle:
+        fields[
+            vol.Optional(
+                CONF_HYBRID_INVERTER_MODE,
+                default=current_data.get(
+                    CONF_HYBRID_INVERTER_MODE, DEFAULT_HYBRID_INVERTER_MODE
+                ),
+            )
+        ] = selector.BooleanSelector()
+    fields[
+        vol.Optional(
+            CONF_BATTERY_POWER,
+            **_field_config(current_data.get(CONF_BATTERY_POWER)),
+        )
+    ] = _entity_selector("sensor")
+    return vol.Schema(fields)
+
+
 def _notifications_schema(hass, current_data: dict[str, Any] | None = None) -> vol.Schema:
     """Build the notifications schema."""
     current_data = current_data or {}
@@ -331,6 +368,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.mode_info: dict[str, Any] = {}  # v2.0.0: phase_mode + charger_model
         self.charger_info: dict[str, Any] = {}
         self.sensor_info: dict[str, Any] = {}
+        self.hybrid_info: dict[str, Any] = {}  # v2.1.0 (issue #29)
         self.pv_forecast_info: dict[str, Any] = {}
         self.notifications_info: dict[str, Any] = {}
         self.external_info: dict[str, Any] = {}
@@ -346,7 +384,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=vol.Schema({vol.Optional(CONF_NAME, default=DEFAULT_NAME): str}),
             errors={},
-            description_placeholders={"step": "1", "total_steps": "9"},
+            description_placeholders={"step": "1", "total_steps": "10"},
         )
 
     async def async_step_phase_mode(self, user_input: dict[str, Any] | None = None):
@@ -359,7 +397,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="phase_mode",
             data_schema=_phase_mode_schema(self.hass),
             errors={},
-            description_placeholders={"step": "2", "total_steps": "9"},
+            description_placeholders={"step": "2", "total_steps": "10"},
         )
 
     async def async_step_charger_model(self, user_input: dict[str, Any] | None = None):
@@ -372,7 +410,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="charger_model",
             data_schema=_charger_model_schema(self.hass),
             errors={},
-            description_placeholders={"step": "3", "total_steps": "9"},
+            description_placeholders={"step": "3", "total_steps": "10"},
         )
 
     async def async_step_entities(self, user_input: dict[str, Any] | None = None):
@@ -389,20 +427,33 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="entities",
             data_schema=_charger_schema(),
             errors=errors,
-            description_placeholders={"step": "4", "total_steps": "9"},
+            description_placeholders={"step": "4", "total_steps": "10"},
         )
 
     async def async_step_sensors(self, user_input: dict[str, Any] | None = None):
         """Handle sensor entity selection step."""
         if user_input is not None:
             self.sensor_info = user_input
-            return await self.async_step_pv_forecast()
+            return await self.async_step_hybrid_inverter()
 
         return self.async_show_form(
             step_id="sensors",
             data_schema=_sensor_schema(three_phase=is_three_phase(self.mode_info)),
             errors={},
-            description_placeholders={"step": "5", "total_steps": "9"},
+            description_placeholders={"step": "5", "total_steps": "10"},
+        )
+
+    async def async_step_hybrid_inverter(self, user_input: dict[str, Any] | None = None):
+        """Hybrid Inverter Mode: enable toggle + battery-power sensor (v2.1.0)."""
+        if user_input is not None:
+            self.hybrid_info = user_input
+            return await self.async_step_pv_forecast()
+
+        return self.async_show_form(
+            step_id="hybrid_inverter",
+            data_schema=_hybrid_inverter_schema(include_toggle=True),
+            errors={},
+            description_placeholders={"step": "6", "total_steps": "10"},
         )
 
     async def async_step_pv_forecast(self, user_input: dict[str, Any] | None = None):
@@ -415,7 +466,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="pv_forecast",
             data_schema=_pv_forecast_schema(),
             errors={},
-            description_placeholders={"step": "6", "total_steps": "9"},
+            description_placeholders={"step": "7", "total_steps": "10"},
         )
 
     async def async_step_notifications(self, user_input: dict[str, Any] | None = None):
@@ -428,7 +479,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="notifications",
             data_schema=_notifications_schema(self.hass),
             errors={},
-            description_placeholders={"step": "7", "total_steps": "9"},
+            description_placeholders={"step": "8", "total_steps": "10"},
         )
 
     async def async_step_external_connectors(self, user_input: dict[str, Any] | None = None):
@@ -445,7 +496,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="external_connectors",
             data_schema=_external_connectors_schema(),
             errors=errors,
-            description_placeholders={"step": "8", "total_steps": "9"},
+            description_placeholders={"step": "9", "total_steps": "10"},
         )
 
     async def async_step_dashboard(self, user_input: dict[str, Any] | None = None):
@@ -457,6 +508,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.mode_info,
                 self.charger_info,
                 self.sensor_info,
+                self.hybrid_info,
                 self.pv_forecast_info,
                 self.notifications_info,
                 self.external_info,
@@ -469,7 +521,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="dashboard",
             data_schema=_dashboard_schema(),
             errors={},
-            description_placeholders={"step": "9", "total_steps": "9"},
+            description_placeholders={"step": "10", "total_steps": "10"},
         )
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
@@ -488,7 +540,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=_phase_mode_schema(self.hass, self._reconfigure_entry.data),
             errors={},
-            description_placeholders={"step": "1", "total_steps": "8"},
+            description_placeholders={"step": "1", "total_steps": "9"},
         )
 
     async def async_step_reconfigure_charger_model(self, user_input: dict[str, Any] | None = None):
@@ -501,7 +553,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure_charger_model",
             data_schema=_charger_model_schema(self.hass, self._reconfigure_entry.data),
             errors={},
-            description_placeholders={"step": "2", "total_steps": "8"},
+            description_placeholders={"step": "2", "total_steps": "9"},
         )
 
     async def async_step_reconfigure_entities(self, user_input: dict[str, Any] | None = None):
@@ -520,14 +572,14 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure_entities",
             data_schema=_charger_schema(self._reconfigure_entry.data),
             errors={},
-            description_placeholders={"step": "3", "total_steps": "8"},
+            description_placeholders={"step": "3", "total_steps": "9"},
         )
 
     async def async_step_reconfigure_sensors(self, user_input: dict[str, Any] | None = None):
         """Handle sensor remapping during reconfigure."""
         if user_input is not None:
             self.sensor_info = user_input
-            return await self.async_step_reconfigure_pv_forecast()
+            return await self.async_step_reconfigure_hybrid_inverter()
 
         return self.async_show_form(
             step_id="reconfigure_sensors",
@@ -536,7 +588,26 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 three_phase=is_three_phase(self.mode_info),
             ),
             errors={},
-            description_placeholders={"step": "4", "total_steps": "8"},
+            description_placeholders={"step": "4", "total_steps": "9"},
+        )
+
+    async def async_step_reconfigure_hybrid_inverter(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Hybrid Inverter Mode battery-power sensor remap (v2.1.0).
+
+        Sensor only — the enable toggle lives on the live switch, not entry.data,
+        so it is omitted here (omission preserves the existing value via merge).
+        """
+        if user_input is not None:
+            self.hybrid_info = user_input
+            return await self.async_step_reconfigure_pv_forecast()
+
+        return self.async_show_form(
+            step_id="reconfigure_hybrid_inverter",
+            data_schema=_hybrid_inverter_schema(self._reconfigure_entry.data),
+            errors={},
+            description_placeholders={"step": "5", "total_steps": "9"},
         )
 
     async def async_step_reconfigure_pv_forecast(self, user_input: dict[str, Any] | None = None):
@@ -549,7 +620,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure_pv_forecast",
             data_schema=_pv_forecast_schema(self._reconfigure_entry.data),
             errors={},
-            description_placeholders={"step": "5", "total_steps": "8"},
+            description_placeholders={"step": "6", "total_steps": "9"},
         )
 
     async def async_step_reconfigure_notifications(self, user_input: dict[str, Any] | None = None):
@@ -562,7 +633,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure_notifications",
             data_schema=_notifications_schema(self.hass, self._reconfigure_entry.data),
             errors={},
-            description_placeholders={"step": "6", "total_steps": "8"},
+            description_placeholders={"step": "7", "total_steps": "9"},
         )
 
     async def async_step_reconfigure_external_connectors(
@@ -582,7 +653,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure_external_connectors",
             data_schema=_external_connectors_schema(self._reconfigure_entry.data),
             errors=errors,
-            description_placeholders={"step": "7", "total_steps": "8"},
+            description_placeholders={"step": "8", "total_steps": "9"},
         )
 
     async def async_step_reconfigure_dashboard(
@@ -595,6 +666,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.mode_info,
                 self.charger_info,
                 self.sensor_info,
+                self.hybrid_info,
                 self.pv_forecast_info,
                 self.notifications_info,
                 self.external_info,
@@ -611,7 +683,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure_dashboard",
             data_schema=_dashboard_schema(self._reconfigure_entry.data),
             errors={},
-            description_placeholders={"step": "8", "total_steps": "8"},
+            description_placeholders={"step": "9", "total_steps": "9"},
         )
 
     def _get_mobile_notify_services(self) -> list[str]:
@@ -634,6 +706,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         self.mode_info: dict[str, Any] = {}  # v2.0.0: phase_mode + charger_model
         self.charger_info: dict[str, Any] = {}
         self.sensor_info: dict[str, Any] = {}
+        self.hybrid_info: dict[str, Any] = {}  # v2.1.0 (issue #29)
         self.pv_forecast_info: dict[str, Any] = {}
         self.notifications_info: dict[str, Any] = {}
         self.external_info: dict[str, Any] = {}
@@ -647,7 +720,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="init",
             data_schema=_phase_mode_schema(self.hass, self.config_entry.data),
-            description_placeholders={"step": "1", "total_steps": "8"},
+            description_placeholders={"step": "1", "total_steps": "9"},
         )
 
     async def async_step_charger_model(self, user_input: dict[str, Any] | None = None):
@@ -659,7 +732,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="charger_model",
             data_schema=_charger_model_schema(self.hass, self.config_entry.data),
-            description_placeholders={"step": "2", "total_steps": "8"},
+            description_placeholders={"step": "2", "total_steps": "9"},
         )
 
     async def async_step_entities(self, user_input: dict[str, Any] | None = None):
@@ -677,14 +750,14 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="entities",
             data_schema=_charger_schema(self.config_entry.data),
-            description_placeholders={"step": "3", "total_steps": "8"},
+            description_placeholders={"step": "3", "total_steps": "9"},
         )
 
     async def async_step_sensors(self, user_input: dict[str, Any] | None = None):
         """Manage sensor entities options."""
         if user_input is not None:
             self.sensor_info = user_input
-            return await self.async_step_pv_forecast()
+            return await self.async_step_hybrid_inverter()
 
         return self.async_show_form(
             step_id="sensors",
@@ -692,7 +765,22 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
                 self.config_entry.data,
                 three_phase=is_three_phase(self.mode_info),
             ),
-            description_placeholders={"step": "4", "total_steps": "8"},
+            description_placeholders={"step": "4", "total_steps": "9"},
+        )
+
+    async def async_step_hybrid_inverter(self, user_input: dict[str, Any] | None = None):
+        """Manage the Hybrid Inverter Mode battery-power sensor (v2.1.0).
+
+        Sensor only (the enable toggle lives on the live switch).
+        """
+        if user_input is not None:
+            self.hybrid_info = user_input
+            return await self.async_step_pv_forecast()
+
+        return self.async_show_form(
+            step_id="hybrid_inverter",
+            data_schema=_hybrid_inverter_schema(self.config_entry.data),
+            description_placeholders={"step": "5", "total_steps": "9"},
         )
 
     async def async_step_pv_forecast(self, user_input: dict[str, Any] | None = None):
@@ -704,7 +792,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="pv_forecast",
             data_schema=_pv_forecast_schema(self.config_entry.data),
-            description_placeholders={"step": "5", "total_steps": "8"},
+            description_placeholders={"step": "6", "total_steps": "9"},
         )
 
     async def async_step_notifications(self, user_input: dict[str, Any] | None = None):
@@ -716,7 +804,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="notifications",
             data_schema=_notifications_schema(self.hass, self.config_entry.data),
-            description_placeholders={"step": "6", "total_steps": "8"},
+            description_placeholders={"step": "7", "total_steps": "9"},
         )
 
     async def async_step_external_connectors(self, user_input: dict[str, Any] | None = None):
@@ -733,7 +821,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
             step_id="external_connectors",
             data_schema=_external_connectors_schema(self.config_entry.data),
             errors=errors,
-            description_placeholders={"step": "7", "total_steps": "8"},
+            description_placeholders={"step": "8", "total_steps": "9"},
         )
 
     async def async_step_dashboard(self, user_input: dict[str, Any] | None = None):
@@ -744,6 +832,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
                 self.mode_info,
                 self.charger_info,
                 self.sensor_info,
+                self.hybrid_info,
                 self.pv_forecast_info,
                 self.notifications_info,
                 self.external_info,
@@ -759,7 +848,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="dashboard",
             data_schema=_dashboard_schema(self.config_entry.data),
-            description_placeholders={"step": "8", "total_steps": "8"},
+            description_placeholders={"step": "9", "total_steps": "9"},
         )
 
     def _get_mobile_notify_services(self) -> list[str]:

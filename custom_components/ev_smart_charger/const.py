@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -110,6 +110,15 @@ CONF_GRID_IMPORT_L3 = "grid_import_l3"
 # to CONF_PV_FORECAST so existing installs keep their current behaviour.
 CONF_PV_FORECAST_TOMORROW = "pv_forecast_tomorrow"
 
+# Hybrid Inverter Mode (v2.1.0 — issue #29). Optional signed battery-power (W)
+# sensor used to detect battery-discharge masking. Convention: negative =
+# discharging, positive = charging (normalised in ChargingModel.read_battery_discharge).
+# Single sensor (never per-phase, like SOC). CONF_HYBRID_INVERTER_MODE is a config
+# key that seeds the evsc_hybrid_inverter_mode switch's first-run state (NOT a new entity).
+CONF_BATTERY_POWER = "battery_power"
+CONF_HYBRID_INVERTER_MODE = "hybrid_inverter_mode"
+DEFAULT_HYBRID_INVERTER_MODE = False
+
 # Mobile Notifications
 CONF_NOTIFY_SERVICES = "notify_services"
 CONF_CAR_OWNER = "car_owner"  # Person entity for car owner (v1.3.19+)
@@ -156,6 +165,10 @@ HELPER_HOME_BATTERY_MIN_SOC_SUFFIX = "evsc_home_battery_min_soc"
 HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX = "evsc_battery_support_amperage"
 HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX = "evsc_battery_support_sunset_buffer"
 HELPER_SOLAR_MAX_AMPERAGE_SUFFIX = "evsc_solar_max_amperage"
+# v2.1.0 (issue #29) — max home-battery discharge (W) allowed to cover the EV
+# charging floor (deadband buffer + Hybrid Mode masking checks). 0 = feature off.
+# Battery-only helper (meaningless without a home battery).
+HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX = "evsc_max_battery_discharge_for_ev"
 
 # Numbers - Night Smart Charge
 HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX = "evsc_night_charge_amperage"
@@ -241,6 +254,7 @@ DEFAULT_HOME_BATTERY_MIN_SOC = 20  # percent
 DEFAULT_BATTERY_SUPPORT_AMPERAGE = 16  # amps (user configurable)
 DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN = 60  # minutes before sunset (block battery support when close to sunset)
 DEFAULT_SOLAR_MAX_AMPERAGE = 32  # amps (user configurable, default = no cap)
+DEFAULT_MAX_BATTERY_DISCHARGE_FOR_EV = 0  # watts (0 = feature off, current behaviour)
 
 # ========== DEFAULT VALUES - PRIORITY BALANCER ==========
 DEFAULT_EV_MIN_SOC_WEEKDAY = 50  # percent (Monday-Friday)
@@ -328,11 +342,13 @@ HYBRID_STATE_COOLDOWN_LONG = "COOLDOWN_LONG"
 HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 
 # ========== ENTITY REGISTRATION ==========
-# Verified count (v1.11.9): 65 entities when home battery is configured.
-# v1.8.0 set the baseline to 64 (added 6 Hybrid Mode entities). v1.11.9 adds
-# 1 sensor (evsc_night_session_state) — runtime state for the hero banner.
-TOTAL_INTEGRATION_ENTITIES = 65
+# Verified count (v2.1.0): 66 entities when home battery is configured.
+# v1.8.0 set the baseline to 64 (added 6 Hybrid Mode entities). v1.11.9 added
+# 1 sensor (evsc_night_session_state) → 65. v2.1.0 (issue #29) adds 1 battery-only
+# number (evsc_max_battery_discharge_for_ev) → 66.
+TOTAL_INTEGRATION_ENTITIES = 66
 # Verified count (v1.11.9): 52 entities when running in PV-only mode.
+# Unchanged in v2.1.0: the new number is battery-only (skipped in PV-only mode).
 # Skipped helpers (13): 2 switches (use_home_battery, preserve_home_battery),
 # 3 numbers (home_battery_min_soc, battery_support_amperage, battery_support_sunset_buffer),
 # 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).

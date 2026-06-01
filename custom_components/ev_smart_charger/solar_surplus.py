@@ -23,6 +23,7 @@ from .const import (
     SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE,
     HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX,
     HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX,
+    HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX,
     HELPER_SOLAR_MAX_AMPERAGE_SUFFIX,
     DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
     DEFAULT_SOLAR_MAX_AMPERAGE,
@@ -116,6 +117,8 @@ class SolarSurplusAutomation:
         self._battery_support_amperage_entity = None
         self._battery_support_sunset_buffer_entity = None
         self._solar_max_amperage_entity = None
+        # v2.1.0 (issue #29): battery-only deadband buffer limit (W). 0 = off.
+        self._max_battery_discharge_entity = None
         self._solar_surplus_diagnostic_sensor_entity = None
         self._solar_surplus_diagnostic_sensor_obj = None
 
@@ -274,6 +277,8 @@ class SolarSurplusAutomation:
             self._home_battery_min_soc_entity = self._find_entity_by_suffix("evsc_home_battery_min_soc")
             self._battery_support_amperage_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
             self._battery_support_sunset_buffer_entity = self._find_entity_by_suffix(HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX)
+            # v2.1.0 (issue #29): battery-only deadband buffer limit helper
+            self._max_battery_discharge_entity = self._find_entity_by_suffix(HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX)
         self._solar_max_amperage_entity = self._find_entity_by_suffix(HELPER_SOLAR_MAX_AMPERAGE_SUFFIX)
         self._solar_surplus_diagnostic_sensor_entity = self._find_entity_by_suffix("evsc_solar_surplus_diagnostic")
         if self._runtime_data is not None:
@@ -305,6 +310,8 @@ class SolarSurplusAutomation:
                 missing_entities.append(HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX)
             if not self._battery_support_sunset_buffer_entity:
                 missing_entities.append(HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX)
+            if not self._max_battery_discharge_entity:
+                missing_entities.append(HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX)
 
         if missing_entities:
             self.logger.warning(
@@ -696,6 +703,36 @@ class SolarSurplusAutomation:
 
         # === 12. Calculate Target Amperage (with hysteresis) ===
         target_amps = self._calculate_target_amperage(surplus_watts, current_amps)
+
+        # === 12a. Battery-discharge deadband buffer (v2.1.0 — issue #29) ===
+        # On hybrid systems the inverter can curtail PV so surplus briefly dips
+        # below the 6A floor while the home battery silently covers the gap. If
+        # the user opted in (limit > 0) and mapped a battery-power sensor, let up
+        # to `limit` watts of battery discharge keep an ALREADY-charging session
+        # alive instead of stop-start cycling. Gated on charger_is_on so it never
+        # *starts* charging off the battery (start still needs the 6.5A threshold),
+        # which also leaves the opportunistic dead-band-start path (12b, requires
+        # not charger_is_on) completely untouched. No-op when the helper/sensor is
+        # absent (limit 0 / discharge None) — byte-for-byte v2.0.0.
+        if target_amps == 0 and charger_is_on:
+            limit = get_float(self.hass, self._max_battery_discharge_entity, default=0)
+            # Re-apply the battery-support safety guards (SOC floor / sunset /
+            # EV_FREE): the bridge only runs when battery support is *inactive*,
+            # so without this it would drain the home battery exactly where the
+            # guards said not to.
+            if limit > 0 and self._is_battery_bridge_allowed(priority):
+                discharge = self._power_model.read_battery_discharge(self.hass)
+                if discharge is not None:
+                    buffer = min(discharge, limit)
+                    # 6A floor in watts: ≈1380W single-phase, ≈4140W three-phase.
+                    min_charging_watts = self._amp_levels[0] * self._effective_voltage
+                    if surplus_watts + buffer >= min_charging_watts:
+                        target_amps = current_amps
+                        self.logger.info(
+                            f"Deadband buffer: surplus {surplus_watts:.0f}W + battery "
+                            f"{buffer:.0f}W (limit {limit:.0f}W) >= floor "
+                            f"{min_charging_watts:.0f}W → keep charging at {current_amps}A"
+                        )
 
         # Apply user-configured maximum amperage cap (issue #11: wallboxes with <32A limit).
         # Always cap to the highest valid amp level that doesn't exceed max_amps
@@ -1150,6 +1187,45 @@ class SolarSurplusAutomation:
             )
             self.logger.info(f"Using configured amperage: {battery_support_amps}A")
             self._battery_support_active = True
+
+    def _is_battery_bridge_allowed(self, priority: str | None) -> bool:
+        """Safety guards for the v2.1.0 deadband battery bridge (issue #29).
+
+        The bridge (section 12a) keeps an already-charging session alive off
+        capped battery discharge. It only runs when ``_calculate_target_amperage``
+        returned 0 — i.e. exactly when ``_battery_support_active`` is False — so it
+        must re-apply the same guards ``_handle_home_battery_usage`` uses, or it
+        would drain the home battery in situations the user opted out of:
+        - no home battery configured (PV-only),
+        - both SOC targets already met (PRIORITY_EV_FREE) — regression class fixed
+          in v1.3.24 (PRIORITY_HOME already returns earlier in the periodic check),
+        - sunset imminent (sunset buffer guard) — v1.6.22,
+        - home SOC at/below the configured minimum.
+        Balancer-disabled (priority None) is allowed: the explicit watt limit is the
+        opt-in and the SOC floor still bounds the drain.
+        """
+        if not self._has_home_battery:
+            return False
+        if priority == PRIORITY_EV_FREE:
+            return False
+        if self._battery_support_sunset_buffer_entity:
+            buffer_min = get_float(
+                self.hass,
+                self._battery_support_sunset_buffer_entity,
+                DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
+            )
+        else:
+            buffer_min = DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN
+        if buffer_min > 0:
+            now = dt_util.now()
+            sunset = self._astral_service.get_sunset(now)
+            if sunset and now + timedelta(minutes=buffer_min) >= sunset:
+                return False
+        home_soc = get_float(self.hass, self._soc_home, 0)
+        min_soc = get_float(self.hass, self._home_battery_min_soc_entity, 20)
+        if home_soc <= min_soc:
+            return False
+        return True
 
     def _calculate_target_amperage(self, surplus_watts: float, current_amperage: int = 0) -> int:
         """Calculate target amperage with hysteresis to prevent oscillation.

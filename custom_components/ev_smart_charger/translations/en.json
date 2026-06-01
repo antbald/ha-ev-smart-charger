@@ -55,6 +55,18 @@
           "grid_import_l3": "Grid import on phase L3, in watts."
         }
       },
+      "hybrid_inverter": {
+        "title": "Hybrid Inverter Mode - Step {step}/{total_steps}",
+        "description": "Hybrid Inverter Mode — for zero-export systems with a home battery (Deye, Sunsynk, Solis, Goodwe, Growatt…).\n\nWhen the battery is full, a hybrid inverter curtails (throttles) solar production to avoid exporting to the grid, so production reads almost equal to consumption and the surplus looks like zero — even though kilowatts of PV are available. Hybrid Mode discovers this hidden headroom by briefly starting the EV charger as a test load and watching the grid: if the inverter ramps PV up in response it 'rides the edge', otherwise it backs off. Worst-case grid cost is bounded (~350 Wh/day).\n\nOn battery systems the battery can silently cover the test load (grid stays ≈ 0) and hide whether PV was really unlocked. Map the optional battery-power sensor below so the probe can tell battery drain apart from real solar headroom.\n\nFine-tune the numeric parameters (max battery discharge, probe / import durations, battery-full threshold) later in the dashboard settings panel.",
+        "data": {
+          "hybrid_inverter_mode": "Enable Hybrid Inverter Mode",
+          "battery_power": "Battery power sensor (W, signed)"
+        },
+        "data_description": {
+          "hybrid_inverter_mode": "Turns on the empirical curtailment probe for zero-export hybrid inverters. You can toggle it any time later from the dashboard — this only sets the initial state.",
+          "battery_power": "Optional. Signed battery power in watts — NEGATIVE = discharging, POSITIVE = charging. Lets the probe detect when the home battery (not solar) is covering the EV, preventing false 'headroom found' results. If your sensor uses the opposite sign, create a template sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
+        }
+      },
       "pv_forecast": {
         "title": "Solar Forecast - Step {step}/{total_steps}",
         "description": "Optional sensor used by Night Smart Charge to decide whether to charge from home battery or from the grid overnight.",
@@ -139,6 +151,16 @@
           "home_consumption_l3": "Home consumption on phase L3, in watts.",
           "grid_import_l2": "Grid import on phase L2, in watts.",
           "grid_import_l3": "Grid import on phase L3, in watts."
+        }
+      },
+      "reconfigure_hybrid_inverter": {
+        "title": "Reconfigure Hybrid Inverter Mode - Step {step}/{total_steps}",
+        "description": "Enable or disable Hybrid Inverter Mode is done from the dashboard; here you only map or clear the optional signed battery-power sensor used to detect battery-discharge masking during the probe.",
+        "data": {
+          "battery_power": "Battery power sensor (W, signed)"
+        },
+        "data_description": {
+          "battery_power": "Optional. Signed battery power in watts — NEGATIVE = discharging, POSITIVE = charging. Lets the probe detect when the home battery (not solar) is covering the EV, preventing false 'headroom found' results. If your sensor uses the opposite sign, create a template sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
         }
       },
       "reconfigure_pv_forecast": {
@@ -284,6 +306,16 @@
           "home_consumption_l3": "Home consumption on phase L3, in watts.",
           "grid_import_l2": "Grid import on phase L2, in watts.",
           "grid_import_l3": "Grid import on phase L3, in watts."
+        }
+      },
+      "hybrid_inverter": {
+        "title": "Update Hybrid Inverter Mode - Step {step}/{total_steps}",
+        "description": "Enable or disable Hybrid Inverter Mode is done from the dashboard; here you only map or clear the optional signed battery-power sensor used to detect battery-discharge masking during the probe.",
+        "data": {
+          "battery_power": "Battery power sensor (W, signed)"
+        },
+        "data_description": {
+          "battery_power": "Optional. Signed battery power in watts — NEGATIVE = discharging, POSITIVE = charging. Lets the probe detect when the home battery (not solar) is covering the EV, preventing false 'headroom found' results. If your sensor uses the opposite sign, create a template sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
         }
       },
       "pv_forecast": {
@@ -496,6 +528,9 @@
       },
       "evsc_boost_target_soc": {
         "name": "Boost target SOC"
+      },
+      "evsc_max_battery_discharge_for_ev": {
+        "name": "Max battery discharge for EV"
       }
     },
     "select": {

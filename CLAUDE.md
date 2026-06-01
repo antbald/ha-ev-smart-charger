@@ -756,6 +756,27 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.1.0 (2026-05-31)
+**Battery-discharge masking detection for Hybrid Inverter Mode + Solar-Surplus deadband buffer ([issue #29](https://github.com/antbald/ha-ev-smart-charger/issues/29), DJm00n)**
+
+Hybrid Inverter Mode (v1.8.0) probes for curtailed PV by watching **only** `grid_import`. On hybrid systems **with a home battery**, a near-full battery can silently cover the 6 A probe load (grid stays ≈ 0), so the probe "succeeds" while merely draining the battery — the feature's blind spot for exactly the battery-equipped users #20 targeted. v2.1.0 adds a single opt-in watt limit, `max_battery_discharge_for_ev` (default 0 = off → byte-for-byte v2.0.0), backed by an optional **signed battery-power sensor**, applied in three places:
+
+1. **Solar Surplus deadband buffer** (`solar_surplus.py`, `_async_periodic_check`): when already charging and surplus dips just below the 6 A floor, up to `limit` watts of battery discharge keep the session alive instead of stop-start cycling. Gated on actual `is_charging`, so it never *starts* on battery and never disturbs the opportunistic dead-band-start path. **Re-applies the same battery-support safety guards** via `_is_battery_bridge_allowed()` (home SOC floor, sunset buffer, `PRIORITY_EV_FREE` exclusion, PV-only) — the bridge only runs when `_battery_support_active` is False, so without those guards it would drain the home battery exactly where the guards said not to (the v1.3.24 / v1.6.22 protections).
+2. **PROBING masking check** (`hybrid_inverter_mode.py`, Phase B): sustained battery discharge over the limit → `_fail_probe("battery discharge masking")`, **plus a completion gate** — at `elapsed >= probe_duration` the probe fails if the battery is still masking at that instant. The gate is essential because with the default 60 s tick and 60 s `probe_duration` the first Phase B evaluation *is* the completion tick (`batt_elapsed = 0`), so the sustained timer alone would never fire and a fully-masked probe would falsely "succeed". The user-set limit still tolerates minor battery activity; slow-ramp inverters are handled by raising `probe_duration`.
+3. **RIDING_EDGE step-down**: an **independent** `_battery_violation_since` clock (never shares storage with `_import_violation_since`, to avoid corrupting grid-import timing) steps amperage down when the battery masks a cloud, and blocks ramp-up while masking persists.
+
+**Single normalisation point**: `ChargingModel.read_battery_discharge(hass)` → discharge as positive watts (`max(0.0, -battery_power)`), or `None` when unconfigured. **Convention: sensor reports negative = discharging, positive = charging** (no invert toggle; reversed-sign vendors use a template sensor `{{ - states('sensor.xxx') | float(0) }}`). The diagnostic sensor surfaces `battery_discharge_w` so a reversed sign shows a flat 0 — the user's cue to fix it.
+
+**Config flow**: new dedicated **"Hybrid Inverter Mode" step** (after `sensors`, before `pv_forecast`) with a thorough explanation of zero-export curtailment + the masking problem, an **enable toggle** (initial flow only — seeds the `evsc_hybrid_inverter_mode` switch's first-run state) and the optional **battery-power sensor** (all three flows, so it stays editable). Initial flow 9 → **10** steps; reconfigure/options 8 → **9**.
+
+**Entity counts**: the new `evsc_max_battery_discharge_for_ev` number is **battery-only** (meaningless without a home battery): `TOTAL_INTEGRATION_ENTITIES` 65 → **66**, `TOTAL_INTEGRATION_ENTITIES_NO_BATTERY` **unchanged (52)**.
+
+**Files**: `const.py` (CONF_BATTERY_POWER, CONF_HYBRID_INVERTER_MODE, HELPER/DEFAULT_MAX_BATTERY_DISCHARGE_FOR_EV, counts, VERSION), `power_model.py` (dataclass field + `read_battery_discharge`), `number.py` (battery-only number), `solar_surplus.py` (deadband buffer), `hybrid_inverter_mode.py` (PROBING/RIDING_EDGE checks + diagnostic), `config_flow.py` + `switch.py` + `__init__` seed plumbing, `strings.json` + `translations/{en,it,nl}.json`, `dashboard_manager.py` + `frontend/ev-smart-charger-dashboard.js` (mapping, whitelist, settings stepper, diagnostic render), `manifest.json`; tests updated. `VERSION = "2.1.0"`.
+
+**Upgrade priority**: 🟢 RECOMMENDED for hybrid zero-export users **with a home battery** (opt in by mapping the battery-power sensor + setting the limit). ⚪ NO-OP for everyone else — limit 0 / sensor absent = identical to v2.0.0.
+
+---
+
 ### v2.0.0 (2026-05-29) — MAJOR
 **Universal compatibility: any electrical system (single-phase / three-phase) + any wallbox (Tuya / generic, cloud or local) — opt-in ([discussion #18](https://github.com/antbald/ha-ev-smart-charger/discussions/18))**
 

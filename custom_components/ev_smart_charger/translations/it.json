@@ -55,6 +55,18 @@
           "grid_import_l3": "Prelievo rete sulla fase L3, in watt."
         }
       },
+      "hybrid_inverter": {
+        "title": "Modalità Inverter Ibrido - Passo {step}/{total_steps}",
+        "description": "Modalità Inverter Ibrido — per sistemi a zero immissione con batteria di casa (Deye, Sunsynk, Solis, Goodwe, Growatt…).\n\nQuando la batteria è piena, l'inverter ibrido limita (riduce) la produzione solare per evitare di immettere in rete, quindi la produzione risulta quasi uguale al consumo e il surplus sembra zero — anche se ci sono chilowatt di fotovoltaico disponibili. La Modalità Ibrida scopre questo margine nascosto avviando brevemente il caricatore EV come carico di prova e osservando la rete: se l'inverter aumenta il fotovoltaico in risposta 'cavalca il limite', altrimenti si ferma. Il costo di rete nel caso peggiore è limitato (~350 Wh/giorno).\n\nNei sistemi con batteria, la batteria può coprire silenziosamente il carico di prova (la rete resta ≈ 0) e nascondere se il fotovoltaico è stato davvero sbloccato. Mappa qui sotto il sensore opzionale di potenza batteria così la sonda può distinguere lo scaricamento della batteria dal vero margine solare.\n\nRegola i parametri numerici (scarica massima batteria, durate sonda / importazione, soglia batteria piena) in seguito dal pannello impostazioni della dashboard.",
+        "data": {
+          "hybrid_inverter_mode": "Attiva Modalità Inverter Ibrido",
+          "battery_power": "Sensore potenza batteria (W, con segno)"
+        },
+        "data_description": {
+          "hybrid_inverter_mode": "Attiva la sonda empirica di curtailment per inverter ibridi a zero immissione. Puoi attivarla/disattivarla in qualsiasi momento dalla dashboard — qui imposti solo lo stato iniziale.",
+          "battery_power": "Opzionale. Potenza batteria con segno in watt — NEGATIVO = in scarica, POSITIVO = in carica. Permette alla sonda di rilevare quando è la batteria di casa (non il sole) a coprire l'EV, evitando falsi risultati 'margine trovato'. Se il tuo sensore usa il segno opposto, crea un sensore template: {{ - states('sensor.your_battery_power') | float(0) }}."
+        }
+      },
       "pv_forecast": {
         "title": "Forecast Solare - Passo {step}/{total_steps}",
         "description": "Sensore opzionale usato da Night Smart Charge per decidere se caricare di notte dalla batteria di casa o dalla rete.",
@@ -139,6 +151,16 @@
           "home_consumption_l3": "Consumo casa sulla fase L3, in watt.",
           "grid_import_l2": "Prelievo rete sulla fase L2, in watt.",
           "grid_import_l3": "Prelievo rete sulla fase L3, in watt."
+        }
+      },
+      "reconfigure_hybrid_inverter": {
+        "title": "Riconfigura Modalità Inverter Ibrido - Passo {step}/{total_steps}",
+        "description": "L'attivazione della Modalità Inverter Ibrido si fa dalla dashboard; qui mappi o cancelli solo il sensore opzionale (con segno) di potenza batteria usato per rilevare il mascheramento da scarica batteria durante la sonda.",
+        "data": {
+          "battery_power": "Sensore potenza batteria (W, con segno)"
+        },
+        "data_description": {
+          "battery_power": "Opzionale. Potenza batteria con segno in watt — NEGATIVO = in scarica, POSITIVO = in carica. Permette alla sonda di rilevare quando è la batteria di casa (non il sole) a coprire l'EV, evitando falsi risultati 'margine trovato'. Se il tuo sensore usa il segno opposto, crea un sensore template: {{ - states('sensor.your_battery_power') | float(0) }}."
         }
       },
       "reconfigure_pv_forecast": {
@@ -284,6 +306,16 @@
           "home_consumption_l3": "Consumo casa sulla fase L3, in watt.",
           "grid_import_l2": "Prelievo rete sulla fase L2, in watt.",
           "grid_import_l3": "Prelievo rete sulla fase L3, in watt."
+        }
+      },
+      "hybrid_inverter": {
+        "title": "Aggiorna Modalità Inverter Ibrido - Passo {step}/{total_steps}",
+        "description": "L'attivazione della Modalità Inverter Ibrido si fa dalla dashboard; qui mappi o cancelli solo il sensore opzionale (con segno) di potenza batteria usato per rilevare il mascheramento da scarica batteria durante la sonda.",
+        "data": {
+          "battery_power": "Sensore potenza batteria (W, con segno)"
+        },
+        "data_description": {
+          "battery_power": "Opzionale. Potenza batteria con segno in watt — NEGATIVO = in scarica, POSITIVO = in carica. Permette alla sonda di rilevare quando è la batteria di casa (non il sole) a coprire l'EV, evitando falsi risultati 'margine trovato'. Se il tuo sensore usa il segno opposto, crea un sensore template: {{ - states('sensor.your_battery_power') | float(0) }}."
         }
       },
       "pv_forecast": {
@@ -496,6 +528,9 @@
       },
       "evsc_boost_target_soc": {
         "name": "Target SOC boost"
+      },
+      "evsc_max_battery_discharge_for_ev": {
+        "name": "Scarica massima batteria per EV"
       }
     },
     "select": {
