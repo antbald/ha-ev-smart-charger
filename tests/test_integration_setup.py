@@ -6,10 +6,13 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ev_smart_charger import (
+    DISABLED_HELPERS_ISSUE_PREFIX,
     _async_register_frontend,
+    _entity_key_from_unique_id,
     async_setup_entry,
     async_unload_entry,
 )
@@ -269,3 +272,177 @@ async def test_async_unload_entry_removes_components_in_reverse_order(hass) -> N
     assert result is True
     assert call_order == ["solar", "blocker", "boost", "night", "priority", "diagnostic", "log", "soc"]
     assert entry.runtime_data is None
+
+
+# ── issue #22: tolerate user-disabled helper entities ────────────────────────
+
+
+def test_entity_key_from_unique_id_matches_evsc_pattern() -> None:
+    """Valid EVSC unique_ids yield their logical key."""
+    assert (
+        _entity_key_from_unique_id(
+            f"{DOMAIN}_entry-1_evsc_forza_ricarica", "entry-1"
+        )
+        == "evsc_forza_ricarica"
+    )
+    # entry_id may itself contain underscores (ULID does not, but be robust).
+    assert (
+        _entity_key_from_unique_id(f"{DOMAIN}_abc_123_evsc_x", "abc_123")
+        == "evsc_x"
+    )
+
+
+def test_entity_key_from_unique_id_rejects_foreign_unique_id() -> None:
+    """unique_ids from other integrations or other entries are rejected."""
+    # Different integration.
+    assert _entity_key_from_unique_id("other_entry-1_evsc_x", "entry-1") is None
+    # Same integration, different config entry.
+    assert (
+        _entity_key_from_unique_id(f"{DOMAIN}_entry-2_evsc_x", "entry-1") is None
+    )
+
+
+async def test_async_setup_entry_proceeds_with_user_disabled_helpers(hass) -> None:
+    """User-disabled helpers must not block setup; a Repairs issue is raised."""
+    entry = MockConfigEntry(domain=DOMAIN, data=_entry_data(), entry_id="entry-1")
+    entry.add_to_hass(hass)
+    _stub_http(hass)
+
+    # Mirror xion2000's setup: 7 helpers disabled by the user. They live in the
+    # entity registry with disabled_by=USER and never call async_added_to_hass.
+    disabled_keys = [
+        "evsc_night_smart_charge_enabled",
+        "evsc_ev_min_soc_monday",
+        "evsc_ev_min_soc_tuesday",
+        "evsc_ev_min_soc_wednesday",
+        "evsc_ev_min_soc_thursday",
+        "evsc_ev_min_soc_friday",
+        "evsc_night_charge_time",
+    ]
+    ent_reg = er.async_get(hass)
+    for key in disabled_keys:
+        ent_reg.async_get_or_create(
+            "number",
+            DOMAIN,
+            f"{DOMAIN}_{entry.entry_id}_{key}",
+            config_entry=entry,
+            disabled_by=er.RegistryEntryDisabler.USER,
+        )
+
+    charger_controller = _component("charger")
+    ev_soc_monitor = _component("soc")
+    priority_balancer = _component("priority")
+    night_smart_charge = _component("night")
+    boost_charge = _component("boost")
+    smart_blocker = _component("blocker")
+    solar_surplus = _component("solar")
+    log_manager = _component("log")
+    diagnostic_manager = _component("diagnostic")
+    coordinator = SimpleNamespace()
+
+    async def forward_setups(config_entry, platforms):
+        # Only the enabled helpers register; the barrier never fires by itself.
+        runtime_data = config_entry.runtime_data
+        runtime_data.registered_entity_count = (
+            TOTAL_INTEGRATION_ENTITIES - len(disabled_keys)
+        )
+
+    async def timeout_wait_for(awaitable, timeout):
+        close = getattr(awaitable, "close", None)
+        if close is not None:
+            close()
+        raise TimeoutError
+
+    with patch.object(
+        hass.config_entries,
+        "async_forward_entry_setups",
+        side_effect=forward_setups,
+        autospec=True,
+    ), patch(
+        "custom_components.ev_smart_charger.asyncio.wait_for",
+        side_effect=timeout_wait_for,
+    ), patch(
+        "custom_components.ev_smart_charger.ChargerController",
+        return_value=charger_controller,
+    ), patch(
+        "custom_components.ev_smart_charger.EVSOCMonitor",
+        return_value=ev_soc_monitor,
+    ), patch(
+        "custom_components.ev_smart_charger.AutomationCoordinator",
+        return_value=coordinator,
+    ), patch(
+        "custom_components.ev_smart_charger.DiagnosticManager",
+        return_value=diagnostic_manager,
+    ), patch(
+        "custom_components.ev_smart_charger.PriorityBalancer",
+        return_value=priority_balancer,
+    ), patch(
+        "custom_components.ev_smart_charger.NightSmartCharge",
+        return_value=night_smart_charge,
+    ), patch(
+        "custom_components.ev_smart_charger.BoostCharge",
+        return_value=boost_charge,
+    ), patch(
+        "custom_components.ev_smart_charger.SmartChargerBlocker",
+        return_value=smart_blocker,
+    ), patch(
+        "custom_components.ev_smart_charger.SolarSurplusAutomation",
+        return_value=solar_surplus,
+    ), patch(
+        "custom_components.ev_smart_charger.LogManager",
+        return_value=log_manager,
+    ):
+        result = await async_setup_entry(hass, entry)
+
+    assert result is True
+
+    # A Repairs entry must surface, listing the disabled helpers.
+    issue_reg = ir.async_get(hass)
+    issue = issue_reg.async_get_issue(
+        DOMAIN, f"{DISABLED_HELPERS_ISSUE_PREFIX}_{entry.entry_id}"
+    )
+    assert issue is not None
+    assert issue.translation_key == "disabled_helpers"
+    assert issue.translation_placeholders["count"] == str(len(disabled_keys))
+
+
+async def test_async_setup_entry_raises_not_ready_on_real_shortfall(hass) -> None:
+    """A genuine shortfall (no disabled entities) still raises ConfigEntryNotReady."""
+    entry = MockConfigEntry(domain=DOMAIN, data=_entry_data(), entry_id="entry-1")
+    entry.add_to_hass(hass)
+    _stub_http(hass)
+
+    async def forward_setups(config_entry, platforms):
+        # Far fewer than expected register and nothing is disabled → real bug.
+        config_entry.runtime_data.registered_entity_count = 3
+
+    async def timeout_wait_for(awaitable, timeout):
+        close = getattr(awaitable, "close", None)
+        if close is not None:
+            close()
+        raise TimeoutError
+
+    with patch.object(
+        hass.config_entries,
+        "async_forward_entry_setups",
+        side_effect=forward_setups,
+        autospec=True,
+    ), patch(
+        "custom_components.ev_smart_charger.asyncio.wait_for",
+        side_effect=timeout_wait_for,
+    ), patch.object(
+        hass.config_entries,
+        "async_unload_platforms",
+        AsyncMock(return_value=True),
+    ):
+        with pytest.raises(ConfigEntryNotReady):
+            await async_setup_entry(hass, entry)
+
+    # No Repairs entry on the genuine-shortfall path.
+    issue_reg = ir.async_get(hass)
+    assert (
+        issue_reg.async_get_issue(
+            DOMAIN, f"{DISABLED_HELPERS_ISSUE_PREFIX}_{entry.entry_id}"
+        )
+        is None
+    )

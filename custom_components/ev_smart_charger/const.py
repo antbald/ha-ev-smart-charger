@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -346,6 +346,11 @@ HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 # v1.8.0 set the baseline to 64 (added 6 Hybrid Mode entities). v1.11.9 added
 # 1 sensor (evsc_night_session_state) → 65. v2.1.0 (issue #29) adds 1 battery-only
 # number (evsc_max_battery_discharge_for_ev) → 66.
+# COUPLING (issue #22): the disabled-helper tolerance in
+# __init__._async_wait_for_helper_registration assumes this equals the number
+# of entities actually created when nothing is disabled. If it drifts above
+# reality (cf. v1.6.20), a single user-disabled entity turns the tolerant
+# startup path back into a hard ConfigEntryNotReady. Keep this in sync.
 TOTAL_INTEGRATION_ENTITIES = 66
 # Verified count (v1.11.9): 52 entities when running in PV-only mode.
 # Unchanged in v2.1.0: the new number is battery-only (skipped in PV-only mode).

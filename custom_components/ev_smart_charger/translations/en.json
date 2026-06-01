@@ -587,5 +587,11 @@
         "generic": "Generic (1 A steps)"
       }
     }
+  },
+  "issues": {
+    "disabled_helpers": {
+      "title": "Some EV Smart Charger helper entities are disabled",
+      "description": "{count} helper entit(y/ies) of \"{entry_title}\" are disabled in Home Assistant ({entities}). EV Smart Charger started in degraded mode, using safe defaults for the disabled values. This is tolerated, but disabling entities is not a supported way to turn features off. Re-enable them under Settings → Devices & services, or wait for per-feature opt-out toggles (issue #24). This notice clears automatically on the next clean start."
+    }
   }
 }
