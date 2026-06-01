@@ -13,6 +13,9 @@ from .const import (
     CONF_BATTERY_POWER,
     CONF_CAR_OWNER,
     CONF_CHARGER_MODEL,
+    CONF_CHARGING_POWER,
+    CONF_CHARGING_POWER_L2,
+    CONF_CHARGING_POWER_L3,
     CONF_CREATE_DASHBOARD,
     CONF_ENERGY_FORECAST_TARGET,
     CONF_EV_CHARGER_CURRENT,
@@ -131,7 +134,13 @@ def _charger_schema(current_data: dict[str, Any] | None = None) -> vol.Schema:
                 CONF_EV_CHARGER_CURRENT,
                 **_field_config(current_data.get(CONF_EV_CHARGER_CURRENT)),
             ): _entity_selector(CURRENT_CONTROL_DOMAINS),
-            vol.Required(
+            # v2.2.0: Optional (was Required). Now a FALLBACK for the charging
+            # power SSOT (used when no charging-power sensor is mapped) and the
+            # source for plug/idle/finished lifecycle that power cannot express.
+            # Never removed — kept prefilled in reconfigure/options so users don't
+            # silently drop their fallback. No "Required-if-set" lock (unlike
+            # soc_home) because status maps to zero helper entities → no orphans.
+            vol.Optional(
                 CONF_EV_CHARGER_STATUS,
                 **_field_config(current_data.get(CONF_EV_CHARGER_STATUS)),
             ): _entity_selector("sensor"),
@@ -232,6 +241,23 @@ def _sensor_schema(
         if three_phase:
             fields[vol.Required(l2, **_field_config(current_data.get(l2)))] = _entity_selector("sensor")
             fields[vol.Required(l3, **_field_config(current_data.get(l3)))] = _entity_selector("sensor")
+
+    # v2.2.0: measured EV charging power — the SSOT for "is the car drawing now".
+    # Optional (most installs lack a charger CT; the switch echo + status string
+    # are the fallback). Single-phase = 1 sensor; three-phase = 3 summed. The
+    # "all three or none" rule is enforced in ChargingModel.read_charging_power
+    # (Optional fields cannot be made schema-Required without breaking the
+    # single-phase / no-sensor cases).
+    fields[
+        vol.Optional(CONF_CHARGING_POWER, **_field_config(current_data.get(CONF_CHARGING_POWER)))
+    ] = _entity_selector("sensor")
+    if three_phase:
+        fields[
+            vol.Optional(CONF_CHARGING_POWER_L2, **_field_config(current_data.get(CONF_CHARGING_POWER_L2)))
+        ] = _entity_selector("sensor")
+        fields[
+            vol.Optional(CONF_CHARGING_POWER_L3, **_field_config(current_data.get(CONF_CHARGING_POWER_L3)))
+        ] = _entity_selector("sensor")
 
     return vol.Schema(fields)
 

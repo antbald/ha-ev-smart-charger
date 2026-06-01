@@ -14,9 +14,16 @@ from custom_components.ev_smart_charger.const import (
     CHARGER_AMP_LEVELS,
     CHARGER_MODEL_GENERIC,
     CHARGER_MODEL_TUYA,
+    CHARGER_STATUS_CHARGING,
+    CHARGER_STATUS_FREE,
+    CHARGING_POWER_DRAWING_FLOOR_W,
     CONF_BATTERY_POWER,
     CONF_CHARGER_MODEL,
+    CONF_CHARGING_POWER,
+    CONF_CHARGING_POWER_L2,
+    CONF_CHARGING_POWER_L3,
     CONF_EV_CHARGER_CURRENT,
+    CONF_EV_CHARGER_STATUS,
     CONF_EV_CHARGER_SWITCH,
     CONF_FV_PRODUCTION,
     CONF_FV_PRODUCTION_L2,
@@ -184,6 +191,165 @@ async def test_read_battery_discharge_sign_convention(hass):
 
 
 # ----------------------------------------------------------------------------
+# Charging-power reader + drawing-now SSOT (v2.2.0)
+# ----------------------------------------------------------------------------
+
+
+def test_read_charging_power_none_when_unconfigured():
+    """No charging-power sensor mapped → None (status fallback territory)."""
+    model = ChargingModel.from_config(SINGLE_CONFIG)
+    assert model.charging_power_entities() == []
+    assert model.read_charging_power(hass=None) is None
+
+
+async def test_read_charging_power_single_phase(hass):
+    """Single-phase reads the one configured sensor."""
+    config = dict(SINGLE_CONFIG)
+    config[CONF_CHARGING_POWER] = "sensor.cp"
+    model = ChargingModel.from_config(config)
+    hass.states.async_set("sensor.cp", "3680")
+    assert model.read_charging_power(hass) == pytest.approx(3680.0)
+
+
+async def test_read_charging_power_sums_three_phases(hass):
+    """Three-phase charging power = sum of the three phase sensors."""
+    config = dict(THREE_CONFIG)
+    config[CONF_CHARGING_POWER] = "sensor.cp1"
+    config[CONF_CHARGING_POWER_L2] = "sensor.cp2"
+    config[CONF_CHARGING_POWER_L3] = "sensor.cp3"
+    model = ChargingModel.from_config(config)
+    hass.states.async_set("sensor.cp1", "3680")
+    hass.states.async_set("sensor.cp2", "3680")
+    hass.states.async_set("sensor.cp3", "3680")
+    assert model.read_charging_power(hass) == pytest.approx(11040.0)
+
+
+async def test_read_charging_power_reversed_sign_clamps_to_zero(hass):
+    """A reversed-sign sensor (negative while charging) reads a flat 0 W."""
+    config = dict(SINGLE_CONFIG)
+    config[CONF_CHARGING_POWER] = "sensor.cp"
+    model = ChargingModel.from_config(config)
+    hass.states.async_set("sensor.cp", "-3680")
+    assert model.read_charging_power(hass) == pytest.approx(0.0)
+
+
+async def test_read_charging_power_normalizes_kw_to_watts(hass):
+    """A kW-unit sensor (Tuya/Easee/Wallbox/go-e) is normalized to watts so the
+    backend floor and the frontend agree (else a real session reads < floor)."""
+    config = dict(SINGLE_CONFIG)
+    config[CONF_CHARGING_POWER] = "sensor.cp"
+    model = ChargingModel.from_config(config)
+    hass.states.async_set("sensor.cp", "3.68", {"unit_of_measurement": "kW"})
+    assert model.read_charging_power(hass) == pytest.approx(3680.0)
+    # And the verdict is "charging" (3680 W > floor), not a false negative.
+    assert model.is_charging(hass) is True
+
+
+async def test_read_charging_power_genuine_zero(hass):
+    """A real 0 W reading is 0.0, NOT None (distinct from unconfigured)."""
+    config = dict(SINGLE_CONFIG)
+    config[CONF_CHARGING_POWER] = "sensor.cp"
+    model = ChargingModel.from_config(config)
+    hass.states.async_set("sensor.cp", "0")
+    assert model.read_charging_power(hass) == pytest.approx(0.0)
+
+
+async def test_read_charging_power_unavailable_returns_none(hass):
+    """A mapped-but-unavailable sensor → None (cannot measure)."""
+    config = dict(SINGLE_CONFIG)
+    config[CONF_CHARGING_POWER] = "sensor.cp"
+    model = ChargingModel.from_config(config)
+    hass.states.async_set("sensor.cp", "unavailable")
+    assert model.read_charging_power(hass) is None
+
+
+async def test_read_charging_power_partial_three_phase_returns_none(hass):
+    """All-or-nothing: one missing phase → None, never a misleading partial sum."""
+    config = dict(THREE_CONFIG)
+    config[CONF_CHARGING_POWER] = "sensor.cp1"
+    config[CONF_CHARGING_POWER_L2] = "sensor.cp2"
+    config[CONF_CHARGING_POWER_L3] = "sensor.cp3"
+    model = ChargingModel.from_config(config)
+    hass.states.async_set("sensor.cp1", "3680")
+    hass.states.async_set("sensor.cp2", "3680")
+    hass.states.async_set("sensor.cp3", "unknown")
+    assert model.read_charging_power(hass) is None
+
+
+async def test_is_charging_measured_above_and_below_floor(hass):
+    """Stateless drawing-now: power > floor → True, below → False."""
+    config = dict(SINGLE_CONFIG)
+    config[CONF_CHARGING_POWER] = "sensor.cp"
+    model = ChargingModel.from_config(config)
+
+    hass.states.async_set("sensor.cp", str(CHARGING_POWER_DRAWING_FLOOR_W + 1000))
+    assert model.is_charging(hass) is True
+
+    hass.states.async_set("sensor.cp", str(CHARGING_POWER_DRAWING_FLOOR_W - 50))
+    assert model.is_charging(hass) is False
+
+
+async def test_is_charging_measured_overrides_lying_status(hass):
+    """Measured 0 W beats a wallbox stuck on 'charger_charging' (the blind spot)."""
+    config = dict(SINGLE_CONFIG)
+    config[CONF_CHARGING_POWER] = "sensor.cp"
+    config[CONF_EV_CHARGER_STATUS] = "sensor.status"
+    model = ChargingModel.from_config(config)
+    hass.states.async_set("sensor.cp", "0")
+    hass.states.async_set("sensor.status", CHARGER_STATUS_CHARGING)
+    assert model.is_charging(hass) is False
+
+
+async def test_is_charging_falls_back_to_status_when_no_power_sensor(hass):
+    """No power sensor → legacy status string drives the verdict (byte-for-byte)."""
+    config = dict(SINGLE_CONFIG)
+    config[CONF_EV_CHARGER_STATUS] = "sensor.status"
+    model = ChargingModel.from_config(config)
+
+    hass.states.async_set("sensor.status", CHARGER_STATUS_CHARGING)
+    assert model.is_charging(hass) is True
+
+    hass.states.async_set("sensor.status", CHARGER_STATUS_FREE)
+    assert model.is_charging(hass) is False
+
+
+async def test_is_charging_false_when_nothing_configured(hass):
+    """No power sensor and no status → False (never crashes on None)."""
+    model = ChargingModel.from_config(SINGLE_CONFIG)
+    assert model.is_charging(hass) is False
+
+
+async def test_is_charging_status_fallback_is_tolerant(hass):
+    """No power sensor: a non-Tuya brand string ('Charging') still counts as
+    charging (tolerant blocklist), matching the frontend; idle strings do not."""
+    config = dict(SINGLE_CONFIG)
+    config[CONF_EV_CHARGER_STATUS] = "sensor.status"
+    model = ChargingModel.from_config(config)
+
+    hass.states.async_set("sensor.status", "Charging")  # brand-specific string
+    assert model.is_charging(hass) is True
+
+    hass.states.async_set("sensor.status", "charger_wait")  # transitional → idle
+    assert model.is_charging(hass) is False
+
+
+async def test_is_plugged_in_status_semantics(hass):
+    """Plugged-in reads status: FREE/unavailable → False, anything else → True."""
+    config = dict(SINGLE_CONFIG)
+    config[CONF_EV_CHARGER_STATUS] = "sensor.status"
+    model = ChargingModel.from_config(config)
+
+    hass.states.async_set("sensor.status", CHARGER_STATUS_FREE)
+    assert model.is_plugged_in(hass) is False
+
+    hass.states.async_set("sensor.status", CHARGER_STATUS_CHARGING)
+    assert model.is_plugged_in(hass) is True
+
+    hass.states.async_set("sensor.status", "unavailable")
+    assert model.is_plugged_in(hass) is False
+
+
+# ----------------------------------------------------------------------------
 # Charger-model-gated decrease (the headline behaviour)
 # ----------------------------------------------------------------------------
 
@@ -241,3 +407,42 @@ def test_controller_normalizes_to_model_levels(hass):
     # 11 A: Tuya → nearest discrete (10), generic → 11 (valid level)
     assert tuya._normalize_target_amps(11) == 10
     assert generic._normalize_target_amps(11) == 11
+
+
+# ----------------------------------------------------------------------------
+# Drawing-now SSOT in the controller (v2.2.0) + byte-for-byte fallback
+# ----------------------------------------------------------------------------
+
+
+async def test_is_charging_no_power_sensor_uses_switch_echo(hass):
+    """THE sacred regression guard: charger_controller.is_charging() stays
+    commanded-on (switch echo) and is unaffected by the v2.2.0 SSOT. With no
+    power sensor mapped (default), it reflects _is_on exactly as pre-v2.2."""
+    controller = _make_controller(hass, CHARGER_MODEL_TUYA)
+    assert controller._measured_power_w is None  # no power sensor
+
+    controller._is_on = True
+    assert await controller.is_charging() is True
+
+    controller._is_on = False
+    assert await controller.is_charging() is False
+
+
+async def test_tuya_decrease_uses_sequence_regardless_of_measured_power(hass):
+    """v2.2.0 control is commanded-only: a Tuya decrease while commanded-on uses
+    the safe stop/set/start sequence even if measured power momentarily reads 0 W
+    (a glitch/trickle must never trigger a live current change on Tuya)."""
+    controller = _make_controller(hass, CHARGER_MODEL_TUYA)
+    controller._is_on = True            # commanded on
+    controller._current_amperage = 16
+    controller._measured_power_w = 0.0  # measured low — must NOT change the gate
+    controller._refresh_state = AsyncMock()  # keep the manual cache values
+    controller._call_service = AsyncMock()
+    controller._set_amperage_internal = AsyncMock()
+
+    op = await controller._set_amperage_unlocked(10)
+
+    assert op == "adjust_down"
+    services = [c.args[1] for c in controller._call_service.await_args_list]
+    assert "turn_off" in services
+    assert "turn_on" in services

@@ -54,6 +54,9 @@ except ImportError:  # pragma: no cover
 
 from .const import (
     CONF_BATTERY_POWER,
+    CONF_CHARGING_POWER,
+    CONF_CHARGING_POWER_L2,
+    CONF_CHARGING_POWER_L3,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
     CONF_EV_CHARGER_SWITCH,
@@ -222,6 +225,10 @@ def _build_card_config(entry: ConfigEntry) -> dict[str, Any]:
         "grid_import_entity": CONF_GRID_IMPORT,
         "charger_status_entity": CONF_EV_CHARGER_STATUS,
         "current_entity": CONF_EV_CHARGER_CURRENT,
+        # v2.2.0: measured charging power → single-phase SSOT for the card's
+        # drawing-now (banner / ring / tile). Three-phase uses the summed array
+        # below instead; this single key is the L1 / single-phase mapping.
+        "charging_power_entity": CONF_CHARGING_POWER,
         "charger_switch_entity": CONF_EV_CHARGER_SWITCH,
         "pv_forecast_entity": CONF_PV_FORECAST,
         # v1.11.14: distinct from pv_forecast_entity. Drives the
@@ -246,6 +253,8 @@ def _build_card_config(entry: ConfigEntry) -> dict[str, Any]:
             ("solar_power_entities", (CONF_FV_PRODUCTION, CONF_FV_PRODUCTION_L2, CONF_FV_PRODUCTION_L3)),
             ("home_consumption_entities", (CONF_HOME_CONSUMPTION, CONF_HOME_CONSUMPTION_L2, CONF_HOME_CONSUMPTION_L3)),
             ("grid_import_entities", (CONF_GRID_IMPORT, CONF_GRID_IMPORT_L2, CONF_GRID_IMPORT_L3)),
+            # v2.2.0: per-phase charging power, summed by the card for drawing-now.
+            ("charging_power_entities", (CONF_CHARGING_POWER, CONF_CHARGING_POWER_L2, CONF_CHARGING_POWER_L3)),
         ):
             entities = [data[k] for k in conf_keys if data.get(k)]
             if entities:

@@ -156,6 +156,36 @@ class SolarSurplusAutomation:
             return True
         return self._coordinator.is_automation_active(self._automation_name)
 
+    def _charging_power_snapshot(self) -> dict:
+        """v2.2.0 charging-state observability for the diagnostic sensor.
+
+        Surfaces the MEASURED charging power (so a reversed-sign sensor shows a
+        flat 0 W — the user's cue to apply a ``| abs`` template fix) and which
+        signal the charging verdict rests on. Synchronous and defensive: never
+        raises into the diagnostic path.
+        """
+        measured = None
+        try:
+            power_model = (
+                self._runtime_data.power_model if self._runtime_data else None
+            )
+            if power_model is not None:
+                measured = power_model.read_charging_power(self.hass)
+        except Exception:  # pragma: no cover - diagnostics must never break flow
+            measured = None
+
+        if measured is not None:
+            return {
+                "charging_power_w": round(measured, 1),
+                "charging_power_source": "measured",
+                "is_charging_basis": "measured",
+            }
+        return {
+            "charging_power_w": None,
+            "charging_power_source": "none",
+            "is_charging_basis": "status" if self._charger_status else "command",
+        }
+
     async def _emit_diagnostic(
         self,
         *,
@@ -171,13 +201,17 @@ class SolarSurplusAutomation:
         if self._runtime_data is None or self._runtime_data.diagnostic_manager is None:
             return
 
+        # v2.2.0: always attach the charging-power snapshot so the measured
+        # reading / source / basis are visible on the diagnostic sensor each tick.
+        merged_raw = {**self._charging_power_snapshot(), **(raw_values or {})}
+
         await self._runtime_data.diagnostic_manager.async_emit_event(
             component="Solar Surplus",
             event=event,
             result=result,
             reason_code=reason_code,
             reason_detail=reason_detail,
-            raw_values=raw_values,
+            raw_values=merged_raw,
             severity=severity,
             external_cause=external_cause,
         )
@@ -547,30 +581,38 @@ class SolarSurplusAutomation:
             return
 
         # === 7. Check Charger Status ===
-        charger_status = get_state(self.hass, self._charger_status)
-        if not charger_status:
-            self.logger.warning("Charger status unavailable")
-            self.logger.separator()
-            return
+        # v2.2.0: CONF_EV_CHARGER_STATUS is optional. When mapped it remains the
+        # plug-state source (FREE = unplugged → skip). When NOT mapped we cannot
+        # read plug state from status, so we proceed — the charger switch and
+        # measured power drive the loop. A mapped-but-unavailable sensor still
+        # warns + returns (transient sensor outage, unchanged behaviour).
+        if self._charger_status:
+            charger_status = get_state(self.hass, self._charger_status)
+            if not charger_status:
+                self.logger.warning("Charger status unavailable")
+                self.logger.separator()
+                return
 
-        if charger_status == CHARGER_STATUS_FREE:
-            if self._hybrid_mode is not None:
-                await self._hybrid_mode.async_force_exit("Charger disconnected")
-            if self._has_control():
-                self._release_control("Charger disconnected")
-                self._handle_control_loss("Charger disconnected")
-            self.logger.skip("Charger is free (not connected)")
-            await self._emit_diagnostic(
-                event="periodic_check",
-                result="skipped",
-                reason_code="charger_disconnected",
-                reason_detail="Charger is free (not connected)",
-                external_cause="charger_disconnected",
-            )
-            self.logger.separator()
-            return
+            if charger_status == CHARGER_STATUS_FREE:
+                if self._hybrid_mode is not None:
+                    await self._hybrid_mode.async_force_exit("Charger disconnected")
+                if self._has_control():
+                    self._release_control("Charger disconnected")
+                    self._handle_control_loss("Charger disconnected")
+                self.logger.skip("Charger is free (not connected)")
+                await self._emit_diagnostic(
+                    event="periodic_check",
+                    result="skipped",
+                    reason_code="charger_disconnected",
+                    reason_detail="Charger is free (not connected)",
+                    external_cause="charger_disconnected",
+                )
+                self.logger.separator()
+                return
 
-        self.logger.info(f"Charger status: '{charger_status}' - proceeding")
+            self.logger.info(f"Charger status: '{charger_status}' - proceeding")
+        else:
+            self.logger.info("No charger status sensor - proceeding (status optional)")
         charger_is_on = await self.charger_controller.is_charging()
 
         # === 8. Priority Balancer Decision ===

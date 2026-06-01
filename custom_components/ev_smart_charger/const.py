@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.1.1"
+VERSION = "2.2.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -65,6 +65,26 @@ CHARGER_AMP_LEVELS = [6, 8, 10, 13, 16, 20, 24, 32]  # Tuya-style discrete level
 GENERIC_AMP_LEVELS = list(range(6, 33))  # [6, 7, 8, ..., 32]
 VOLTAGE_EU = 230  # European standard voltage (per phase)
 
+# ========== CHARGING-STATE SSOT (v2.2.0) ==========
+# Drawing-now threshold on the TOTAL measured charging power (single absolute
+# value on the summed watts — NOT scaled by phase count). The minimum real
+# charging session is ~1380 W single-phase / ~4140 W three-phase total, both far
+# above this floor; the floor only rejects EVSE standby / CT noise (5-40 W).
+# "Is a session intended / plugged in" is answered by status/command, never the
+# floor. Tunable in beta against real wallbox standby observations.
+CHARGING_POWER_DRAWING_FLOOR_W = 200
+# Command-wins grace window. Measured charging power lags the commanded state
+# (ramp-up at start, decay at stop, and the Tuya stop→set→start decrease), so a
+# naive ``power > floor`` would oscillate against the rate-limited command loop.
+# Within this many seconds of a start/stop command, the command wins.
+CHARGING_POWER_GRACE_SECONDS = 15
+# Night-charge GRID mode: suppress the measured-power blind-spot stop for this
+# long after the session starts. An EV can take tens of seconds to begin drawing
+# after the wallbox reports 'charging' (cold battery, scheduled charging,
+# preconditioning, contactor delay); without this window the 15 s low-draw
+# debounce would false-terminate a legitimate session ~30 s in.
+NIGHT_GRID_DRAW_START_GRACE_SECONDS = 90
+
 # ========== PHASE MODE & CHARGER MODEL (v2.0.0, opt-in) ==========
 # Phase mode: single-phase (default, unchanged behaviour) or three-phase.
 # In three-phase, production/consumption/grid are THREE sensors each (summed)
@@ -104,6 +124,17 @@ CONF_HOME_CONSUMPTION_L2 = "home_consumption_l2"
 CONF_HOME_CONSUMPTION_L3 = "home_consumption_l3"
 CONF_GRID_IMPORT_L2 = "grid_import_l2"
 CONF_GRID_IMPORT_L3 = "grid_import_l3"
+
+# v2.2.0 — Measured EV charging power (W) sensor(s). The SSOT for "is the car
+# drawing current right now" (drawing_now). Unlike production/consumption/grid,
+# L1 is a NEW key (no pre-v2.2 single-phase equivalent). Single-phase = 1 sensor;
+# three-phase = 3 sensors summed. Optional: when unmapped, the charging-state
+# answer falls back to the textual CONF_EV_CHARGER_STATUS sensor → existing
+# installs are byte-for-byte unchanged. Unsigned positive watts (no sign toggle;
+# reversed-sign sensors read a flat 0 W after the clamp in read_charging_power).
+CONF_CHARGING_POWER = "charging_power"
+CONF_CHARGING_POWER_L2 = "charging_power_l2"
+CONF_CHARGING_POWER_L3 = "charging_power_l3"
 # v1.11.14: distinct from CONF_PV_FORECAST. Optional sensor that reports
 # the *next-day* solar production forecast in kWh. Consumed only by the
 # auto-dashboard "Forecast Domani" chip — Night Smart Charge stays wired

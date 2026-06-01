@@ -54,6 +54,10 @@ const SUPPORTED_PROFILES = ["manual", "solar_surplus"];
 // is mapped. Mirrors the same assumption made by solar_surplus.py
 // (VOLTAGE_EU = 230) — see CLAUDE.md "Important Notes" → "European Standard".
 const VOLTAGE_EU = 230;
+// v2.2.0: drawing-now floor in WATTS on the total measured charging power.
+// Mirrors const.py:CHARGING_POWER_DRAWING_FLOOR_W — only rejects EVSE standby /
+// CT noise; far below the ~1380 W single-phase minimum session.
+const CHARGING_POWER_DRAWING_FLOOR_W = 200;
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const DAY_INITIALS_BY_LOCALE = {
   en: ["M", "T", "W", "T", "F", "S", "S"],
@@ -1006,6 +1010,10 @@ class EvSmartChargerDashboard extends HTMLElement {
       solar_power_entities: config?.solar_power_entities,
       home_consumption_entities: config?.home_consumption_entities,
       grid_import_entities: config?.grid_import_entities,
+      // v2.2.0: per-phase measured charging power, summed by _isDrawingNow /
+      // _computeChargingPowerKw. MUST be whitelisted or it is silently dropped
+      // (cf. the v1.11.13 pv_forecast_entity regression above).
+      charging_power_entities: config?.charging_power_entities,
     };
 
     // v1.11.4: capture the build version injected by dashboard_manager.py.
@@ -1472,11 +1480,76 @@ class EvSmartChargerDashboard extends HTMLElement {
    * power can wire it manually in YAML by passing `charging_power_entity`
    * into the card config.
    */
+  /**
+   * v2.2.0: read one charging-power entity as WATTS, normalizing kW→W by its
+   * unit_of_measurement. Unknown / missing unit → assume W (the config-flow
+   * field maps watt sensors). null when unreadable.
+   */
+  _powerW(id) {
+    // Single state-object lookup (read both .state and the unit from it).
+    const obj = this._stateObj(id);
+    if (!obj || !obj.state || obj.state === "unknown" || obj.state === "unavailable") {
+      return null;
+    }
+    const v = Number(obj.state);
+    if (!Number.isFinite(v)) return null;
+    const unit = (obj.attributes?.unit_of_measurement || "").toLowerCase();
+    if (unit === "kw") return v * 1000;
+    return v;
+  }
+
+  /**
+   * v2.2.0: total MEASURED charging power in watts — the drawing-now SSOT.
+   * Three-phase sums the per-phase `charging_power_entities` (all-or-nothing:
+   * any unreadable phase → null). Single-phase reads `charging_power_entity`.
+   * Clamped >= 0 so a reversed-sign sensor reads a flat 0 W (the user's cue).
+   * null when no charging-power sensor is mapped → callers fall back to status.
+   */
+  _measuredChargingW() {
+    const ids = this._config.charging_power_entities;
+    if (Array.isArray(ids) && ids.length > 0) {
+      let total = 0;
+      for (const id of ids) {
+        const w = this._powerW(id);
+        if (w == null) return null;
+        total += w;
+      }
+      return Math.max(0, total);
+    }
+    const single = this._config.charging_power_entity;
+    if (single) {
+      const w = this._powerW(single);
+      return w == null ? null : Math.max(0, w);
+    }
+    return null;
+  }
+
+  /**
+   * v2.2.0: THE shared "is the car drawing current now?" leaf used by the hero
+   * banner, the SOC ring and the live-update path so they never disagree.
+   *   1. measured power mapped → power > CHARGING_POWER_DRAWING_FLOOR_W
+   *   2. else TOLERANT status fallback — drawing unless status is an explicitly
+   *      idle value. This keeps the original symptom fixed for installs WITHOUT
+   *      a power sensor: a non-Tuya wallbox reporting "Charging" (not the exact
+   *      "charger_charging") still registers, unlike the old `=== ` check.
+   */
+  _isDrawingNow() {
+    const w = this._measuredChargingW();
+    if (w != null) return w > CHARGING_POWER_DRAWING_FLOOR_W;
+    const status = this._stateObj(this._config.charger_status_entity)?.state;
+    if (status == null || status === "unknown" || status === "unavailable") {
+      return false;
+    }
+    const IDLE_STATUSES = new Set(["charger_free", "charger_end", "charger_wait"]);
+    return !IDLE_STATUSES.has(status);
+  }
+
   _computeChargingPowerKw() {
-    // Path 1: explicit power sensor wins when present and non-trivial.
-    const sensorKw = this._numericState(this._config.charging_power_entity);
-    if (sensorKw != null && sensorKw > 0.05) {
-      return Math.round(sensorKw * 10) / 10;
+    // Path 1: measured power is authoritative when a charging-power sensor is
+    // mapped (summed phases or single, unit-normalized). May be ~0 when paused.
+    const measuredW = this._measuredChargingW();
+    if (measuredW != null) {
+      return Math.round((measuredW / 1000) * 10) / 10;
     }
     // Path 2: derive from amperage.
     // v1.11.7: hardened against two real-world issues:
@@ -1577,11 +1650,9 @@ class EvSmartChargerDashboard extends HTMLElement {
   _renderHeroRing() {
     const evPct = this._numericState(this._config.ev_soc_entity);
     const homePct = this._numericState(this._config.home_battery_soc_entity);
-    const chargingPowerObj = this._stateObj(this._config.charging_power_entity);
-    const chargerStatus = this._stateObj(this._config.charger_status_entity)?.state;
-    const isCharging =
-      chargerStatus === "charger_charging" ||
-      (chargingPowerObj && Number(chargingPowerObj.state) > 0.05);
+    // v2.2.0: shared drawing-now SSOT (measured power → tolerant status fallback)
+    // so the ring's first render and the live-update path never disagree.
+    const isCharging = this._isDrawingNow();
 
     // Geometry — viewBox is 220×220, center (110,110)
     const rOuter = 96;
@@ -2349,14 +2420,13 @@ class EvSmartChargerDashboard extends HTMLElement {
     const nightOn = nightSessionState === "battery" || nightSessionState === "grid";
     // v1.11.16: generic "EV charging" green banner. Lowest precedence — only
     // shown when none of Force / Boost / Night is active, so the more
-    // specific banners aren't hidden by the generic one. Derived from the
-    // mapped charger_status_entity ("charger_charging") OR a positive
-    // reading on the charging_power_entity, mirroring _renderHeroRing().
-    const chargerStatusForBanner = this._stateObj(this._config.charger_status_entity)?.state;
-    const chargingPowerObjForBanner = this._stateObj(this._config.charging_power_entity);
-    const chargingOn =
-      chargerStatusForBanner === "charger_charging" ||
-      (chargingPowerObjForBanner && Number(chargingPowerObjForBanner.state) > 0.05);
+    // specific banners aren't hidden by the generic one.
+    // v2.2.0: derived from the shared _isDrawingNow() SSOT — measured charging
+    // power (summed across phases) when mapped, else a TOLERANT status fallback
+    // (drawing unless explicitly idle). This is the fix for the user's report
+    // that the green banner never appeared: the old exact `=== "charger_charging"`
+    // failed on wallboxes reporting any other charging string.
+    const chargingOn = this._isDrawingNow();
     const heroState = forceChargeOn
       ? "force"
       : (boostOn
@@ -2651,16 +2721,12 @@ class EvSmartChargerDashboard extends HTMLElement {
     // v1.11.16: generic charging banner is structural too — flipping
     // between charging/normal swaps the banner DOM + wrapper class, which
     // the fast path can't patch. We collapse the boolean derivation into
-    // the key so any transition (status flip or power crossing 0.05 kW)
-    // triggers exactly one full rebuild. Already covered transitively by
-    // `cs` for status changes, but include the derived value explicitly so
-    // a power-only signal (no status entity mapped) also rebuilds.
-    const chargingPowerStateForKey = this._config.charging_power_entity
-      ? Number(states[this._config.charging_power_entity]?.state)
-      : NaN;
-    const chargingOnForKey =
-      chargerStatus === "charger_charging" ||
-      (Number.isFinite(chargingPowerStateForKey) && chargingPowerStateForKey > 0.05);
+    // the key so any transition triggers exactly one full rebuild.
+    // v2.2.0: derive it from the shared _isDrawingNow() SSOT so the SUMMED
+    // three-phase measured power is reflected (the old singular-entity read
+    // left the banner stale in three-phase — Risk #5), and a power-only signal
+    // (no status entity mapped) still rebuilds.
+    const chargingOnForKey = this._isDrawingNow();
 
     return JSON.stringify({
       view: this._view,
@@ -2686,11 +2752,9 @@ class EvSmartChargerDashboard extends HTMLElement {
   _collectLiveValues(displayValues, priorityState) {
     const evPct = this._numericState(this._config.ev_soc_entity);
     const homePct = this._numericState(this._config.home_battery_soc_entity);
-    const chargingPowerObj = this._stateObj(this._config.charging_power_entity);
-    const chargerStatus = this._stateObj(this._config.charger_status_entity)?.state;
-    const isCharging =
-      chargerStatus === "charger_charging" ||
-      (chargingPowerObj && Number(chargingPowerObj.state) > 0.05);
+    // v2.2.0: shared drawing-now SSOT (measured power → tolerant status fallback)
+    // so the ring's first render and the live-update path never disagree.
+    const isCharging = this._isDrawingNow();
 
     // Ring geometry — must match _renderHeroRing() exactly.
     const rOuter = 96;
@@ -4101,7 +4165,47 @@ class EvSmartChargerDashboard extends HTMLElement {
         .evsc-hero-banner.banner-force { background: var(--evsc-sys-red); }
         .evsc-hero-banner.banner-boost { background: var(--evsc-deep-orange); }
         .evsc-hero-banner.banner-night { background: var(--evsc-sys-indigo); }
-        .evsc-hero-banner.banner-charging { background: var(--evsc-sys-green); }
+        /* v2.2.0: "live charging" animation — the green banner breathes through
+           the aurora green while a white energy current sweeps across it, as if
+           power were flowing into the car. CSS-only (no markup change → no
+           structural-key churn). */
+        .evsc-hero-banner.banner-charging {
+          position: relative;
+          overflow: hidden;
+          background: linear-gradient(
+            90deg,
+            #00b34a 0%,
+            var(--evsc-aurora-green) 50%,
+            #00b34a 100%
+          );
+          background-size: 220% 100%;
+          animation: evsc-charge-flow 3.2s ease-in-out infinite;
+        }
+        /* the travelling energy highlight */
+        .evsc-hero-banner.banner-charging::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(
+            100deg,
+            transparent 0%,
+            transparent 38%,
+            rgba(255, 255, 255, 0.45) 50%,
+            transparent 62%,
+            transparent 100%
+          );
+          transform: translateX(-100%);
+          animation: evsc-charge-sweep 2.2s linear infinite;
+          pointer-events: none;
+        }
+        @keyframes evsc-charge-flow {
+          0%, 100% { background-position: 0% 50%; }
+          50%      { background-position: 100% 50%; }
+        }
+        @keyframes evsc-charge-sweep {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(120%); }
+        }
         .evsc-hero-banner-dot {
           width: 8px;
           height: 8px;
@@ -4114,12 +4218,30 @@ class EvSmartChargerDashboard extends HTMLElement {
           0%, 100% { opacity: 1; transform: scale(1); }
           50%      { opacity: 0.5; transform: scale(0.7); }
         }
+        /* expanding "charge pulse" ring radiating from the dot, charging only */
+        .banner-charging .evsc-hero-banner-dot { position: relative; }
+        .banner-charging .evsc-hero-banner-dot::before {
+          content: "";
+          position: absolute;
+          inset: -3px;
+          border-radius: 50%;
+          border: 1.5px solid rgba(255, 255, 255, 0.75);
+          animation: evsc-charge-ring 1.6s ease-out infinite;
+          pointer-events: none;
+        }
+        @keyframes evsc-charge-ring {
+          0%   { transform: scale(0.6); opacity: 0.9; }
+          100% { transform: scale(2.4); opacity: 0; }
+        }
         @media (prefers-reduced-motion: reduce) {
           .evsc-hero-state-force,
           .evsc-hero-state-boost,
           .evsc-hero-state-night,
           .evsc-hero-state-charging { animation: none; }
           .evsc-hero-banner-dot { animation: none; }
+          .evsc-hero-banner.banner-charging { animation: none; }
+          .evsc-hero-banner.banner-charging::after,
+          .banner-charging .evsc-hero-banner-dot::before { animation: none; content: none; }
         }
 
         /* Revised hero — status pill BELOW the ring, EV label inside */

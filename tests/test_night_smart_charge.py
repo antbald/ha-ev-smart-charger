@@ -18,11 +18,15 @@ from custom_components.ev_smart_charger.const import (
     CONF_SOC_HOME,
     CONF_PV_FORECAST,
     CONF_NOTIFY_SERVICES,
+    CHARGER_STATUS_CHARGING,
     CHARGER_STATUS_FREE,
+    CHARGER_STATUS_WAIT,
+    CHARGING_POWER_DRAWING_FLOOR_W,
     NIGHT_CHARGE_MODE_BATTERY,
     NIGHT_CHARGE_MODE_GRID,
     NIGHT_CHARGE_MODE_IDLE,
 )
+from homeassistant.util import dt as dt_util
 
 
 @pytest.fixture
@@ -697,3 +701,132 @@ async def test_battery_monitor_stands_down_when_coordinator_ownership_is_lost(ha
     assert night_charge.is_active() is False
     assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_IDLE
     assert night_charge._session_state == "ready"
+
+
+# ============================================================================
+# v2.2.0 — grid-monitor Check 2: measured-power drawing-now stop
+# ============================================================================
+
+
+async def _prime_grid_monitor(hass, night_charge, *, status, measured):
+    """Arrange the grid monitor so execution reaches Check 2.
+
+    measured=None simulates 'no charging-power sensor mapped'.
+    """
+    night_charge._active_mode = NIGHT_CHARGE_MODE_GRID
+    night_charge.is_active = MagicMock(return_value=True)
+    night_charge._boost_charge = None
+    night_charge._ensure_control = AsyncMock(return_value=True)
+    night_charge._should_stop_for_deadline = AsyncMock(return_value=(False, ""))
+    night_charge._complete_night_charge = AsyncMock()
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+    night_charge.priority_balancer.get_ev_current_soc = AsyncMock(return_value=50)
+    night_charge.priority_balancer.get_ev_target_for_today = MagicMock(return_value=80)
+
+    if status is None:
+        night_charge._charger_status = None
+    else:
+        night_charge._charger_status = "sensor.charger_status"
+        hass.states.async_set("sensor.charger_status", status)
+
+    power_model = MagicMock()
+    power_model.read_charging_power = MagicMock(return_value=measured)
+    night_charge._runtime_data.power_model = power_model
+
+
+async def test_grid_monitor_blind_spot_stops_after_sustained_low_draw(hass, night_charge):
+    """status='charger_charging' but measured 0 W sustained → terminal stop."""
+    await _prime_grid_monitor(
+        hass, night_charge, status=CHARGER_STATUS_CHARGING, measured=0.0
+    )
+    # Pretend the low-draw clock started well past the grace window.
+    night_charge._grid_drawing_low_since = dt_util.now() - timedelta(seconds=30)
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_awaited_once()
+
+
+async def test_grid_monitor_blind_spot_waits_within_debounce(hass, night_charge):
+    """First low-draw tick only arms the debounce; no stop yet."""
+    await _prime_grid_monitor(
+        hass, night_charge, status=CHARGER_STATUS_CHARGING, measured=0.0
+    )
+    night_charge._grid_drawing_low_since = None  # fresh
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_not_awaited()
+    assert night_charge._grid_drawing_low_since is not None
+
+
+async def test_grid_monitor_keeps_charging_when_drawing(hass, night_charge):
+    """status charging + real draw → never stops, clock stays clear."""
+    await _prime_grid_monitor(
+        hass,
+        night_charge,
+        status=CHARGER_STATUS_CHARGING,
+        measured=CHARGING_POWER_DRAWING_FLOOR_W + 3000,
+    )
+    night_charge._grid_drawing_low_since = dt_util.now() - timedelta(seconds=30)
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_not_awaited()
+    assert night_charge._grid_drawing_low_since is None
+
+
+async def test_grid_monitor_lifecycle_stop_survives_noisy_power(hass, night_charge):
+    """status='charger_free' with a noisy >floor reading → immediate lifecycle
+    stop (the advisor's bypass case must NOT regress)."""
+    await _prime_grid_monitor(
+        hass,
+        night_charge,
+        status=CHARGER_STATUS_FREE,
+        measured=CHARGING_POWER_DRAWING_FLOOR_W + 500,
+    )
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_awaited_once()
+
+
+async def test_grid_monitor_no_power_sensor_uses_legacy_status(hass, night_charge):
+    """No power sensor → legacy status check, which stops on 'charger_wait'."""
+    await _prime_grid_monitor(
+        hass, night_charge, status=CHARGER_STATUS_WAIT, measured=None
+    )
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_awaited_once()
+
+
+async def test_grid_monitor_startup_ramp_grace_suppresses_stop(hass, night_charge):
+    """A freshly-started session whose EV is still ramping (0 W) must NOT be
+    killed during the startup grace, even with a stale low-draw clock."""
+    await _prime_grid_monitor(
+        hass, night_charge, status=CHARGER_STATUS_CHARGING, measured=0.0
+    )
+    night_charge._grid_session_start = dt_util.now()  # just started → in grace
+    night_charge._grid_drawing_low_since = dt_util.now() - timedelta(seconds=60)
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_not_awaited()
+    # the clock is reset while in the startup window
+    assert night_charge._grid_drawing_low_since is None
+
+
+async def test_grid_monitor_clears_stale_clock_on_sensor_unavailable(hass, night_charge):
+    """When the power sensor goes unavailable (measured None), the low-draw clock
+    is cleared so it can't fire a premature stop the instant the sensor recovers."""
+    await _prime_grid_monitor(
+        hass, night_charge, status=CHARGER_STATUS_CHARGING, measured=None
+    )
+    night_charge._grid_drawing_low_since = dt_util.now() - timedelta(seconds=60)
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_not_awaited()
+    assert night_charge._grid_drawing_low_since is None

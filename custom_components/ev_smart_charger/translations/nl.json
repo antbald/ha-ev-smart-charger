@@ -22,7 +22,7 @@
         "data_description": {
           "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
           "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Statussensor die `charger_charging`, `charger_free`, `charger_end` of `charger_wait` rapporteert."
+          "ev_charger_status": "Optioneel. Rapporteert `charger_charging`, `charger_free`, `charger_end` of `charger_wait`. Gebruikt als fallback voor laaddetectie wanneer geen laadvermogensensor is toegewezen, en als bron voor aangesloten/inactief/voltooid-status."
         }
       },
       "sensors": {
@@ -39,7 +39,10 @@
           "home_consumption_l2": "Verbruik woning (L2)",
           "home_consumption_l3": "Verbruik woning (L3)",
           "grid_import_l2": "Netafname (L2)",
-          "grid_import_l3": "Netafname (L3)"
+          "grid_import_l3": "Netafname (L3)",
+          "charging_power": "EV-laadvermogen",
+          "charging_power_l2": "EV-laadvermogen (L2)",
+          "charging_power_l3": "EV-laadvermogen (L3)"
         },
         "data_description": {
           "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
@@ -52,7 +55,10 @@
           "home_consumption_l2": "Verbruik woning op fase L2, in watt.",
           "home_consumption_l3": "Verbruik woning op fase L3, in watt.",
           "grid_import_l2": "Netafname op fase L2, in watt.",
-          "grid_import_l3": "Netafname op fase L3, in watt."
+          "grid_import_l3": "Netafname op fase L3, in watt.",
+          "charging_power": "Optioneel maar aanbevolen. Gemeten EV-laadvermogen in watt — het betrouwbaarste signaal of de auto daadwerkelijk stroom verbruikt. Indien toegewezen heeft het voorrang op de statussensor voor laaddetectie. In driefasemodus wijs je alle drie de fasesensoren toe of laat je ze alle drie leeg (ze worden opgeteld).",
+          "charging_power_l2": "EV-laadvermogen op fase L2, in watt. Wijs alle drie de fasen toe of geen.",
+          "charging_power_l3": "EV-laadvermogen op fase L3, in watt. Wijs alle drie de fasen toe of geen."
         }
       },
       "hybrid_inverter": {
@@ -137,7 +143,10 @@
           "home_consumption_l2": "Verbruik woning (L2)",
           "home_consumption_l3": "Verbruik woning (L3)",
           "grid_import_l2": "Netafname (L2)",
-          "grid_import_l3": "Netafname (L3)"
+          "grid_import_l3": "Netafname (L3)",
+          "charging_power": "EV-laadvermogen",
+          "charging_power_l2": "EV-laadvermogen (L2)",
+          "charging_power_l3": "EV-laadvermogen (L3)"
         },
         "data_description": {
           "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
@@ -150,7 +159,10 @@
           "home_consumption_l2": "Verbruik woning op fase L2, in watt.",
           "home_consumption_l3": "Verbruik woning op fase L3, in watt.",
           "grid_import_l2": "Netafname op fase L2, in watt.",
-          "grid_import_l3": "Netafname op fase L3, in watt."
+          "grid_import_l3": "Netafname op fase L3, in watt.",
+          "charging_power": "Optioneel maar aanbevolen. Gemeten EV-laadvermogen in watt — het betrouwbaarste signaal of de auto daadwerkelijk stroom verbruikt. Indien toegewezen heeft het voorrang op de statussensor voor laaddetectie. In driefasemodus wijs je alle drie de fasesensoren toe of laat je ze alle drie leeg (ze worden opgeteld).",
+          "charging_power_l2": "EV-laadvermogen op fase L2, in watt. Wijs alle drie de fasen toe of geen.",
+          "charging_power_l3": "EV-laadvermogen op fase L3, in watt. Wijs alle drie de fasen toe of geen."
         }
       },
       "reconfigure_hybrid_inverter": {
@@ -220,7 +232,7 @@
         "data_description": {
           "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
           "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Statussensor die `charger_charging`, `charger_free`, `charger_end` of `charger_wait` rapporteert."
+          "ev_charger_status": "Optioneel. Rapporteert `charger_charging`, `charger_free`, `charger_end` of `charger_wait`. Gebruikt als fallback voor laaddetectie wanneer geen laadvermogensensor is toegewezen, en als bron voor aangesloten/inactief/voltooid-status."
         }
       },
       "phase_mode": {
@@ -292,7 +304,10 @@
           "home_consumption_l2": "Verbruik woning (L2)",
           "home_consumption_l3": "Verbruik woning (L3)",
           "grid_import_l2": "Netafname (L2)",
-          "grid_import_l3": "Netafname (L3)"
+          "grid_import_l3": "Netafname (L3)",
+          "charging_power": "EV-laadvermogen",
+          "charging_power_l2": "EV-laadvermogen (L2)",
+          "charging_power_l3": "EV-laadvermogen (L3)"
         },
         "data_description": {
           "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
@@ -305,7 +320,10 @@
           "home_consumption_l2": "Verbruik woning op fase L2, in watt.",
           "home_consumption_l3": "Verbruik woning op fase L3, in watt.",
           "grid_import_l2": "Netafname op fase L2, in watt.",
-          "grid_import_l3": "Netafname op fase L3, in watt."
+          "grid_import_l3": "Netafname op fase L3, in watt.",
+          "charging_power": "Optioneel maar aanbevolen. Gemeten EV-laadvermogen in watt — het betrouwbaarste signaal of de auto daadwerkelijk stroom verbruikt. Indien toegewezen heeft het voorrang op de statussensor voor laaddetectie. In driefasemodus wijs je alle drie de fasesensoren toe of laat je ze alle drie leeg (ze worden opgeteld).",
+          "charging_power_l2": "EV-laadvermogen op fase L2, in watt. Wijs alle drie de fasen toe of geen.",
+          "charging_power_l3": "EV-laadvermogen op fase L3, in watt. Wijs alle drie de fasen toe of geen."
         }
       },
       "hybrid_inverter": {
@@ -375,7 +393,7 @@
         "data_description": {
           "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
           "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Statussensor die `charger_charging`, `charger_free`, `charger_end` of `charger_wait` rapporteert."
+          "ev_charger_status": "Optioneel. Rapporteert `charger_charging`, `charger_free`, `charger_end` of `charger_wait`. Gebruikt als fallback voor laaddetectie wanneer geen laadvermogensensor is toegewezen, en als bron voor aangesloten/inactief/voltooid-status."
         }
       },
       "charger_model": {

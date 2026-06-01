@@ -162,6 +162,10 @@ class ChargerController:
         self._last_operation_time: Optional[datetime] = None
         self._current_amperage: Optional[int] = None
         self._is_on: Optional[bool] = None
+        # v2.2.0 — measured charging power (W) cached on each _refresh_state.
+        # None when no charging-power sensor is mapped (→ drawing-now falls back
+        # to the commanded switch echo, byte-for-byte legacy behaviour).
+        self._measured_power_w: Optional[float] = None
         self._lock = asyncio.Lock()
 
         self.logger.info(
@@ -195,6 +199,15 @@ class ChargerController:
                 "target_amps": target_amps,
                 "current_amps": self._current_amperage,
                 "charger_on": self._is_on,
+                # v2.2.0: measured charging power (diagnostic only — control uses
+                # the commanded switch echo). drawing_now is the model's stateless
+                # verdict; None when no power sensor is mapped.
+                "measured_power_w": self._measured_power_w,
+                "drawing_now": (
+                    self._runtime_data.power_model.is_charging(self.hass)
+                    if self._runtime_data and self._runtime_data.power_model
+                    else None
+                ),
                 "charger_switch": self._charger_switch,
                 "current_entity": self._charger_current,
                 "error_message": error_message,
@@ -214,11 +227,21 @@ class ChargerController:
         )
 
     async def _refresh_state(self):
-        """Refresh cached state from Home Assistant."""
+        """Refresh cached state from Home Assistant.
+
+        ``_is_on`` / ``_current_amperage`` stay strictly COMMANDED (switch echo,
+        setpoint) and drive ALL control decisions (byte-for-byte v2.1.x). v2.2.0
+        also caches the measured charging power for the operation DIAGNOSTIC only
+        (it does not gate any control path); None when no power sensor is mapped.
+        """
         charger_state = self.hass.states.get(self._charger_switch)
         if charger_state:
             self._is_on = charger_state.state == "on"
         self._current_amperage = self._current_control.get_numeric_state()
+        if self._runtime_data is not None and self._runtime_data.power_model is not None:
+            self._measured_power_w = self._runtime_data.power_model.read_charging_power(
+                self.hass
+            )
 
     async def start_charger(
         self,

@@ -20,6 +20,10 @@ from .const import (
     CONF_ENERGY_FORECAST_TARGET,
     CHARGER_STATUS_CHARGING,
     CHARGER_STATUS_FREE,
+    CHARGER_STATUS_WAIT,
+    CHARGING_POWER_DRAWING_FLOOR_W,
+    CHARGING_POWER_GRACE_SECONDS,
+    NIGHT_GRID_DRAW_START_GRACE_SECONDS,
     NIGHT_CHARGE_MODE_BATTERY,
     NIGHT_CHARGE_MODE_GRID,
     NIGHT_CHARGE_MODE_IDLE,
@@ -148,6 +152,14 @@ class NightSmartCharge:
         self._charger_status_unsub = None
         self._battery_monitor_unsub = None
         self._grid_monitor_unsub = None  # Grid charge monitoring timer (v1.3.17)
+        # v2.2.0: debounce clock for the power-based grid-stop. Holds the time the
+        # measured charging power first fell below the floor; a terminal stop only
+        # fires once it has stayed low for CHARGING_POWER_GRACE_SECONDS (so the
+        # controller's stop/set/start decrease and transient dips don't false-stop).
+        self._grid_drawing_low_since = None
+        # v2.2.0: grid session start, for the startup ramp grace (an EV can take
+        # tens of seconds to begin drawing after the wallbox says 'charging').
+        self._grid_session_start = None
         self._night_charge_active = False
         # v1.11.9: `_active_mode` is now a property — assignments are
         # automatically published to sensor.evsc_night_session_state so the
@@ -443,12 +455,21 @@ class NightSmartCharge:
             timedelta(minutes=1),
         )
 
-        # Listen to charger status changes for late arrival detection
-        self._charger_status_unsub = async_track_state_change_event(
-            self.hass,
-            self._charger_status,
-            self._async_charger_status_changed
-        )
+        # Listen to charger status changes for late arrival detection.
+        # v2.2.0: CONF_EV_CHARGER_STATUS is optional — guard before subscribing
+        # (async_track_state_change_event raises on a None entity id). Without a
+        # status sensor there is no late-arrival event source; the periodic check
+        # still runs.
+        if self._charger_status:
+            self._charger_status_unsub = async_track_state_change_event(
+                self.hass,
+                self._charger_status,
+                self._async_charger_status_changed
+            )
+        else:
+            self.logger.info(
+                "No charger status sensor mapped - late arrival detection disabled"
+            )
 
         self.logger.success("Night Smart Charge setup completed successfully")
         self.logger.info("Periodic check interval: 1 minute")
@@ -585,10 +606,14 @@ class NightSmartCharge:
             self.logger.info(f"Handover rejected - window validation failed ({window_reason})")
             return False
 
-        charger_status = state_helper.get_state(self.hass, self._charger_status)
-        if not charger_status or charger_status in ("unknown", "unavailable", CHARGER_STATUS_FREE):
-            self.logger.info(f"Handover rejected - charger not ready (status: {charger_status})")
-            return False
+        # v2.2.0: status sensor is optional. Only gate handover on plug state when
+        # a status sensor is mapped; without one, accept the handover and let the
+        # power-based monitor stop if the car is not actually charging.
+        if self._charger_status:
+            charger_status = state_helper.get_state(self.hass, self._charger_status)
+            if not charger_status or charger_status in ("unknown", "unavailable", CHARGER_STATUS_FREE):
+                self.logger.info(f"Handover rejected - charger not ready (status: {charger_status})")
+                return False
 
         ev_target_reached = await self.priority_balancer.is_ev_target_reached()
         if ev_target_reached:
@@ -1012,23 +1037,31 @@ class NightSmartCharge:
     
             # Step 2: Check if charger is connected
             self.logger.info(f"{self.logger.EV} Step 2: Check charger connection")
-    
-            charger_status = state_helper.get_state(self.hass, self._charger_status)
-            self.logger.info(f"   Charger status: {charger_status}")
-    
-            # v1.3.22: Check for invalid/unavailable states
-            if not charger_status or charger_status in ["unavailable", "unknown", CHARGER_STATUS_FREE]:
-                if charger_status in ["unavailable", "unknown"]:
-                    self.logger.warning(f"{self.logger.ALERT} Charger status sensor {charger_status} - cannot determine connection")
-                    reason = f"sensor {charger_status}"
-                else:
-                    reason = "not connected"
-    
-                self.logger.skip(f"Charger {reason}")
-                self.logger.separator()
-                return
-    
-            self.logger.success("Charger connected")
+
+            # v2.2.0: CONF_EV_CHARGER_STATUS is optional. When mapped it gates on
+            # plug state (FREE/unknown/unavailable → not connected). When NOT
+            # mapped we cannot read plug state from a status string, so we proceed
+            # — the power-based grid monitor (startup ramp grace + blind-spot
+            # debounce) stops the session if the car turns out not to be drawing.
+            if self._charger_status:
+                charger_status = state_helper.get_state(self.hass, self._charger_status)
+                self.logger.info(f"   Charger status: {charger_status}")
+
+                # v1.3.22: Check for invalid/unavailable states
+                if not charger_status or charger_status in ["unavailable", "unknown", CHARGER_STATUS_FREE]:
+                    if charger_status in ["unavailable", "unknown"]:
+                        self.logger.warning(f"{self.logger.ALERT} Charger status sensor {charger_status} - cannot determine connection")
+                        reason = f"sensor {charger_status}"
+                    else:
+                        reason = "not connected"
+
+                    self.logger.skip(f"Charger {reason}")
+                    self.logger.separator()
+                    return
+
+                self.logger.success("Charger connected")
+            else:
+                self.logger.info("No charger status sensor - assuming connected (status optional)")
     
             # Step 3: Check if EV target reached
             self.logger.info(f"{self.logger.EV} Step 3: Check EV target SOC")
@@ -1555,13 +1588,79 @@ class NightSmartCharge:
 
         self.logger.info(f"   {self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - continuing charge")
 
-        # Check 2: Validate charger still charging
+        # Check 2: Validate the charger is still actually charging.
+        # v2.2.0 has TWO independent stop reasons:
+        #   (a) Lifecycle stop — an explicit not-charging status (free/end/
+        #       unknown) ends the session immediately, as in v2.1.x.
+        #   (b) Blind-spot stop — the wallbox insists 'charger_charging' (or has
+        #       no status sensor) but measured power stays below the floor → the
+        #       car is not really drawing (BMS full, EV paused). Requires the low
+        #       reading SUSTAINED for CHARGING_POWER_GRACE_SECONDS so the
+        #       controller's stop/set/start decrease ('charger_wait') and
+        #       transient dips never false-stop.
+        # With no power sensor mapped, only the legacy status check runs
+        # (byte-for-byte v2.1.x), including its stop on 'charger_wait'.
         charger_status = state_helper.get_state(self.hass, self._charger_status)
+        power_model = self._runtime_data.power_model if self._runtime_data else None
+        measured = power_model.read_charging_power(self.hass) if power_model else None
 
-        if charger_status != CHARGER_STATUS_CHARGING:
-            self.logger.warning(f"Charger no longer charging (status: {charger_status}) - ending grid mode")
-            await self._complete_night_charge(STOP_REASON_CHARGER_NOT_CHARGING, terminal=True)
-            return
+        if measured is None:
+            # Legacy path: status is the only signal (unchanged from v2.1.x).
+            # Clear the low-draw debounce clock so a stale timestamp from before a
+            # power-sensor outage can't fire a premature stop the instant the
+            # sensor recovers (the debounce restarts fresh on recovery).
+            self._grid_drawing_low_since = None
+            if charger_status != CHARGER_STATUS_CHARGING:
+                self.logger.warning(f"Charger no longer charging (status: {charger_status}) - ending grid mode")
+                await self._complete_night_charge(STOP_REASON_CHARGER_NOT_CHARGING, terminal=True)
+                return
+        else:
+            # (a) Lifecycle stop on an explicit not-charging status. None status
+            # (no sensor) is not a lifecycle signal — fall through to the draw
+            # check. 'charger_wait' is the controller's transitional decrease, so
+            # it is not a lifecycle stop here.
+            if charger_status is not None and charger_status not in (
+                CHARGER_STATUS_CHARGING,
+                CHARGER_STATUS_WAIT,
+            ):
+                self.logger.warning(f"Charger no longer charging (status: {charger_status}) - ending grid mode")
+                self._grid_drawing_low_since = None
+                await self._complete_night_charge(STOP_REASON_CHARGER_NOT_CHARGING, terminal=True)
+                return
+
+            # (b) Blind-spot / draw check. Never debounce on 'charger_wait'
+            # (transitional, self-resolves in < grace). Also suppress during the
+            # startup ramp window — a freshly-started session whose EV has not yet
+            # begun drawing must not be killed before the car can ramp up.
+            in_start_grace = (
+                self._grid_session_start is not None
+                and (current_time - self._grid_session_start).total_seconds()
+                < NIGHT_GRID_DRAW_START_GRACE_SECONDS
+            )
+            if (
+                measured <= CHARGING_POWER_DRAWING_FLOOR_W
+                and charger_status != CHARGER_STATUS_WAIT
+                and not in_start_grace
+            ):
+                if self._grid_drawing_low_since is None:
+                    self._grid_drawing_low_since = current_time
+                elapsed = (current_time - self._grid_drawing_low_since).total_seconds()
+                if elapsed >= CHARGING_POWER_GRACE_SECONDS:
+                    self.logger.warning(
+                        f"Charger drawing {measured:.0f}W (< floor) for {elapsed:.0f}s, "
+                        f"status '{charger_status}' - ending grid mode"
+                    )
+                    await self._complete_night_charge(
+                        STOP_REASON_CHARGER_NOT_CHARGING, terminal=True
+                    )
+                    return
+                self.logger.info(
+                    f"Low draw {measured:.0f}W for {elapsed:.0f}s "
+                    f"(need {CHARGING_POWER_GRACE_SECONDS}s) - waiting"
+                )
+            else:
+                # Really drawing, or transitional 'wait' → reset the debounce clock.
+                self._grid_drawing_low_since = None
 
         self.logger.info("Monitoring will continue...")
         self.logger.separator()
@@ -1643,6 +1742,10 @@ class NightSmartCharge:
             if self._grid_monitor_unsub:
                 self._grid_monitor_unsub()  # Cancel existing monitor if any
 
+            # v2.2.0: fresh session → clear any stale low-draw debounce clock and
+            # stamp the session start for the startup ramp grace.
+            self._grid_drawing_low_since = None
+            self._grid_session_start = dt_util.now()
             self._grid_monitor_unsub = async_track_time_interval(
                 self.hass,
                 self._async_monitor_grid_charge,

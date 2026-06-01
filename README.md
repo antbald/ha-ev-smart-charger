@@ -398,9 +398,11 @@ Choose the display name used in the Home Assistant UI.
 |---|:---:|---|
 | Charger switch | Yes | `switch` |
 | Charging current control | Yes | `number`, `input_number`, `select`, `input_select` |
-| Charger status sensor | Yes | `sensor` |
+| Charger status sensor | No (v2.2.0) | `sensor` |
 
 The charger switch entity is used as the unique ID for the config entry. Adding the same charger twice is prevented automatically.
+
+**Charger status sensor (v2.2.0):** now optional. It is used as a *fallback* for charging detection when no charging-power sensor is mapped (see Step 3), and as the source of plug/idle/finished lifecycle. Mapping it is still recommended — it tells "plugged in but not charging" apart from "unplugged", which measured power alone cannot.
 
 ### Step 3 — Energy Sensors
 
@@ -411,6 +413,9 @@ The charger switch entity is used as the unique ID for the config entry. Adding 
 | Solar production | Yes | `W` |
 | Home consumption | Yes | `W` |
 | Grid import | Yes | `W` |
+| EV charging power (v2.2.0) | No | `W` |
+
+**EV charging power (v2.2.0):** the most reliable signal for whether the car is actually drawing current — when mapped it becomes the single source of truth for charging detection (and the dashboard's green "EV charging" banner), overriding the status string. In three-phase mode map all three per-phase sensors (they are summed) or leave all blank. The sensor must report positive watts while charging; if yours reports negative, wrap it in a template sensor (`{{ states('sensor.your_power') | float(0) | abs }}`) — the diagnostic sensor's `charging_power_w` will read a flat 0 W if the sign is reversed.
 
 ### Step 4 — PV Forecast
 

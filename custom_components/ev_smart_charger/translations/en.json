@@ -22,7 +22,7 @@
         "data_description": {
           "ev_charger_switch": "Switch entity that turns the charger on or off.",
           "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Status sensor that reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`."
+          "ev_charger_status": "Optional. Reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`. Used as the fallback for charging detection when no charging-power sensor is mapped, and as the source of plug/idle/finished status."
         }
       },
       "sensors": {
@@ -39,7 +39,10 @@
           "home_consumption_l2": "Home consumption (L2)",
           "home_consumption_l3": "Home consumption (L3)",
           "grid_import_l2": "Grid import (L2)",
-          "grid_import_l3": "Grid import (L3)"
+          "grid_import_l3": "Grid import (L3)",
+          "charging_power": "EV charging power",
+          "charging_power_l2": "EV charging power (L2)",
+          "charging_power_l3": "EV charging power (L3)"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
@@ -52,7 +55,10 @@
           "home_consumption_l2": "Home consumption on phase L2, in watts.",
           "home_consumption_l3": "Home consumption on phase L3, in watts.",
           "grid_import_l2": "Grid import on phase L2, in watts.",
-          "grid_import_l3": "Grid import on phase L3, in watts."
+          "grid_import_l3": "Grid import on phase L3, in watts.",
+          "charging_power": "Optional but recommended. Measured EV charging power in watts — the most reliable signal for whether the car is actually drawing current. When mapped it overrides the status sensor for charging detection. In three-phase mode map all three phase sensors or leave all three empty (they are summed).",
+          "charging_power_l2": "EV charging power on phase L2, in watts. Map all three phases or none.",
+          "charging_power_l3": "EV charging power on phase L3, in watts. Map all three phases or none."
         }
       },
       "hybrid_inverter": {
@@ -137,7 +143,10 @@
           "home_consumption_l2": "Home consumption (L2)",
           "home_consumption_l3": "Home consumption (L3)",
           "grid_import_l2": "Grid import (L2)",
-          "grid_import_l3": "Grid import (L3)"
+          "grid_import_l3": "Grid import (L3)",
+          "charging_power": "EV charging power",
+          "charging_power_l2": "EV charging power (L2)",
+          "charging_power_l3": "EV charging power (L3)"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
@@ -150,7 +159,10 @@
           "home_consumption_l2": "Home consumption on phase L2, in watts.",
           "home_consumption_l3": "Home consumption on phase L3, in watts.",
           "grid_import_l2": "Grid import on phase L2, in watts.",
-          "grid_import_l3": "Grid import on phase L3, in watts."
+          "grid_import_l3": "Grid import on phase L3, in watts.",
+          "charging_power": "Optional but recommended. Measured EV charging power in watts — the most reliable signal for whether the car is actually drawing current. When mapped it overrides the status sensor for charging detection. In three-phase mode map all three phase sensors or leave all three empty (they are summed).",
+          "charging_power_l2": "EV charging power on phase L2, in watts. Map all three phases or none.",
+          "charging_power_l3": "EV charging power on phase L3, in watts. Map all three phases or none."
         }
       },
       "reconfigure_hybrid_inverter": {
@@ -220,7 +232,7 @@
         "data_description": {
           "ev_charger_switch": "Switch entity that turns the charger on or off.",
           "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Status sensor that reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`."
+          "ev_charger_status": "Optional. Reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`. Used as the fallback for charging detection when no charging-power sensor is mapped, and as the source of plug/idle/finished status."
         }
       },
       "phase_mode": {
@@ -292,7 +304,10 @@
           "home_consumption_l2": "Home consumption (L2)",
           "home_consumption_l3": "Home consumption (L3)",
           "grid_import_l2": "Grid import (L2)",
-          "grid_import_l3": "Grid import (L3)"
+          "grid_import_l3": "Grid import (L3)",
+          "charging_power": "EV charging power",
+          "charging_power_l2": "EV charging power (L2)",
+          "charging_power_l3": "EV charging power (L3)"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
@@ -305,7 +320,10 @@
           "home_consumption_l2": "Home consumption on phase L2, in watts.",
           "home_consumption_l3": "Home consumption on phase L3, in watts.",
           "grid_import_l2": "Grid import on phase L2, in watts.",
-          "grid_import_l3": "Grid import on phase L3, in watts."
+          "grid_import_l3": "Grid import on phase L3, in watts.",
+          "charging_power": "Optional but recommended. Measured EV charging power in watts — the most reliable signal for whether the car is actually drawing current. When mapped it overrides the status sensor for charging detection. In three-phase mode map all three phase sensors or leave all three empty (they are summed).",
+          "charging_power_l2": "EV charging power on phase L2, in watts. Map all three phases or none.",
+          "charging_power_l3": "EV charging power on phase L3, in watts. Map all three phases or none."
         }
       },
       "hybrid_inverter": {
@@ -375,7 +393,7 @@
         "data_description": {
           "ev_charger_switch": "Switch entity that turns the charger on or off.",
           "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
-          "ev_charger_status": "Status sensor that reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`."
+          "ev_charger_status": "Optional. Reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`. Used as the fallback for charging detection when no charging-power sensor is mapped, and as the source of plug/idle/finished status."
         }
       },
       "charger_model": {

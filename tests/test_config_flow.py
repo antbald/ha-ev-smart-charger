@@ -29,6 +29,7 @@ from custom_components.ev_smart_charger.const import (
     CONF_NOTIFY_SERVICES,
     CONF_BATTERY_CAPACITY,
     CONF_BATTERY_POWER,
+    CONF_CHARGING_POWER,
     CONF_HYBRID_INVERTER_MODE,
     CONF_CAR_OWNER,
     CONF_ENERGY_FORECAST_TARGET,
@@ -365,3 +366,76 @@ async def test_three_phase_generic_flow(hass: HomeAssistant):
     assert data[CONF_HOME_CONSUMPTION_L3] == "sensor.cons3"
     assert data[CONF_GRID_IMPORT_L2] == "sensor.grid2"
     assert data[CONF_GRID_IMPORT_L3] == "sensor.grid3"
+
+
+async def test_status_optional_and_charging_power_roundtrip(hass: HomeAssistant):
+    """v2.2.0: the charger status sensor is now optional, and a measured
+    charging-power sensor round-trips into entry.data."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_NAME: "No Status Charger"}
+    )
+    result = await _advance_mode_steps(hass, result["flow_id"])
+    assert result["step_id"] == "entities"
+
+    # Entities step WITHOUT a status sensor → must be accepted (was Required).
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_EV_CHARGER_SWITCH: "switch.charger",
+            CONF_EV_CHARGER_CURRENT: "number.charger_current",
+        },
+    )
+    assert result["step_id"] == "sensors"
+
+    # Sensors step WITH a measured charging-power sensor.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_SOC_CAR: "sensor.car_soc",
+            CONF_FV_PRODUCTION: "sensor.solar",
+            CONF_HOME_CONSUMPTION: "sensor.consumption",
+            CONF_GRID_IMPORT: "sensor.grid",
+            CONF_CHARGING_POWER: "sensor.ev_charging_power",
+        },
+    )
+    assert result["step_id"] == "hybrid_inverter"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_HYBRID_INVERTER_MODE: False}
+    )
+    assert result["step_id"] == "pv_forecast"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "notifications"
+
+    with patch(
+        "custom_components.ev_smart_charger.async_setup_entry", return_value=True
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_NOTIFY_SERVICES: [], "car_owner": "person.test"}
+        )
+        assert result["step_id"] == "external_connectors"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_BATTERY_CAPACITY: 13.5}
+        )
+        assert result["step_id"] == "dashboard"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"create_dashboard": False}
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+    # status omitted → absent (or None) from entry data; power present.
+    assert not result["data"].get(CONF_EV_CHARGER_STATUS)
+    assert result["data"][CONF_CHARGING_POWER] == "sensor.ev_charging_power"
+
+
+def test_entity_counts_unchanged_v220():
+    """v2.2.0 adds config keys, not helper entities → counts stay 66 / 52."""
+    from custom_components.ev_smart_charger.const import (
+        TOTAL_INTEGRATION_ENTITIES,
+        TOTAL_INTEGRATION_ENTITIES_NO_BATTERY,
+    )
+
+    assert TOTAL_INTEGRATION_ENTITIES == 66
+    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 52

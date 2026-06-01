@@ -756,6 +756,44 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.2.0 (2026-06-01)
+**FEATURE: Measured charging power as the charging-state SSOT (with legacy status fallback)**
+
+**Problem**: "is the EV charging right now?" was answered by three incompatible proxies — `ChargerController.is_charging()` (commanded switch echo), `get_current_amperage()` (a setpoint, not a measurement), and the textual `CONF_EV_CHARGER_STATUS` string (`charger_charging`), which varies per wallbox. None detect a wallbox that reports `charger_charging` while drawing **0 W** (curtailment, EV paused at 100%, BMS throttle). This was also the root cause of the dashboard's green "EV charging" banner failing to appear: it used an exact `=== "charger_charging"` match that fails on any other brand string.
+
+**Solution**: **measured phase charging power (W)** becomes the single source of truth for `drawing_now`. Single-phase = 1 optional sensor; three-phase = 3 sensors summed. The textual status sensor becomes a **fallback only**. Surfaced through one new reader on the already-shared `ChargingModel` (`power_model.py`, stored on `runtime_data.power_model`), so every consumer reaches the same instantaneous truth.
+
+**Sacred invariant — byte-for-byte backward compat**: existing installs (status mapped, no power sensor) take the fallback path → zero behaviour change, no migration, entity counts unchanged (66 / 52). `read_charging_power` returns `None` when unconfigured → the controller answers from the switch echo exactly as v2.1.x. The regression guard `test_is_charging_no_power_sensor_uses_switch_echo` locks this.
+
+**SSOT API** ([power_model.py](custom_components/ev_smart_charger/power_model.py)): `read_charging_power(hass)` (summed W, **all-or-nothing** in three-phase: any unreadable mapped phase → `None`; clamped `max(0, …)` so a reversed-sign sensor reads a flat 0 W; **unit-normalized kW→W** by `unit_of_measurement` so a kW wallbox sensor agrees with the W floor and the frontend), `is_charging(hass)` (stateless: `power > CHARGING_POWER_DRAWING_FLOOR_W` → else a **tolerant status blocklist** matching the frontend → else False), `is_plugged_in(hass)`. New constants `CHARGING_POWER_DRAWING_FLOOR_W = 200`, `CHARGING_POWER_GRACE_SECONDS = 15`, `NIGHT_GRID_DRAW_START_GRACE_SECONDS = 90`.
+
+**Controller** ([charger_controller.py](custom_components/ev_smart_charger/charger_controller.py)): `_refresh_state` caches `_measured_power_w` **for the operation diagnostic only**. After code review, all controller *control* decisions stay strictly on the commanded switch echo / setpoint (byte-for-byte v2.1.x) — the earlier `_drawing_now_graced()` wiring into the Tuya decrease gate and `recover_to_target` was reverted because a single sub-floor measured glitch could (a) skip the safe Tuya stop/set/start decrease and change current live mid-charge, or (b) restart the charger from scratch on a transient dip. `is_charging()` is unchanged (commanded-on); the measured `drawing_now` is surfaced in the diagnostic via `power_model.is_charging`.
+
+**Config flow**: `CONF_CHARGING_POWER` / `_L2` / `_L3` added as `vol.Optional` to the phase-aware sensors step; `CONF_EV_CHARGER_STATUS` changed Required → **Optional** (kept forever as fallback, never locked). No `async_migrate_entry`, `ConfigFlow.VERSION` stays 1, step counts unchanged (10/9/9). A companion **None-guard** was added to every status reader/subscriber (`night_smart_charge`, `solar_surplus`, `boost_charge`, `automations`) so optional status never crashes setup.
+
+**The one control change** ([night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py) grid monitor Check 2): with a power sensor, the grid-mode session ends on (a) an explicit not-charging **lifecycle** status (free/end — immediate, preserved from v2.1.x), or (b) the **blind-spot** stop — status insists `charger_charging` but measured power stays below the floor for `CHARGING_POWER_GRACE_SECONDS` (debounced; `charger_wait` is treated as the transitional decrease and never debounces). Two code-review hardenings: a **startup ramp grace** (`NIGHT_GRID_DRAW_START_GRACE_SECONDS = 90`) suppresses the blind-spot stop right after the session starts, so a slow-to-draw EV (cold battery, scheduled charging, contactor delay) is not killed ~30 s in; and the debounce clock is **cleared when the power sensor goes unavailable** so a stale timestamp can't fire a premature stop on sensor recovery. No power sensor → byte-for-byte legacy status check. Seven unit tests cover blind-spot stop, debounce wait, keep-charging, lifecycle-survives-noisy-power, legacy fallback, startup-ramp grace, and stale-clock-clear.
+
+**Diagnostic**: Solar Surplus attaches `charging_power_w` / `charging_power_source` / `is_charging_basis` to every diagnostic event (no new entity), so a reversed-sign sensor shows a flat 0 W — the user's cue to apply a `| abs` template fix. The controller diagnostic also carries `measured_power_w` + `drawing_now` for traceability.
+
+**Dashboard**: `dashboard_manager` maps `charging_power_entity` (single) + `charging_power_entities` (per-phase array, whitelisted in `setConfig`). A single shared `_isDrawingNow()` (measured-W, unit-normalized, summed across phases → else a **tolerant status blocklist**, not exact-match) drives the hero banner, the SOC ring, and `_computeStructuralKey` (fixing the three-phase stale-banner case). The tolerant fallback fixes the green-banner symptom even for installs that never map a power sensor.
+
+**Deliberate refinements vs the design plan** (all reviewed):
+- The Smart Blocker does **not** get a new power rising-edge listener: its switch-ON listener already triggers it for power-only installs, and its block/allow decision depends on time/solar, not draw. **Known limitation**: a power-only install with no status sensor won't re-trigger the blocker when a car is plugged into an already-on switch (no switch event). Most power-sensor users keep their status sensor, so both listeners remain present.
+- `charger_controller.is_charging()` kept as commanded-on (not split); `is_plugged_in()` added but existing plug gates not refactored.
+
+**Code-review fixes (post-implementation, a 7-angle review of the diff)**:
+- **Controller reverted to commanded-only control** (see Controller above) — eliminates the live-current-change-on-Tuya-glitch and restart-on-transient-dip risks; `_measured_power_w` stays for diagnostics.
+- **Night-charge grid-stop hardened** with the startup ramp grace + stale-clock clear (see The one control change above).
+- **Power-only installs (power mapped, status unmapped) now work for Night Smart Charge**: the battery-start pre-check and the handover gate previously read the status string and rejected a `None` status as "not connected", so Night Charge never started without a status sensor. Both now proceed when no status sensor is mapped and let the power-based monitor stop a non-charging session. **Known limitation that remains**: plug-DISCONNECT handling (Solar Surplus releasing control / Hybrid Mode force-exit on `charger_free`) still needs the status sensor — measured 0 W cannot tell "paused" from "unplugged". Mapping the status sensor is recommended for full plug-lifecycle coverage.
+- **Backend/frontend SSOT alignment**: `power_model.is_charging`'s status fallback is now a tolerant blocklist (was exact `== charger_charging`), matching the frontend so a non-Tuya brand string ("Charging") reads identically on both sides.
+- **kW→W unit normalization in the backend reader** (was frontend-only) — a kW wallbox sensor would otherwise read ~3.7 < the 200 W floor and falsely report "not charging", killing real sessions.
+
+**Files**: `const.py`, `power_model.py`, `charger_controller.py`, `config_flow.py`, `night_smart_charge.py`, `solar_surplus.py`, `automations.py`, `dashboard_manager.py`, `frontend/ev-smart-charger-dashboard.js`, `manifest.json`, `strings.json` + `translations/{en,it,nl}.json`; tests: `test_power_model_and_charger_model.py`, `test_night_smart_charge.py` (+7), `test_config_flow.py` (+2). `VERSION = "2.2.0"`. Full suite green except the 19 pre-existing environment-only baseline failures (identical on clean master).
+
+**Upgrade priority**: 🟢 RECOMMENDED — map your wallbox's charging-power sensor (single-phase) or the three per-phase sensors (three-phase) via reconfigure to get a reliable charging-state SSOT and a working green banner. ⚪ NO-OP for everyone else — without a power sensor, behaviour is identical to v2.1.x (and the tolerant banner fallback still improves on the old exact-match). **Beta ask**: report wallbox brand, sign correctness (diagnostic `charging_power_w` should track real draw, not a flat 0), and three-phase tile match.
+
+---
+
 ### v2.1.1 (2026-06-01)
 **FIX: Tolerate user-disabled helper entities at startup ([issue #22](https://github.com/antbald/ha-ev-smart-charger/issues/22) — xion2000)**
 

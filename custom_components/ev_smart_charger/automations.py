@@ -210,10 +210,16 @@ class SmartChargerBlocker:
                 f"Using default values. Restart Home Assistant to create missing helper entities."
             )
 
-        # Listen for charger status changes (charger_free -> charger_charging)
-        self._unsub_status = async_track_state_change_event(
-            self.hass, charger_status_entity, self._async_charger_status_changed
-        )
+        # Listen for charger status changes (charger_free -> charger_charging).
+        # v2.2.0: CONF_EV_CHARGER_STATUS is optional — guard before subscribing.
+        # The switch-ON listener below remains the primary trigger; the power
+        # rising-edge listener (v2.2.0) is the SSOT trigger when a charging-power
+        # sensor is mapped. Stored for that wiring.
+        self._charger_status_entity = charger_status_entity
+        if charger_status_entity:
+            self._unsub_status = async_track_state_change_event(
+                self.hass, charger_status_entity, self._async_charger_status_changed
+            )
 
         # Listen for charger switch turning ON (off -> on)
         self._unsub_switch = async_track_state_change_event(
