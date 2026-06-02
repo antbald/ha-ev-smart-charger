@@ -756,6 +756,23 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.2.2 (2026-06-01)
+**DIAGNOSTIC: console logging for charging detection (banner/tile stuck on "not charging")**
+
+**Problem**: a user mapped a charging-power sensor that was clearly reporting charging, yet the dashboard's green banner and the "Charging Power" tile both showed "not charging". Frontend-only, so the chain (config → card config → `_isDrawingNow`) had to be inspected live.
+
+**Added** ([frontend/ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js)):
+- **One-shot config dump** in `setConfig` — `[EVSC Dashboard] charging detection config:` prints `charging_power_entity` / `charging_power_entities` / `charger_status_entity` / `phase_mode`. If these read `(missing)` the card config is stale (reload the Lovelace page; if still missing, restart HA — the auto-dashboard card config is rewritten on setup).
+- **Throttled live diagnostic** from `_isDrawingNow` — `[EVSC Dashboard] charging detection:` prints, per change, the mapped entity/entities, each **raw state + unit_of_measurement + computed watts**, the summed `measured_total_watts`, the 200 W `floor_watts`, the `basis` (measured-power vs status-fallback), the `charger_status_state`, and the final `drawing_now`. Logs only when something changes (no console spam).
+
+This makes the two most likely causes self-evident: (a) the sensor not reaching the card config (stale dashboard), or (b) a unit/value issue — e.g. a kW sensor with no `unit_of_measurement` attribute read as watts (3.7 W < the 200 W floor → "not charging").
+
+**Backend verified** unchanged and correct: the reconfigure flow merges `CONF_CHARGING_POWER` into `entry.data` (`_merge_entry_data`), and `dashboard_manager._build_card_config` maps it to `charging_power_entity` (+ per-phase `charging_power_entities`). No behaviour change — purely additive console logging. **Files**: `frontend/ev-smart-charger-dashboard.js`, `const.py`, `manifest.json`. `VERSION = "2.2.2"`.
+
+**Upgrade priority**: 🟢 RECOMMENDED if your charging banner/tile is stuck on "not charging" with a power sensor mapped — open the browser console (DevTools) after reloading the dashboard and read the two `[EVSC Dashboard] charging detection…` lines.
+
+---
+
 ### v2.2.1 (2026-06-01)
 **FIX: Touch scroll stuck on dashboard cards (could only scroll on empty gaps)**
 

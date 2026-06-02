@@ -1037,6 +1037,19 @@ class EvSmartChargerDashboard extends HTMLElement {
           home_battery_soc_entity_in_card_config: config?.home_battery_soc_entity || "(missing)",
         }
       );
+      // v2.2.1: one-shot charging-detection diagnostic. Instantly answers
+      // "did my charging-power sensor reach the card config?" — if these read
+      // "(missing)" the auto-dashboard config is stale: reload the Lovelace page,
+      // and if still missing restart HA (the card config is rewritten on setup).
+      console.info(
+        "[EVSC Dashboard] charging detection config:",
+        {
+          charging_power_entity: config?.charging_power_entity || "(missing)",
+          charging_power_entities_3phase: config?.charging_power_entities || "(missing / single-phase)",
+          charger_status_entity_fallback: config?.charger_status_entity || "(missing)",
+          phase_mode: config?.phase_mode || "single",
+        }
+      );
     }
 
     // Reset discovery and render caches — the configured prefix may have changed.
@@ -1535,13 +1548,56 @@ class EvSmartChargerDashboard extends HTMLElement {
    */
   _isDrawingNow() {
     const w = this._measuredChargingW();
-    if (w != null) return w > CHARGING_POWER_DRAWING_FLOOR_W;
-    const status = this._stateObj(this._config.charger_status_entity)?.state;
-    if (status == null || status === "unknown" || status === "unavailable") {
-      return false;
+    let result;
+    if (w != null) {
+      result = w > CHARGING_POWER_DRAWING_FLOOR_W;
+    } else {
+      const status = this._stateObj(this._config.charger_status_entity)?.state;
+      if (status == null || status === "unknown" || status === "unavailable") {
+        result = false;
+      } else {
+        const IDLE_STATUSES = new Set(["charger_free", "charger_end", "charger_wait"]);
+        result = !IDLE_STATUSES.has(status);
+      }
     }
-    const IDLE_STATUSES = new Set(["charger_free", "charger_end", "charger_wait"]);
-    return !IDLE_STATUSES.has(status);
+    this._logChargingState(w, result);
+    return result;
+  }
+
+  /**
+   * v2.2.1: live charging-detection diagnostic. Logs to the browser console the
+   * mapped charging-power entity/entities, each raw state + unit, the watts the
+   * card computed, the 200 W floor comparison, and the final verdict — so a user
+   * whose banner/tile say "not charging" while the sensor reads charging can see
+   * exactly where the chain breaks. Throttled: logs only when something changes.
+   */
+  _logChargingState(measuredW, drawingNow) {
+    if (typeof console === "undefined") return;
+    const single = this._config.charging_power_entity;
+    const arr = this._config.charging_power_entities;
+    const ids = Array.isArray(arr) && arr.length ? arr : (single ? [single] : []);
+    const perEntity = ids.map((id) => {
+      const obj = this._stateObj(id);
+      return {
+        entity: id,
+        state: obj ? obj.state : "(entity not found in hass)",
+        unit: obj?.attributes?.unit_of_measurement ?? "(no unit)",
+        watts: this._powerW(id),
+      };
+    });
+    const statusState = this._stateObj(this._config.charger_status_entity)?.state;
+    const snapshot = {
+      mapped_charging_power: ids.length ? perEntity : "(no charging-power sensor in card config)",
+      measured_total_watts: measuredW,
+      floor_watts: CHARGING_POWER_DRAWING_FLOOR_W,
+      basis: measuredW != null ? "measured-power" : "status-fallback",
+      charger_status_state: statusState ?? "(not mapped)",
+      drawing_now: drawingNow,
+    };
+    const sig = JSON.stringify(snapshot);
+    if (sig === this._lastChargeDbgSig) return; // throttle: only on change
+    this._lastChargeDbgSig = sig;
+    console.info("[EVSC Dashboard] charging detection:", snapshot);
   }
 
   _computeChargingPowerKw() {
