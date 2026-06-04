@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.2.2"
+VERSION = "2.3.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -204,6 +204,11 @@ HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX = "evsc_max_battery_discharge_for_ev"
 # Numbers - Night Smart Charge
 HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX = "evsc_night_charge_amperage"
 HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX = "evsc_min_solar_forecast_threshold"
+# v2.3.0 (issue #32): PV-production handoff threshold (W). 0 = disabled (legacy
+# sunrise stop). When > 0, on car_ready=OFF days Night Smart Charge continues past
+# astronomical sunrise and stops only once measured PV production stays >= this
+# value for NIGHT_PV_HANDOFF_SUSTAIN_SECONDS, handing off to Solar Surplus.
+HELPER_NIGHT_PV_HANDOFF_THRESHOLD_SUFFIX = "evsc_night_pv_handoff_threshold"
 
 # Numbers - Boost Charge
 HELPER_BOOST_CHARGE_AMPERAGE_SUFFIX = "evsc_boost_charge_amperage"
@@ -298,6 +303,10 @@ DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD = 20  # kWh
 DEFAULT_NIGHT_CHARGE_AMPERAGE = 16  # amps
 DEFAULT_CAR_READY_TIME = "08:00:00"  # Default deadline when car must be ready
 NIGHT_CHARGE_COOLDOWN_SECONDS = 3600  # 1 hour - prevent re-evaluation after completion
+# v2.3.0 (issue #32): PV-production handoff. 0 W = disabled (legacy sunrise stop).
+DEFAULT_NIGHT_PV_HANDOFF_THRESHOLD = 0  # watts (recommended ~200 when enabled)
+# Sustained seconds PV must stay >= threshold before handing off (internal, not a helper).
+NIGHT_PV_HANDOFF_SUSTAIN_SECONDS = 300  # 5 minutes
 
 # ========== NIGHT SMART CHARGE RETRY SETTINGS (v1.6.1) ==========
 NIGHT_CHARGE_START_MAX_RETRIES = 3  # Maximum attempts to start charger
@@ -373,23 +382,25 @@ HYBRID_STATE_COOLDOWN_LONG = "COOLDOWN_LONG"
 HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 
 # ========== ENTITY REGISTRATION ==========
-# Verified count (v2.1.0): 66 entities when home battery is configured.
+# Verified count (v2.3.0): 67 entities when home battery is configured.
 # v1.8.0 set the baseline to 64 (added 6 Hybrid Mode entities). v1.11.9 added
 # 1 sensor (evsc_night_session_state) → 65. v2.1.0 (issue #29) adds 1 battery-only
-# number (evsc_max_battery_discharge_for_ev) → 66.
+# number (evsc_max_battery_discharge_for_ev) → 66. v2.3.0 (issue #32) adds 1
+# always-created number (evsc_night_pv_handoff_threshold) → 67.
 # COUPLING (issue #22): the disabled-helper tolerance in
 # __init__._async_wait_for_helper_registration assumes this equals the number
 # of entities actually created when nothing is disabled. If it drifts above
 # reality (cf. v1.6.20), a single user-disabled entity turns the tolerant
 # startup path back into a hard ConfigEntryNotReady. Keep this in sync.
-TOTAL_INTEGRATION_ENTITIES = 66
-# Verified count (v1.11.9): 52 entities when running in PV-only mode.
-# Unchanged in v2.1.0: the new number is battery-only (skipped in PV-only mode).
+TOTAL_INTEGRATION_ENTITIES = 67
+# Verified count (v2.3.0): 53 entities when running in PV-only mode.
+# Unchanged in v2.1.0: the discharge number is battery-only (skipped in PV-only mode).
+# v2.3.0 (issue #32): evsc_night_pv_handoff_threshold is NOT battery-only → +1 → 53.
 # Skipped helpers (13): 2 switches (use_home_battery, preserve_home_battery),
 # 3 numbers (home_battery_min_soc, battery_support_amperage, battery_support_sunset_buffer),
 # 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).
 # Hybrid Mode entities are still created in PV-only mode but stay IDLE (requires soc_home).
-TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 52
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 53
 
 
 def has_home_battery(config: dict) -> bool:

@@ -133,6 +133,27 @@ Backward compatible: with no power sensor mapped, `read_charging_power` returns
 as v2.1.x. Constants: `CHARGING_POWER_DRAWING_FLOOR_W = 200`,
 `CHARGING_POWER_GRACE_SECONDS = 15`, `NIGHT_GRID_DRAW_START_GRACE_SECONDS = 90`.
 
+### 4.2 Night Smart Charge stop conditions (v2.3.0, issue #32)
+
+`night_smart_charge._should_stop_for_deadline()` is the single decision point
+for ending an overnight session, called from the periodic check (60 s) and both
+mode monitors (15 s).
+
+- **`car_ready` ON** day: stop at EV target or `evsc_car_ready_time` deadline
+  (unchanged). The PV-handoff path never runs here.
+- **`car_ready` OFF** day: stop at **astronomical sunrise** (legacy) UNLESS
+  `evsc_night_pv_handoff_threshold > 0` (opt-in). When enabled, the sunrise stop
+  is **replaced** by a PV-production handoff: continue past sunrise and stop once
+  `power_model.read_production()` stays ≥ the threshold for
+  `NIGHT_PV_HANDOFF_SUSTAIN_SECONDS` (300 s, debounced via a `StabilityTracker`),
+  handing off to Solar Surplus. A hard-cap at the next `evsc_car_ready_time`
+  (anchored to the session start so it is midnight-safe) bounds grid/battery draw
+  on overcast days. Default threshold `0` = legacy sunrise behavior, byte-for-byte.
+
+No new terminal stop-reason is introduced: the dynamic reason string is logged,
+and the diagnostic terminal code stays `STOP_REASON_DEADLINE_OR_TARGET`. The PV
+reading is detection-only and never changes the commanded-control contract (§4.1).
+
 ## 5. Ownership and arbitration
 
 `custom_components/ev_smart_charger/automation_coordinator.py` is the canonical ownership plane for any automation that may start, stop, or adjust the charger.

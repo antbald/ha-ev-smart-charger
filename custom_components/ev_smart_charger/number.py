@@ -28,6 +28,8 @@ from .const import (
     DEFAULT_HOME_MIN_SOC,
     DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD,
     DEFAULT_NIGHT_CHARGE_AMPERAGE,
+    DEFAULT_NIGHT_PV_HANDOFF_THRESHOLD,
+    HELPER_NIGHT_PV_HANDOFF_THRESHOLD_SUFFIX,
     DEFAULT_BOOST_CHARGE_AMPERAGE,
     DEFAULT_BOOST_TARGET_SOC,
     DEFAULT_HYBRID_BATTERY_FULL_THRESHOLD,
@@ -72,6 +74,7 @@ async def async_setup_entry(
         # Night Smart Charge
         ("evsc_min_solar_forecast_threshold", "EVSC Min Solar Forecast Threshold", "mdi:solar-power-variant", 0, 100, 1, DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD, "kWh"),
         ("evsc_night_charge_amperage", "EVSC Night Charge Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_NIGHT_CHARGE_AMPERAGE, "A"),
+        (HELPER_NIGHT_PV_HANDOFF_THRESHOLD_SUFFIX, "EVSC Night PV Handoff Threshold", "mdi:solar-power", 0, 5000, 50, DEFAULT_NIGHT_PV_HANDOFF_THRESHOLD, "W"),
         # Boost Charge
         ("evsc_boost_charge_amperage", "EVSC Boost Charge Amperage", "mdi:flash", 6, 32, 2, DEFAULT_BOOST_CHARGE_AMPERAGE, "A"),
         ("evsc_boost_target_soc", "EVSC Boost Target SOC", "mdi:battery-charging-90", 0, 100, 1, DEFAULT_BOOST_TARGET_SOC, "%"),

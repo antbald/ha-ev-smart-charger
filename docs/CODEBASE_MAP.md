@@ -56,7 +56,7 @@ Makefile
 | `custom_components/ev_smart_charger/priority_balancer.py` | EV vs home battery decision logic | Decision-only, not a charger actuator |
 | `custom_components/ev_smart_charger/boost_charge.py` | Fixed-current override with SOC auto-stop; supports manual trigger and daily scheduled window | High-priority automation |
 | `custom_components/ev_smart_charger/automations.py` | Smart Charger Blocker | Can preempt lower-priority charging |
-| `custom_components/ev_smart_charger/night_smart_charge.py` | Overnight charging workflow with battery or grid mode | Owns night-session logic and handoff paths |
+| `custom_components/ev_smart_charger/night_smart_charge.py` | Overnight charging workflow with battery or grid mode | Owns night-session logic and handoff paths; PV-production handoff stop (v2.3.0, issue #32) in `_should_stop_for_deadline` |
 | `custom_components/ev_smart_charger/solar_surplus.py` | Daytime solar-surplus charging and dynamic current control | Owns daytime adaptive loop |
 
 ## 4. Supporting services

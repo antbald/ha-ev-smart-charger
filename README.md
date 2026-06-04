@@ -551,6 +551,7 @@ When a day's flag is **ON** and the EV target is not yet reached at sunrise, Nig
 |---|:---:|---|:---:|---|
 | `evsc_night_charge_amperage` | `16` | `6–32` | A | Amperage for overnight charging sessions. |
 | `evsc_min_solar_forecast_threshold` | `20` | `0–100` | kWh | If tomorrow's forecast ≥ this value, Night Smart Charge uses home battery mode instead of grid mode. |
+| `evsc_night_pv_handoff_threshold` | `0` | `0–5000` | W | **v2.3.0 (opt-in).** `0` = disabled (stop at astronomical sunrise). When > 0, on `car_ready` OFF days Night Smart Charge continues past sunrise and hands off to Solar Surplus once measured `fv_production` stays ≥ this value for 5 min (hard-capped at `evsc_car_ready_time`). Recommended ~200 W, above your inverter's idle reading. See the high-latitude note in [Night Smart Charge](#night-smart-charge). |
 
 ---
 
@@ -818,11 +819,19 @@ flowchart TD
 
 **Car Ready extension:** On days where `evsc_car_ready_<day>` is ON, if the EV target is not reached at sunrise, charging continues from the grid until the target is met or `evsc_car_ready_time` is reached.
 
+**PV handoff for high-latitude installations (v2.3.0, opt-in — [issue #32](https://github.com/antbald/ha-ev-smart-charger/issues/32)):** On `car_ready` **OFF** days, Night Smart Charge normally stops at **astronomical sunrise** and hands off to Solar Surplus. At high latitudes in summer, astronomical sunrise can precede usable PV production by 3+ hours (e.g. sunrise 01:51, real PV ~05:00), leaving the EV idle in between. Set `evsc_night_pv_handoff_threshold` above `0 W` (recommended ~200 W) to make the session continue past sunrise and stop only once **measured PV production** (`fv_production`) stays at/above the threshold for 5 minutes — a far more accurate "the sun is actually up" signal. Notes:
+
+- **Scope:** only affects `car_ready` OFF days. `car_ready` ON days are unchanged (still driven by EV target / `evsc_car_ready_time`).
+- **Safety hard-cap:** on overcast days where PV never reaches the threshold, the session still stops no later than the next `evsc_car_ready_time`, so grid/battery draw stays bounded. Battery mode also remains bounded by `evsc_home_battery_min_soc`; grid mode draws from the grid until the cap.
+- **Prerequisite:** the handoff only helps when the charging profile is `solar_surplus` (so Solar Surplus can take over). With `manual` / `charge_target` / `cheapest`, leave the threshold at `0`.
+- **Tuning:** set the threshold *above* your inverter's idle/standby reading (CT offset), not a blind 200 W, to avoid a false handoff at night.
+- **Default `0 W` = disabled** → legacy astronomical-sunrise behavior, byte-for-byte unchanged.
+
 **Late-arrival detection:** If the car is plugged in after `evsc_night_charge_time` but before sunrise, Night Smart Charge detects the late arrival and starts a session immediately.
 
 **Charger start retry:** If the charger fails to start on the first attempt, Night Smart Charge retries with exponential backoff before giving up and logging an error.
 
-**Key entities:** `evsc_night_smart_charge_enabled`, `evsc_night_charge_time`, `evsc_night_charge_amperage`, `evsc_min_solar_forecast_threshold`, `evsc_car_ready_<day>`, `evsc_car_ready_time`, `evsc_preserve_home_battery`
+**Key entities:** `evsc_night_smart_charge_enabled`, `evsc_night_charge_time`, `evsc_night_charge_amperage`, `evsc_min_solar_forecast_threshold`, `evsc_night_pv_handoff_threshold`, `evsc_car_ready_<day>`, `evsc_car_ready_time`, `evsc_preserve_home_battery`
 
 ---
 

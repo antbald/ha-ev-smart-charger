@@ -541,6 +541,9 @@
       "evsc_night_charge_amperage": {
         "name": "Nachtlaadstroom"
       },
+      "evsc_night_pv_handoff_threshold": {
+        "name": "PV-drempel voor dagoverdracht"
+      },
       "evsc_boost_charge_amperage": {
         "name": "Boostlaadstroom"
       },

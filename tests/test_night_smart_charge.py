@@ -15,6 +15,7 @@ from custom_components.ev_smart_charger.const import (
     CONF_EV_CHARGER_SWITCH,
     CONF_EV_CHARGER_CURRENT,
     CONF_GRID_IMPORT,
+    CONF_FV_PRODUCTION,
     CONF_SOC_HOME,
     CONF_PV_FORECAST,
     CONF_NOTIFY_SERVICES,
@@ -37,6 +38,7 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
         CONF_EV_CHARGER_SWITCH: "switch.charger_switch",
         CONF_EV_CHARGER_CURRENT: "sensor.charger_current",
         CONF_GRID_IMPORT: "sensor.grid_import",
+        CONF_FV_PRODUCTION: "sensor.fv_production",
         CONF_SOC_HOME: "sensor.home_soc",
         CONF_PV_FORECAST: "sensor.pv_forecast",
         CONF_NOTIFY_SERVICES: [],
@@ -49,6 +51,7 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
         "evsc_car_ready_time": "input_datetime.test_evsc_car_ready_time",
         "evsc_night_charge_amperage": "number.test_evsc_night_charge_amperage",
         "evsc_min_solar_forecast_threshold": "number.test_evsc_min_solar_forecast_threshold",
+        "evsc_night_pv_handoff_threshold": "number.test_evsc_night_pv_handoff_threshold",
         "evsc_home_battery_min_soc": "number.test_evsc_home_battery_min_soc",
         "evsc_grid_import_threshold": "number.test_evsc_grid_import_threshold",
         "evsc_grid_import_delay": "number.test_evsc_grid_import_delay",
@@ -81,10 +84,12 @@ async def night_charge(hass, mock_priority_balancer, mock_charger_controller):
     hass.states.async_set("input_datetime.test_evsc_car_ready_time", "08:00:00")
     hass.states.async_set("number.test_evsc_night_charge_amperage", "10")
     hass.states.async_set("number.test_evsc_min_solar_forecast_threshold", "10.0")
+    hass.states.async_set("number.test_evsc_night_pv_handoff_threshold", "0")
     hass.states.async_set("number.test_evsc_home_battery_min_soc", "20.0")
     hass.states.async_set("number.test_evsc_grid_import_threshold", "50")
     hass.states.async_set("number.test_evsc_grid_import_delay", "30")
     hass.states.async_set("sensor.grid_import", "0")
+    hass.states.async_set("sensor.fv_production", "0")
     for day in [
         "monday",
         "tuesday",
@@ -830,3 +835,145 @@ async def test_grid_monitor_clears_stale_clock_on_sensor_unavailable(hass, night
 
     night_charge._complete_night_charge.assert_not_awaited()
     assert night_charge._grid_drawing_low_since is None
+
+
+# ============================================================================
+# v2.3.0 (issue #32) - PV-production handoff stop condition (car_ready=OFF)
+# ============================================================================
+
+def _set_car_ready_all(hass, value: str) -> None:
+    """Force every car_ready day switch to the given state (weekday-agnostic)."""
+    for day in [
+        "monday", "tuesday", "wednesday", "thursday",
+        "friday", "saturday", "sunday",
+    ]:
+        hass.states.async_set(f"input_boolean.test_evsc_car_ready_{day}", value)
+
+
+async def test_pv_handoff_stops_when_sustained(hass, night_charge):
+    """car_ready=OFF + threshold>0 + PV sustained over threshold → stop & hand off."""
+    _set_car_ready_all(hass, "off")
+    hass.states.async_set("number.test_evsc_night_pv_handoff_threshold", "200")
+    hass.states.async_set("sensor.fv_production", "3000")
+
+    now = dt_util.now()
+    night_charge._night_session_start = now.replace(hour=1, minute=0, second=0, microsecond=0)
+    current = now.replace(hour=2, minute=0, second=0, microsecond=0)  # before 08:00 cap
+
+    # Simulate PV already sustained for > 5 minutes.
+    night_charge._pv_handoff_tracker.reset()
+    night_charge._pv_handoff_tracker._stable_since = now - timedelta(seconds=301)
+
+    should_stop, reason = await night_charge._should_stop_for_deadline(current)
+
+    assert should_stop is True
+    assert "handing off" in reason.lower()
+
+
+async def test_pv_handoff_waits_for_debounce(hass, night_charge):
+    """PV above threshold but not yet sustained → keep charging."""
+    _set_car_ready_all(hass, "off")
+    hass.states.async_set("number.test_evsc_night_pv_handoff_threshold", "200")
+    hass.states.async_set("sensor.fv_production", "3000")
+
+    now = dt_util.now()
+    night_charge._night_session_start = now.replace(hour=1, minute=0, second=0, microsecond=0)
+    current = now.replace(hour=2, minute=0, second=0, microsecond=0)
+
+    night_charge._pv_handoff_tracker.reset()  # fresh: just crossed threshold
+
+    should_stop, reason = await night_charge._should_stop_for_deadline(current)
+
+    assert should_stop is False
+
+
+async def test_pv_handoff_below_threshold_continues_past_sunrise(hass, night_charge):
+    """car_ready=OFF + threshold>0 + PV below threshold past sunrise → keep charging."""
+    _set_car_ready_all(hass, "off")
+    hass.states.async_set("number.test_evsc_night_pv_handoff_threshold", "200")
+    hass.states.async_set("sensor.fv_production", "150")  # below threshold
+
+    now = dt_util.now()
+    night_charge._night_session_start = now.replace(hour=1, minute=0, second=0, microsecond=0)
+    current = now.replace(hour=6, minute=0, second=0, microsecond=0)  # past sunrise, before cap
+
+    # Sunrise already passed - legacy behavior would stop here; PV path must not.
+    night_charge._astral_service.get_sunrise = MagicMock(
+        return_value=now.replace(hour=2, minute=0, second=0, microsecond=0)
+    )
+    # Seed a stale tracker to prove sub-threshold resets it.
+    night_charge._pv_handoff_tracker._stable_since = now - timedelta(seconds=301)
+
+    should_stop, reason = await night_charge._should_stop_for_deadline(current)
+
+    assert should_stop is False
+    assert night_charge._pv_handoff_tracker._stable_since is None  # reset on sub-threshold
+
+
+async def test_pv_handoff_hard_cap(hass, night_charge):
+    """car_ready=OFF + threshold>0 + overcast (PV=0) → stop at car_ready_time hard-cap."""
+    _set_car_ready_all(hass, "off")
+    hass.states.async_set("number.test_evsc_night_pv_handoff_threshold", "200")
+    hass.states.async_set("sensor.fv_production", "0")
+    hass.states.async_set("input_datetime.test_evsc_car_ready_time", "08:00:00")
+
+    now = dt_util.now()
+    night_charge._night_session_start = now.replace(hour=1, minute=0, second=0, microsecond=0)
+    current = now.replace(hour=9, minute=0, second=0, microsecond=0)  # past 08:00 cap
+
+    should_stop, reason = await night_charge._should_stop_for_deadline(current)
+
+    assert should_stop is True
+    assert "hard-cap" in reason.lower()
+
+
+async def test_pv_handoff_hardcap_midnight_safe(hass, night_charge):
+    """Evening-started session (23:15) must NOT cap immediately (regression: BLOCKER #1)."""
+    _set_car_ready_all(hass, "off")
+    hass.states.async_set("number.test_evsc_night_pv_handoff_threshold", "200")
+    hass.states.async_set("sensor.fv_production", "0")
+    hass.states.async_set("input_datetime.test_evsc_car_ready_time", "08:00:00")
+
+    now = dt_util.now()
+    night_charge._night_session_start = now.replace(hour=23, minute=15, second=0, microsecond=0)
+    current = now.replace(hour=23, minute=30, second=0, microsecond=0)
+
+    should_stop, reason = await night_charge._should_stop_for_deadline(current)
+
+    assert should_stop is False  # cap is tomorrow 08:00, not reached
+
+
+async def test_pv_handoff_disabled_uses_sunrise(hass, night_charge):
+    """threshold=0 (default) → legacy astronomical-sunrise stop unchanged."""
+    _set_car_ready_all(hass, "off")
+    hass.states.async_set("number.test_evsc_night_pv_handoff_threshold", "0")
+    hass.states.async_set("sensor.fv_production", "3000")  # irrelevant when disabled
+
+    now = dt_util.now()
+    current = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    night_charge._astral_service.get_sunrise = MagicMock(
+        return_value=now.replace(hour=5, minute=0, second=0, microsecond=0)
+    )
+
+    should_stop, reason = await night_charge._should_stop_for_deadline(current)
+
+    assert should_stop is True
+    assert "sunrise" in reason.lower()
+
+
+async def test_pv_handoff_ignored_when_car_ready_on(hass, night_charge):
+    """car_ready=ON → ON branch (deadline/target) unchanged; PV handoff never runs."""
+    _set_car_ready_all(hass, "on")
+    hass.states.async_set("number.test_evsc_night_pv_handoff_threshold", "200")
+    hass.states.async_set("sensor.fv_production", "3000")
+    hass.states.async_set("input_datetime.test_evsc_car_ready_time", "08:00:00")
+
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+
+    now = dt_util.now()
+    current = now.replace(hour=3, minute=0, second=0, microsecond=0)  # before deadline
+
+    should_stop, reason = await night_charge._should_stop_for_deadline(current)
+
+    assert should_stop is False
+    assert "handing off" not in reason.lower()

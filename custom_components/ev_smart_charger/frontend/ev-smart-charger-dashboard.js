@@ -92,6 +92,7 @@ const DOMAIN_SUFFIXES = {
   carReadyTime: ["time", "evsc_car_ready_time"],
   minSolarForecast: ["number", "evsc_min_solar_forecast_threshold"],
   nightAmperage: ["number", "evsc_night_charge_amperage"],
+  nightPvHandoff: ["number", "evsc_night_pv_handoff_threshold"],
 
   // ── Solar Surplus
   checkInterval: ["number", "evsc_check_interval"],
@@ -253,6 +254,14 @@ const SETTINGS_CATALOG = [
           nl: "Vaste stroom tijdens nachtelijk laden in BATTERY- of GRID-modus.",
         },
         hint: { en: "Default 16 A", it: "Default 16 A", nl: "Standaard 16 A" } },
+      { entityKey: "nightPvHandoff", kind: "stepper",
+        name: { en: "PV Handoff Threshold", it: "Soglia FV per handoff diurno", nl: "PV-drempel voor dagoverdracht" },
+        desc: {
+          en: "Only for days the car is NOT marked ready. Night Charge normally stops at astronomical sunrise, which at high latitudes can be hours before real solar output. Set above 0 W to keep charging past sunrise and hand off to Solar Surplus only once PV production stays above this value for 5 minutes. Stops no later than the Car Ready time on overcast days.",
+          it: "Solo per i giorni in cui l'auto NON e impostata come pronta. Di norma Night Charge si ferma all'alba astronomica, che ad alte latitudini puo precedere di ore la produzione solare reale. Imposta un valore sopra 0 W per proseguire oltre l'alba e passare a Solar Surplus solo quando la produzione FV resta sopra questo valore per 5 minuti. Nei giorni coperti si ferma comunque entro l'orario Auto pronta.",
+          nl: "Alleen voor dagen dat de auto NIET als klaar is gemarkeerd. Night Charge stopt normaal bij astronomische zonsopkomst, wat op hoge breedtegraden uren voor de echte zonneopbrengst kan zijn. Zet boven 0 W om door te laden na zonsopkomst en pas over te dragen aan Solar Surplus zodra de PV-productie 5 minuten boven deze waarde blijft. Stopt op bewolkte dagen uiterlijk op de Auto-klaar-tijd.",
+        },
+        hint: { en: "Default 0 W = off (stop at sunrise). Suggested ~200 W", it: "Default 0 W = disattivato (stop all'alba). Consigliato ~200 W", nl: "Standaard 0 W = uit (stop bij zonsopkomst). Aanbevolen ~200 W" } },
       { entityKey: "preserveHomeBattery", kind: "toggle",
         name: { en: "Preserve Home Battery", it: "Preserva batteria di casa", nl: "Thuisbatterij sparen" },
         desc: {
