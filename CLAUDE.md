@@ -757,6 +757,21 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.5.1 (2026-06-04)
+**FIX: Stale "SKIPPED: Nighttime" on the Solar Surplus diagnostic + self-diagnosable astral times ([issue #34](https://github.com/antbald/ha-ev-smart-charger/issues/34), xion2000)**
+
+**Problem**: a user (no overnight charging, no hybrid inverter, no forecast) saw the `evsc_solar_surplus_diagnostic` sensor stuck on `SKIPPED: Nighttime` in the middle of the day, then it "fixed itself at ~14:38" — an hour with no astronomical meaning. His `sun.sun` data (UK/BST: sunrise 04:33, sunset 21:33 local, `elevation 22.71`, `above_horizon`) proved the location/timezone were **correct**, and `is_nighttime()` ([astral_time_service.py:122](custom_components/ev_smart_charger/utils/astral_time_service.py#L122)) would have correctly returned "day" all afternoon. So this was **not** an astral-logic bug — the diagnostic sensor was simply **stale** (carrying the previous night's value), almost certainly because the post-update file swap (2.2.2 → 2.4.0) left the running instance in a partial state until a clean HA restart around 14:38 re-ran the loop.
+
+**Two real weaknesses fixed (detection/robustness only — no charging-control change)**:
+1. **No immediate first check.** `_start_timer` ([solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py)) registered `async_track_time_interval` (which does **not** fire an initial tick), so the sensor kept whatever value it had until the first interval elapsed. Now `_start_timer` runs one `await self._async_periodic_check(ignore_rate_limit=True)` right after registering the timer, wrapped in try/except so a first-check failure never blocks setup. The sensor reflects the true day/night state seconds after setup.
+2. **`SKIPPED: Nighttime` was not self-diagnosable.** The event exposed no astral context. New `_build_nighttime_debug_attributes(now)` attaches `now` / `sunrise_today` / `sunset_today` to both `SKIPPED: Nighttime` and `SKIPPED: Nighttime (profile mismatch)` events. A user can now tell at a glance: wrong sunrise/sunset → HA location/timezone misconfig; correct times but daytime → stale value (and the immediate-tick fix removes that window).
+
+**Scope / safety**: no entity/config-flow/schema change, entity counts unchanged (67/53), `is_nighttime()` untouched. Tests ([tests/test_solar_surplus.py](tests/test_solar_surplus.py)): `test_nighttime_skip_exposes_astral_times`, `test_start_timer_runs_initial_check`. Full suite green except the pre-existing environment-only baseline failures (grid-import / surplus-stability timing tests, identical on clean master). `VERSION = "2.5.1"`.
+
+**Upgrade priority**: 🟢 RECOMMENDED if you ever see a stale `SKIPPED: Nighttime` in daytime — the sensor now self-corrects on setup and exposes the sunrise/sunset it computed. ⚪ NO-OP otherwise.
+
+---
+
 ### v2.5.0 (2026-06-04)
 **FEATURE: Surface the silent "Priority Balancer disabled" battery-protection bypass ([issue #35](https://github.com/antbald/ha-ev-smart-charger/issues/35), DJm00n)**
 

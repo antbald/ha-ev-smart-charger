@@ -446,6 +446,15 @@ class SolarSurplusAutomation:
 
         self.logger.info(f"Timer started with {interval_minutes} minute interval")
 
+        # Run one check immediately so the diagnostic sensor reflects the
+        # current day/night state right after setup instead of carrying a
+        # stale value (e.g. last night's "SKIPPED: Nighttime") until the
+        # first timer tick fires `interval_minutes` later (issue #34).
+        try:
+            await self._async_periodic_check(ignore_rate_limit=True)
+        except Exception as err:  # noqa: BLE001 - never block setup on first check
+            self.logger.warning(f"Initial periodic check failed: {err}")
+
     @callback
     async def _async_home_battery_soc_changed(self, event) -> None:
         """Handle home battery SOC state changes for immediate battery protection.
@@ -1132,9 +1141,25 @@ class SolarSurplusAutomation:
         )
         return True
 
+    def _build_nighttime_debug_attributes(self, now: datetime) -> dict:
+        """Expose the astral times behind a nighttime decision.
+
+        Lets users self-diagnose a "SKIPPED: Nighttime" shown in daytime:
+        if these sunrise/sunset times look wrong, the HA location/timezone is
+        misconfigured; if they look right, the value is stale (issue #34).
+        """
+        sunset = self._astral_service.get_sunset(now)
+        sunrise = self._astral_service.get_sunrise(now)
+        return {
+            "now": now.isoformat(),
+            "sunrise_today": sunrise.isoformat() if sunrise else None,
+            "sunset_today": sunset.isoformat() if sunset else None,
+        }
+
     async def _handle_nighttime_transition(self, now: datetime, current_profile: str | None) -> None:
         """Handle sunset transition when Solar Surplus is no longer allowed to run."""
         charger_is_on = await self.charger_controller.is_charging()
+        nighttime_debug = self._build_nighttime_debug_attributes(now)
 
         if not charger_is_on:
             if self._has_control():
@@ -1143,7 +1168,11 @@ class SolarSurplusAutomation:
             self.logger.skip("Nighttime - Solar Surplus only operates during daytime (sunrise to sunset)")
             await self._update_diagnostic_sensor(
                 "SKIPPED: Nighttime",
-                {"reason": "Solar production unavailable at night", "last_check": dt_util.now().isoformat()},
+                {
+                    "reason": "Solar production unavailable at night",
+                    "last_check": dt_util.now().isoformat(),
+                    **nighttime_debug,
+                },
             )
             return
 
@@ -1157,6 +1186,7 @@ class SolarSurplusAutomation:
                     "reason": "Charger active but profile is not solar_surplus",
                     "profile": current_profile,
                     "last_check": dt_util.now().isoformat(),
+                    **nighttime_debug,
                 },
             )
             return

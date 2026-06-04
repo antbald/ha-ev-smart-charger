@@ -503,3 +503,46 @@ async def test_balancer_clear_after_warn_resets_guard(hass, automation):
     await automation._clear_balancer_disabled_warning()
     automation._notification_service.dismiss.assert_awaited_once()
     assert automation._balancer_disabled_warned_date is None
+
+
+async def test_nighttime_skip_exposes_astral_times(hass, automation):
+    """SKIPPED: Nighttime must expose now/sunrise/sunset for self-diagnosis (issue #34)."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "manual")
+
+    automation._astral_service.is_nighttime.return_value = True
+    automation.charger_controller.is_charging.return_value = False
+
+    sunrise = datetime(2026, 6, 4, 4, 33)
+    sunset = datetime(2026, 6, 4, 21, 33)
+    automation._astral_service.get_sunrise.return_value = sunrise
+    automation._astral_service.get_sunset.return_value = sunset
+
+    captured = {}
+
+    async def _capture(state, attributes):
+        captured["state"] = state
+        captured["attributes"] = attributes
+
+    automation._update_diagnostic_sensor = _capture
+
+    await automation._async_periodic_check()
+
+    assert captured["state"] == "SKIPPED: Nighttime"
+    attrs = captured["attributes"]
+    assert attrs["sunrise_today"] == sunrise.isoformat()
+    assert attrs["sunset_today"] == sunset.isoformat()
+    assert "now" in attrs
+
+
+async def test_start_timer_runs_initial_check(hass, automation):
+    """_start_timer must run one immediate check so the sensor is never stale (issue #34)."""
+    automation._async_periodic_check = AsyncMock()
+
+    with patch(
+        "custom_components.ev_smart_charger.solar_surplus.async_track_time_interval"
+    ) as mock_track:
+        mock_track.return_value = MagicMock()
+        await automation._start_timer()
+
+    automation._async_periodic_check.assert_awaited_once_with(ignore_rate_limit=True)
