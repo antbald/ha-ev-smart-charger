@@ -430,12 +430,12 @@ async def test_status_optional_and_charging_power_roundtrip(hass: HomeAssistant)
     assert result["data"][CONF_CHARGING_POWER] == "sensor.ev_charging_power"
 
 
-def test_entity_counts_unchanged_v220():
-    """v2.2.0 adds config keys, not helper entities → counts stay 66 / 52."""
+def test_entity_counts_v230():
+    """v2.3.0 (issue #32) adds 1 always-created number → counts 67 / 53."""
     from custom_components.ev_smart_charger.const import (
         TOTAL_INTEGRATION_ENTITIES,
         TOTAL_INTEGRATION_ENTITIES_NO_BATTERY,
     )
 
-    assert TOTAL_INTEGRATION_ENTITIES == 66
-    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 52
+    assert TOTAL_INTEGRATION_ENTITIES == 67
+    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 53

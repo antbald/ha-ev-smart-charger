@@ -541,6 +541,9 @@
       "evsc_night_charge_amperage": {
         "name": "Amperaggio ricarica notturna"
       },
+      "evsc_night_pv_handoff_threshold": {
+        "name": "Soglia FV per handoff diurno"
+      },
       "evsc_boost_charge_amperage": {
         "name": "Amperaggio boost"
       },

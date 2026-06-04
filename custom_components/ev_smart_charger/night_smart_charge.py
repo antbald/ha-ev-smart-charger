@@ -33,6 +33,8 @@ from .const import (
     HELPER_CAR_READY_TIME_SUFFIX,
     HELPER_MIN_SOLAR_FORECAST_THRESHOLD_SUFFIX,
     HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX,
+    HELPER_NIGHT_PV_HANDOFF_THRESHOLD_SUFFIX,
+    NIGHT_PV_HANDOFF_SUSTAIN_SECONDS,
     HELPER_HOME_BATTERY_MIN_SOC_SUFFIX,
     HELPER_GRID_IMPORT_THRESHOLD_SUFFIX,
     HELPER_GRID_IMPORT_DELAY_SUFFIX,
@@ -176,6 +178,17 @@ class NightSmartCharge:
         # v1.3.23: Dynamic amperage management state
         self._grid_import_trigger_time = None  # When grid import first exceeded threshold
         self._recovery_tracker = StabilityTracker()  # Track stability for recovery (60s)
+
+        # v2.3.0 (issue #32): PV-production handoff debounce. Tracks how long
+        # measured PV production has stayed >= the configured threshold before
+        # Night Smart Charge stops and hands off to Solar Surplus (car_ready=OFF).
+        self._night_pv_handoff_threshold_entity = None
+        self._pv_handoff_tracker = StabilityTracker()
+        # Timestamp the current night session started (battery or grid). Used to
+        # anchor the PV-handoff hard-cap to the right morning deadline so an
+        # evening-started session (e.g. night_charge_time=23:00) caps tomorrow
+        # at car_ready_time, not the deadline that already passed today.
+        self._night_session_start = None
 
         # v1.4.4: Robust window check state machine
         self._session_state = "ready"  # ready|active|completed_today|cooldown
@@ -396,6 +409,9 @@ class NightSmartCharge:
         )
         self._night_charge_amperage_entity = self._resolve_entity(
             HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX
+        )
+        self._night_pv_handoff_threshold_entity = self._resolve_entity(
+            HELPER_NIGHT_PV_HANDOFF_THRESHOLD_SUFFIX
         )
         self._grid_import_threshold_entity = self._resolve_entity(
             HELPER_GRID_IMPORT_THRESHOLD_SUFFIX
@@ -1400,6 +1416,11 @@ class NightSmartCharge:
             except Exception as ex:
                 self.logger.warning(f"Notification logging failed (non-critical): {ex}")
 
+            # v2.3.0 (issue #32): start each session with a clean PV-handoff debounce
+            # and stamp the session start for the handoff hard-cap anchor.
+            self._pv_handoff_tracker.reset()
+            self._night_session_start = dt_util.now()
+
             # Start continuous battery monitoring (every 15 seconds for faster protection)
             if self._battery_monitor_unsub:
                 self._battery_monitor_unsub()  # Cancel existing monitor if any
@@ -1746,6 +1767,10 @@ class NightSmartCharge:
             # stamp the session start for the startup ramp grace.
             self._grid_drawing_low_since = None
             self._grid_session_start = dt_util.now()
+            # v2.3.0 (issue #32): start each session with a clean PV-handoff debounce
+            # and stamp the session start for the handoff hard-cap anchor.
+            self._pv_handoff_tracker.reset()
+            self._night_session_start = dt_util.now()
             self._grid_monitor_unsub = async_track_time_interval(
                 self.hass,
                 self._async_monitor_grid_charge,
@@ -1987,6 +2012,11 @@ class NightSmartCharge:
             self._grid_monitor_unsub()
             self._grid_monitor_unsub = None
             self.logger.info("Grid monitoring stopped")
+
+        # v2.3.0 (issue #32): clear the PV-handoff debounce so a leftover
+        # _stable_since can't make the next session's first check fire instantly.
+        # Placed before the boost-preempt early return so both exit paths reset it.
+        self._pv_handoff_tracker.reset()
 
         # Boost Charge can preempt Night Smart Charge while a monitor callback is already
         # running. In that race, this cleanup must not mark the night session as completed
@@ -2232,6 +2262,17 @@ class NightSmartCharge:
             50.0
         )
 
+    def _get_night_pv_handoff_threshold(self) -> float:
+        """Get the PV-production handoff threshold in watts (v2.3.0, issue #32).
+
+        0 (default) disables the feature → legacy astronomical-sunrise stop.
+        """
+        return state_helper.get_float(
+            self.hass,
+            self._night_pv_handoff_threshold_entity,
+            0.0
+        )
+
     def _get_grid_import_delay(self) -> int:
         """Get grid import protection delay in seconds (v1.3.23)."""
         return state_helper.get_int(
@@ -2331,13 +2372,43 @@ class NightSmartCharge:
         )
         return car_ready_time
 
+    def _get_pv_handoff_hardcap(self, current_time: datetime) -> datetime:
+        """
+        Absolute morning hard-cap for the PV-handoff stop (v2.3.0, issue #32).
+
+        Anchored to the SESSION START (not current_time): the cap is the first
+        occurrence of car_ready_time AT OR AFTER the session began. This is
+        midnight-safe and stable for the whole morning:
+        - session started 01:00 → cap = today 08:00; ``current >= cap`` stays
+          True for the rest of the morning (the cap genuinely bounds the draw).
+        - session started 23:15 → cap = tomorrow 08:00 (~9h away), not the
+          deadline that already passed earlier today.
+
+        Anchoring to current_time instead would only ever equal car_ready_time
+        in the exact tick it occurs (next-occurrence rolls to tomorrow one second
+        later), so the cap could be skipped between ticks.
+        """
+        time_state = state_helper.get_state(self.hass, self._car_ready_time_entity)
+        if not time_state or time_state in ("unknown", "unavailable"):
+            time_state = DEFAULT_CAR_READY_TIME
+        reference = self._night_session_start or current_time
+        return TimeParsingService.time_string_to_next_occurrence(
+            time_state, reference
+        )
+
     async def _should_stop_for_deadline(self, current_time: datetime) -> tuple[bool, str]:
         """
         Check if charging should stop based on car ready configuration (v1.3.18+).
 
         Logic:
-        - If car_ready=ON: Continue past sunrise until min(ev_target, deadline)
-        - If car_ready=OFF: Stop at sunrise (v1.3.17 behavior)
+        - If car_ready=ON: Continue past sunrise until min(ev_target, deadline).
+          UNCHANGED by v2.3.0 — the PV-handoff stop never runs on car_ready=ON days.
+        - If car_ready=OFF: stop at astronomical sunrise (legacy), UNLESS the
+          PV-handoff threshold is > 0 (v2.3.0, issue #32). When enabled, continue
+          past sunrise and stop only once measured PV production stays >= the
+          threshold for NIGHT_PV_HANDOFF_SUSTAIN_SECONDS, handing off to Solar
+          Surplus. A hard-cap at the next car_ready_time bounds grid/battery draw
+          on overcast days where PV never reaches the threshold.
 
         Args:
             current_time: Current datetime to check against
@@ -2362,15 +2433,48 @@ class NightSmartCharge:
 
             # Before deadline + target not reached - CONTINUE
             return False, ""
-        else:
-            # Car not needed - stop at sunrise
-            # Use get_sunrise() (today's sunrise) not get_next_sunrise_after()
-            # which would return tomorrow's sunrise if today's has already passed.
-            sunrise = self._astral_service.get_sunrise(current_time)
-            if sunrise and current_time >= sunrise:
-                return True, "Sunrise reached (car not needed urgently)"
 
+        # Car not needed today (car_ready=OFF).
+        # v2.3.0 (issue #32): opt-in PV-production handoff replaces the
+        # astronomical-sunrise stop when the threshold is > 0.
+        pv_threshold = self._get_night_pv_handoff_threshold()
+        if pv_threshold > 0:
+            # Safety hard-cap: stop no later than the next car_ready_time, even
+            # if PV never reaches the threshold (overcast day) so grid/battery
+            # draw stays bounded.
+            hardcap = self._get_pv_handoff_hardcap(current_time)
+            if hardcap and current_time >= hardcap:
+                self._pv_handoff_tracker.reset()
+                return True, (
+                    f"PV handoff hard-cap reached ({hardcap.strftime('%H:%M')})"
+                )
+
+            pv_watts = self._power_model.read_production(self.hass)
+            if pv_watts >= pv_threshold:
+                self._pv_handoff_tracker.start_tracking()
+                if self._pv_handoff_tracker.is_stable(NIGHT_PV_HANDOFF_SUSTAIN_SECONDS):
+                    self._pv_handoff_tracker.reset()
+                    return True, (
+                        f"PV available ({pv_watts:.0f}W >= {pv_threshold:.0f}W "
+                        f"for {NIGHT_PV_HANDOFF_SUSTAIN_SECONDS // 60}min) - "
+                        "handing off to Solar Surplus"
+                    )
+            else:
+                # PV dropped back below threshold → restart the debounce.
+                self._pv_handoff_tracker.reset()
+
+            # Threshold enabled but not yet sustained → keep charging
+            # (deliberately ignoring astronomical sunrise here).
             return False, ""
+
+        # Legacy behavior (threshold = 0): stop at astronomical sunrise.
+        # Use get_sunrise() (today's sunrise) not get_next_sunrise_after()
+        # which would return tomorrow's sunrise if today's has already passed.
+        sunrise = self._astral_service.get_sunrise(current_time)
+        if sunrise and current_time >= sunrise:
+            return True, "Sunrise reached (car not needed urgently)"
+
+        return False, ""
 
     async def _calculate_and_save_energy_forecast(self, mode: str) -> None:
         """

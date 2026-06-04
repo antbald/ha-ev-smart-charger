@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.0.0
+**Current Version:** 2.3.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -112,6 +112,7 @@ The integration creates helper entities automatically via platform files:
 - `evsc_battery_support_sunset_buffer` - Block battery support when sunset is within this many minutes (min, default 60, range 0-240, 0 disables guard)
 - `evsc_night_charge_amperage` - Amperage for night charging (A, default 16)
 - `evsc_min_solar_forecast_threshold` - Min PV forecast to skip night charge (kWh, default 20)
+- `evsc_night_pv_handoff_threshold` - PV-production handoff threshold (W, default 0 = disabled; v2.3.0). When > 0, on car_ready=OFF days Night Charge continues past astronomical sunrise and stops once measured `fv_production` stays ≥ this value for 5 min, handing off to Solar Surplus (hard-capped at `evsc_car_ready_time`)
 - Daily SOC targets (EV): `evsc_ev_min_soc_[monday-sunday]` (%, defaults 50 weekday, 80 weekend)
 - Daily SOC targets (Home): `evsc_home_min_soc_[monday-sunday]` (%, default 50 all days)
 
@@ -755,6 +756,30 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.3.0 (2026-06-04)
+**FEATURE: Night Smart Charge stops on real PV availability, not astronomical sunrise (opt-in — [issue #32](https://github.com/antbald/ha-ev-smart-charger/issues/32), DJm00n)**
+
+**Problem**: on `car_ready=OFF` days Night Smart Charge stops at **astronomical sunrise** (`AstralTimeService.get_sunrise()`). At high latitudes in summer, astronomical sunrise (≈01:51) precedes usable PV production (≈05:00) by 3+ hours, leaving a window where Night Charge has stopped but Solar Surplus has no surplus yet → the EV sits idle. `car_ready_time` only partially helps (fixed manual clock time, no notion of "PV actually available").
+
+**Solution**: new opt-in helper `number.evsc_night_pv_handoff_threshold` (W, default `0` = disabled). When `> 0`, on `car_ready=OFF` days the astronomical-sunrise stop is **replaced** by a measured-PV handoff: Night Charge continues past sunrise and stops only once `ChargingModel.read_production()` stays ≥ the threshold for `NIGHT_PV_HANDOFF_SUSTAIN_SECONDS` (300 s, debounced via `StabilityTracker`), handing off to Solar Surplus. `fv_production` is already a required sensor, so no new sensor dependency.
+
+**Scope / safety (per adversarial review)**:
+- **car_ready=OFF only.** car_ready=ON days are byte-for-byte unchanged (EV target / `evsc_car_ready_time`).
+- **Hard-cap** at the next `evsc_car_ready_time`, anchored to the **session start** (`_night_session_start`) via `time_string_to_next_occurrence` so it is **midnight-safe** — an evening-started session (e.g. `night_charge_time=23:00`) caps the *following* morning, not the deadline that already passed today. (Using `_get_car_ready_time()`/current_time would have fired the cap ~1 min after start, or only at the exact deadline second.) Bounds grid/battery draw on overcast days where PV never reaches the threshold.
+- **No new STOP_REASON.** The 3 call sites forward the dynamic `reason` only to `_stop_charger_with_control()` (logging) and force `STOP_REASON_DEADLINE_OR_TARGET` for the terminal diagnostic; wiring a new reason was out of scope. Reason string is logged for traceability.
+- **Tracker reset** on session start (battery + grid), on sub-threshold PV, and in `_complete_night_charge` (before the boost-preempt early return) — no stale debounce across sessions/days.
+- **Detection-only**: PV reading never touches the commanded-control contract (§4.1 SSOT). Default `0` = legacy sunrise behavior, byte-for-byte.
+
+**Known limitations (documented)**: handoff only helps with the `solar_surplus` profile (else nothing resumes after the stop — keep threshold 0 on other profiles); in grid mode an overcast day draws from the grid until the hard-cap; users should set the threshold *above* their inverter's idle reading to avoid a false night handoff.
+
+**Entity count**: +1 always-created number → `TOTAL_INTEGRATION_ENTITIES` 66→**67**, `TOTAL_INTEGRATION_ENTITIES_NO_BATTERY` 52→**53** (coupling comment updated, issue #22).
+
+**Files**: `const.py` (suffix/default/`NIGHT_PV_HANDOFF_SUSTAIN_SECONDS`, counts, VERSION), `number.py` (always-created number), `night_smart_charge.py` (`_pv_handoff_tracker`, `_night_session_start`, `_get_night_pv_handoff_threshold`, `_get_pv_handoff_hardcap`, `_should_stop_for_deadline` OFF branch, session-start + completion resets), `frontend/ev-smart-charger-dashboard.js` (suffix map + Night settings stepper EN/IT/NL), `strings.json` + `translations/{en,it,nl}.json` (entity name), `README.md`, `info.md`, `docs/SSOT.md` (§4.2), `docs/CODEBASE_MAP.md`, `manifest.json`; tests: `test_night_smart_charge.py` (+7), `test_config_flow.py` (count 67/53). `VERSION = "2.3.0"`. Full suite green except the 19 pre-existing environment-only baseline failures (identical on clean master).
+
+**Upgrade priority**: 🟢 RECOMMENDED for high-latitude / east-horizon-obstructed installs on the `solar_surplus` profile (opt in by setting `evsc_night_pv_handoff_threshold` ~200 W). ⚪ NO-OP for everyone else — default 0 preserves v2.2.x behavior exactly.
+
+---
 
 ### v2.2.2 (2026-06-01)
 **DIAGNOSTIC: console logging for charging detection (banner/tile stuck on "not charging")**
