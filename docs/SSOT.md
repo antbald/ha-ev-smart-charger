@@ -199,6 +199,14 @@ The enforced model is:
 - A higher-priority automation may preempt a lower-priority owner.
 - An automation that loses ownership must stop its active monitor loops and return to an idle state.
 - `PriorityBalancer` stays decision-only. It does not directly actuate the charger.
+- **Disabled-balancer visibility (v2.5.0, issue #35):** when `evsc_priority_balancer_enabled`
+  is OFF **and** at least one daily home SOC target is > 0% (`PriorityBalancer.has_active_home_soc_target()`),
+  the home-battery protection is silently bypassed in Solar Surplus fallback mode. While charging in
+  that state (profile `solar_surplus`, charger plugged in), `SolarSurplusAutomation` raises a WARNING
+  and a persistent notification with the fixed id `evsc_priority_balancer_disabled`, throttled once per
+  day; it auto-dismisses the notification when the balancer is re-enabled. Detection-only — it never
+  touches the control contract (§4) and adds no entity (§7). No-op in PV-only mode or with no home
+  target configured.
 
 ## 6. Config and reconfiguration
 

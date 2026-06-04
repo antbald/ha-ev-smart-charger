@@ -119,6 +119,16 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "smart_blocker.additional.reason": "Reason",
         "smart_blocker.additional.timestamp": "Timestamp",
+        "priority_balancer.disabled.title": "Battery protection inactive",
+        "priority_balancer.disabled.message": (
+            "The Priority Balancer is **disabled**, but you have configured home "
+            "battery SOC targets.\n\n"
+            "While it is off, Solar Surplus charges the EV from solar **without** "
+            "honouring those targets — your home battery is not protected and can "
+            "be drained below the level you set.\n\n"
+            "Enable **Priority Balancer** (Dashboard → Settings → Safety, or the "
+            "`evsc_priority_balancer_enabled` switch) to restore battery protection."
+        ),
     },
     "it": {
         "common.error_label": "Errore",
@@ -235,6 +245,17 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "smart_blocker.additional.reason": "Motivo",
         "smart_blocker.additional.timestamp": "Timestamp",
+        "priority_balancer.disabled.title": "Protezione batteria inattiva",
+        "priority_balancer.disabled.message": (
+            "Il Priority Balancer è **disabilitato**, ma hai configurato dei target "
+            "SOC per la batteria di casa.\n\n"
+            "Mentre è spento, Solar Surplus carica l'EV dal solare **senza** "
+            "rispettare quei target: la batteria di casa non è protetta e può essere "
+            "scaricata sotto il livello che hai impostato.\n\n"
+            "Abilita il **Priority Balancer** (Dashboard → Impostazioni → Safety, "
+            "oppure lo switch `evsc_priority_balancer_enabled`) per ripristinare la "
+            "protezione della batteria."
+        ),
     },
     "nl": {
         "common.error_label": "Fout",
@@ -351,6 +372,17 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "smart_blocker.additional.reason": "Reden",
         "smart_blocker.additional.timestamp": "Tijdstip",
+        "priority_balancer.disabled.title": "Batterijbescherming inactief",
+        "priority_balancer.disabled.message": (
+            "De Priority Balancer is **uitgeschakeld**, maar je hebt SOC-doelen voor "
+            "de thuisbatterij ingesteld.\n\n"
+            "Zolang hij uit staat laadt Solar Surplus de EV op zonne-energie "
+            "**zonder** die doelen te respecteren — je thuisbatterij is niet "
+            "beschermd en kan onder het ingestelde niveau worden ontladen.\n\n"
+            "Schakel **Priority Balancer** in (Dashboard → Instellingen → Safety, of "
+            "de schakelaar `evsc_priority_balancer_enabled`) om de batterijbescherming "
+            "te herstellen."
+        ),
     },
 }
 
