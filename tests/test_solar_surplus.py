@@ -437,3 +437,69 @@ async def test_periodic_check_does_not_start_without_coordinator_ownership(hass,
 
     automation._coordinator.request_charger_action.assert_awaited_once()
     automation.charger_controller.start_charger.assert_not_called()
+
+
+# === v2.5.0 (issue #35): Priority Balancer disabled visibility ===
+
+async def test_balancer_disabled_warns_once_per_day(hass, automation):
+    """Balancer OFF + home battery + home target → one WARNING notification, throttled."""
+    automation._has_home_battery = True
+    automation.priority_balancer.has_active_home_soc_target = MagicMock(return_value=True)
+    automation._notification_service.send_warning = AsyncMock()
+
+    await automation._maybe_warn_balancer_disabled()
+    await automation._maybe_warn_balancer_disabled()  # same day → throttled
+
+    assert automation._notification_service.send_warning.await_count == 1
+    _, kwargs = automation._notification_service.send_warning.call_args
+    assert kwargs["notification_id"] == "evsc_priority_balancer_disabled"
+    assert automation._balancer_disabled_warned_date is not None
+
+
+async def test_balancer_disabled_no_home_target_no_warning(hass, automation):
+    """No home SOC target configured → no notification (acceptable case)."""
+    automation._has_home_battery = True
+    automation.priority_balancer.has_active_home_soc_target = MagicMock(return_value=False)
+    automation._notification_service.send_warning = AsyncMock()
+
+    await automation._maybe_warn_balancer_disabled()
+
+    automation._notification_service.send_warning.assert_not_called()
+
+
+async def test_balancer_disabled_pv_only_no_warning(hass, automation):
+    """PV-only mode → no notification even if a target value exists."""
+    automation._has_home_battery = False
+    automation.priority_balancer.has_active_home_soc_target = MagicMock(return_value=True)
+    automation._notification_service.send_warning = AsyncMock()
+
+    await automation._maybe_warn_balancer_disabled()
+
+    automation._notification_service.send_warning.assert_not_called()
+
+
+async def test_balancer_clear_dismiss_once_per_setup(hass, automation):
+    """Fresh setup dismisses any stale notification once, then stays quiet."""
+    automation._notification_service.dismiss = AsyncMock()
+
+    await automation._clear_balancer_disabled_warning()
+    assert automation._notification_service.dismiss.await_count == 1
+    assert automation._balancer_dismiss_done is True
+
+    await automation._clear_balancer_disabled_warning()  # nothing to clear
+    assert automation._notification_service.dismiss.await_count == 1
+
+
+async def test_balancer_clear_after_warn_resets_guard(hass, automation):
+    """After a warning, re-enabling dismisses the notification and resets the guard."""
+    automation._has_home_battery = True
+    automation.priority_balancer.has_active_home_soc_target = MagicMock(return_value=True)
+    automation._notification_service.send_warning = AsyncMock()
+    automation._notification_service.dismiss = AsyncMock()
+
+    await automation._maybe_warn_balancer_disabled()
+    assert automation._balancer_disabled_warned_date is not None
+
+    await automation._clear_balancer_disabled_warning()
+    automation._notification_service.dismiss.assert_awaited_once()
+    assert automation._balancer_disabled_warned_date is None

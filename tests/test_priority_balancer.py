@@ -99,3 +99,33 @@ async def test_target_reached_checks(hass, balancer):
         # Change target
         hass.states.async_set("number.ev_target", "70")
         assert await balancer.is_ev_target_reached() is False
+
+
+async def test_has_active_home_soc_target_true(hass, balancer):
+    """v2.5.0 (issue #35): at least one daily home target > 0 → True."""
+    balancer._home_min_soc_entities = {
+        "monday": "number.home_target_mon",
+        "tuesday": "number.home_target_tue",
+    }
+    hass.states.async_set("number.home_target_mon", "0")
+    hass.states.async_set("number.home_target_tue", "90")
+
+    assert balancer.has_active_home_soc_target() is True
+
+
+async def test_has_active_home_soc_target_all_zero(hass, balancer):
+    """All daily home targets at 0% → False (nothing to protect)."""
+    balancer._home_min_soc_entities = {"monday": "number.home_target_mon"}
+    hass.states.async_set("number.home_target_mon", "0")
+
+    assert balancer.has_active_home_soc_target() is False
+
+
+async def test_has_active_home_soc_target_pv_only(hass):
+    """PV-only mode (no home battery) → always False."""
+    config = {CONF_SOC_CAR: "sensor.car_soc"}  # no CONF_SOC_HOME
+    pv_balancer = PriorityBalancer(hass, "test_entry", config)
+    pv_balancer._home_min_soc_entities = {"monday": "number.home_target_mon"}
+    hass.states.async_set("number.home_target_mon", "90")
+
+    assert pv_balancer.has_active_home_soc_target() is False

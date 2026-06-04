@@ -410,6 +410,33 @@ const SETTINGS_CATALOG = [
     ],
   },
   {
+    id: "safety", iconClass: "shield", icon: "🛡",
+    name: { en: "Safety", it: "Sicurezza", nl: "Veiligheid" },
+    desc: {
+      en: "Battery protection and charge-window guards",
+      it: "Protezione batteria e guardie sulla finestra di ricarica",
+      nl: "Batterijbescherming en laadvenster-bewaking",
+    },
+    items: [
+      { entityKey: "priorityBalancer", kind: "toggle",
+        name: { en: "Priority Balancer", it: "Priority Balancer", nl: "Priority Balancer" },
+        desc: {
+          en: "Arbitrate EV vs home battery using the daily SOC targets. When OFF, those targets and home-battery protection are inactive.",
+          it: "Arbitra EV vs batteria di casa usando i target SOC giornalieri. Quando è OFF, quei target e la protezione della batteria sono inattivi.",
+          nl: "Bemiddelt EV vs thuisbatterij met de dagelijkse SOC-doelen. Wanneer UIT zijn die doelen en de batterijbescherming inactief.",
+        },
+        hint: { en: "Default off — enable to protect the home battery", it: "Default off — abilita per proteggere la batteria di casa", nl: "Standaard uit — schakel in om de thuisbatterij te beschermen" } },
+      { entityKey: "smartBlocker", kind: "toggle",
+        name: { en: "Smart Charger Blocker", it: "Smart Charger Blocker", nl: "Smart Charger Blocker" },
+        desc: {
+          en: "Prevent unexpected charging at night or with insufficient solar.",
+          it: "Impedisce ricariche inattese di notte o con solare insufficiente.",
+          nl: "Voorkomt onverwacht laden 's nachts of bij onvoldoende zon.",
+        },
+        hint: { en: "Default off", it: "Default off", nl: "Standaard uit" } },
+    ],
+  },
+  {
     id: "notif", iconClass: "bell", icon: "🔔",
     name: { en: "Notifications", it: "Notifiche", nl: "Notificaties" },
     desc: {
@@ -2630,8 +2657,9 @@ class EvSmartChargerDashboard extends HTMLElement {
     const hybridProbeDurationId = this._entityId("hybridProbeDuration");
     const hybridMaxImportDurationId = this._entityId("hybridMaxImportDuration");
     const hybridMaxFailedProbesId = this._entityId("hybridMaxFailedProbes");
-    const priorityBalancerId = this._entityId("priorityBalancer");
-    const smartBlockerId = this._entityId("smartBlocker");
+    // v2.5.0 (issue #35): priorityBalancer + smartBlocker are now rendered via the
+    // SETTINGS_CATALOG "safety" accordion (data-toggle), so the old unused
+    // `priorityBalancerId` / `smartBlockerId` locals here were removed (dead code).
     const notifySmartBlockerId = this._entityId("notifySmartBlocker");
     const notifyPriorityBalancerId = this._entityId("notifyPriorityBalancer");
     const notifyNightChargeId = this._entityId("notifyNightCharge");
@@ -5077,6 +5105,7 @@ class EvSmartChargerDashboard extends HTMLElement {
         .evsc-acc-ico.bat   { background: linear-gradient(135deg, var(--evsc-sys-green), var(--evsc-sys-teal)); }
         .evsc-acc-ico.hyb   { background: linear-gradient(135deg, var(--evsc-sys-teal), var(--evsc-sys-blue)); }
         .evsc-acc-ico.boost { background: linear-gradient(135deg, var(--evsc-sys-orange), var(--evsc-sys-pink)); }
+        .evsc-acc-ico.shield { background: linear-gradient(135deg, var(--evsc-sys-blue), var(--evsc-sys-green)); }
         .evsc-acc-ico.bell  { background: linear-gradient(135deg, var(--evsc-sys-pink), var(--evsc-sys-orange)); }
         .evsc-acc-ico.log   { background: linear-gradient(135deg, var(--evsc-fg-mid), var(--evsc-fg-low)); }
         .evsc-acc-title h3 {

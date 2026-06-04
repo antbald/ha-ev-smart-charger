@@ -146,6 +146,20 @@ class PriorityBalancer:
             return True
         return state_helper.get_bool(self.hass, self._enabled_entity)
 
+    def has_active_home_soc_target(self) -> bool:
+        """Return True if at least one daily home SOC target is configured > 0%.
+
+        Used by Solar Surplus (issue #35) to detect when the Priority Balancer is
+        disabled while the user still expects home-battery SOC protection. Returns
+        False in PV-only mode (no home battery → no home target entities).
+        """
+        if not self._has_home_battery:
+            return False
+        for entity_id in self._home_min_soc_entities.values():
+            if entity_id and state_helper.get_int(self.hass, entity_id, 0) > 0:
+                return True
+        return False
+
     async def calculate_priority(self) -> str:
         """
         Calculate priority based on current SOCs vs daily targets.

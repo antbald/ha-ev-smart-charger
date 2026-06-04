@@ -32,11 +32,14 @@ from .const import (
     SURPLUS_DEADBAND_START_DELAY,
     SURPLUS_INCREASE_DELAY,
     NIGHT_CHARGE_COOLDOWN_SECONDS,
+    NOTIF_ID_BALANCER_DISABLED,
     has_home_battery,
 )
+from .localization import translate_runtime
 from .power_model import ChargingModel
 from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
+from .utils.notification_service import NotificationService
 from .utils.state_helper import get_state, get_float, get_bool, validate_sensor
 from .utils.amperage_helper import AmperageCalculator
 from .utils.astral_time_service import AstralTimeService
@@ -145,6 +148,13 @@ class SolarSurplusAutomation:
         # Sensor error tracking (prevent log spam)
         self._sensor_error_state = {}  # {sensor_entity_id: error_message}
 
+        # v2.5.0 (issue #35): surface the silent "Priority Balancer disabled"
+        # degradation when home SOC targets are configured. Persistent notification
+        # (fixed id, auto-dismissed on re-enable) + WARNING throttled once per day.
+        self._notification_service = NotificationService(hass)
+        self._balancer_disabled_warned_date = None  # date-guard for the daily WARNING
+        self._balancer_dismiss_done = False  # one-shot stale-notification cleanup per setup
+
     @property
     def _automation_name(self) -> str:
         """Return the coordinator owner name for Solar Surplus."""
@@ -155,6 +165,56 @@ class SolarSurplusAutomation:
         if self._coordinator is None:
             return True
         return self._coordinator.is_automation_active(self._automation_name)
+
+    async def _maybe_warn_balancer_disabled(self) -> None:
+        """Surface the silent Priority-Balancer-disabled degradation (issue #35).
+
+        When the balancer is off AND the user has configured home-battery SOC
+        targets, the home-battery protection is silently bypassed. Emit a WARNING
+        (throttled once per day) plus a persistent notification with a fixed id
+        (so it updates in place instead of stacking). No-op in PV-only mode or
+        when no home target is configured (the "acceptable" case in the issue).
+        """
+        if not self._has_home_battery:
+            return
+        if not self.priority_balancer.has_active_home_soc_target():
+            return
+
+        today = dt_util.now().date()
+        if today == self._balancer_disabled_warned_date:
+            return  # already warned today
+
+        self.logger.warning(
+            "Priority Balancer is DISABLED but home SOC targets are configured - "
+            "home-battery protection is INACTIVE. Enable "
+            "evsc_priority_balancer_enabled to restore it."
+        )
+        try:
+            await self._notification_service.send_warning(
+                translate_runtime(self.hass, "priority_balancer.disabled.title"),
+                translate_runtime(self.hass, "priority_balancer.disabled.message"),
+                notification_id=NOTIF_ID_BALANCER_DISABLED,
+            )
+        except Exception as err:  # notification must never break the control loop
+            self.logger.debug(f"Balancer-disabled notification failed: {err}")
+        self._balancer_disabled_warned_date = today
+
+    async def _clear_balancer_disabled_warning(self) -> None:
+        """Dismiss the balancer-disabled persistent notification (issue #35).
+
+        Called when the balancer is enabled. Runs at least once per setup
+        (``_balancer_dismiss_done``) so a notification created before an HA
+        restart is cleaned up even though the in-memory date-guard reset to None.
+        Dismissing a non-existent notification is a harmless no-op.
+        """
+        if self._balancer_disabled_warned_date is None and self._balancer_dismiss_done:
+            return
+        self._balancer_dismiss_done = True
+        self._balancer_disabled_warned_date = None
+        try:
+            await self._notification_service.dismiss(NOTIF_ID_BALANCER_DISABLED)
+        except Exception as err:
+            self.logger.debug(f"Balancer-disabled dismiss failed: {err}")
 
     def _charging_power_snapshot(self) -> dict:
         """v2.2.0 charging-state observability for the diagnostic sensor.
@@ -618,6 +678,9 @@ class SolarSurplusAutomation:
         # === 8. Priority Balancer Decision ===
         priority = None
         if self.priority_balancer.is_enabled():
+            # v2.5.0 (issue #35): balancer back ON → clear any stale
+            # "disabled" warning surfaced while it was off.
+            await self._clear_balancer_disabled_warning()
             priority = await self.priority_balancer.calculate_priority()
             self.logger.info(f"Priority Balancer: {priority}")
 
@@ -642,6 +705,9 @@ class SolarSurplusAutomation:
                 )
         else:
             self.logger.info("Priority Balancer disabled - using fallback mode")
+            # v2.5.0 (issue #35): the fallback ignores home SOC targets, so the
+            # configured home-battery protection is silently bypassed. Surface it.
+            await self._maybe_warn_balancer_disabled()
 
         # === 9. Validate Sensors (with throttled logging to prevent spam) ===
         # v2.0.0: validate EVERY mapped phase sensor (L1/L2/L3 in three-phase)

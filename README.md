@@ -496,7 +496,7 @@ All helper entities persist their state across Home Assistant restarts via `Rest
 | `evsc_smart_charger_blocker_enabled` | OFF | Enables the Smart Charger Blocker to prevent charging outside the allowed window. |
 | `evsc_use_home_battery` | OFF | Allows Solar Surplus to draw from the home battery when solar alone is insufficient (requires Priority = EV). |
 | `evsc_preserve_home_battery` | OFF | Prevents Night Smart Charge from discharging the home battery regardless of forecast. |
-| `evsc_priority_balancer_enabled` | OFF | Enables the Priority Balancer to evaluate daily SOC targets. |
+| `evsc_priority_balancer_enabled` | OFF | Enables the Priority Balancer to evaluate daily SOC targets. While OFF with home SOC targets configured, the integration warns that home-battery protection is inactive (v2.5.0). |
 | `evsc_night_smart_charge_enabled` | OFF | Enables overnight automatic charging at the configured time. |
 | `evsc_hybrid_inverter_mode` | OFF | **Hybrid Inverter Mode** — opt-in curtailment-discovery probing for zero-export hybrid inverter systems. See the [dedicated section](#hybrid-inverter-mode-zero-export-systems). |
 | `evsc_enable_file_logging` | OFF | Enables daily file logging to `logs/<year>/<month>/<day>.log`. Toggle on to capture a session, off when done. |
@@ -764,7 +764,10 @@ stateDiagram-v2
     }
 ```
 
-When the balancer is **disabled**, Solar Surplus treats the charger as always having `EV` priority.
+When the balancer is **disabled** (the default), Solar Surplus treats the charger as always having `EV` priority: the daily SOC targets are ignored and `Home` priority is never reached.
+
+> **⚠️ Battery-protection visibility (v2.5.0, [issue #35](https://github.com/antbald/ha-ev-smart-charger/issues/35))**
+> If the balancer is **OFF** while you have configured home-battery SOC targets (`evsc_home_min_soc_<day>` above 0%), the home-battery protection is silently bypassed — Solar Surplus would charge the EV from solar regardless of home SOC. To make this visible, the integration now raises a **WARNING** in the log and a **persistent notification** ("Battery protection inactive") once a day while charging in that state. The notification clears automatically when you re-enable the balancer. Enable it from **Dashboard → Settings → Safety** (the switch is now rendered there) or via the `evsc_priority_balancer_enabled` switch. No notification is sent if you have no home targets configured (nothing to protect).
 
 **Key entities:** `evsc_priority_balancer_enabled`, `evsc_ev_min_soc_<day>`, `evsc_home_min_soc_<day>`, `sensor.evsc_priority_daily_state`
 

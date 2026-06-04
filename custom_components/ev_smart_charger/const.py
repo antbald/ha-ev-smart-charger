@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -182,6 +182,11 @@ HELPER_PRESERVE_HOME_BATTERY_SUFFIX = "evsc_preserve_home_battery"
 HELPER_NOTIFY_SMART_BLOCKER_SUFFIX = "evsc_notify_smart_blocker_enabled"
 HELPER_NOTIFY_PRIORITY_BALANCER_SUFFIX = "evsc_notify_priority_balancer_enabled"
 HELPER_NOTIFY_NIGHT_CHARGE_SUFFIX = "evsc_notify_night_charge_enabled"
+
+# Persistent notification IDs (fixed → updated in place, never stacked)
+# v2.5.0 (issue #35): surfaced when Priority Balancer is disabled while home
+# SOC targets are configured (silent battery-protection bypass).
+NOTIF_ID_BALANCER_DISABLED = "evsc_priority_balancer_disabled"
 
 # File Logging Switch (v1.3.25)
 HELPER_ENABLE_FILE_LOGGING_SUFFIX = "evsc_enable_file_logging"

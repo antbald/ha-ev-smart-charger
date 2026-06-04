@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.3.0
+**Current Version:** 2.5.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -756,6 +756,29 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.5.0 (2026-06-04)
+**FEATURE: Surface the silent "Priority Balancer disabled" battery-protection bypass ([issue #35](https://github.com/antbald/ha-ev-smart-charger/issues/35), DJm00n)**
+
+**Problem**: when `switch.evsc_priority_balancer_enabled` is OFF, Solar Surplus runs a **silent fallback mode** ([solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py)): the daily `evsc_home_min_soc_[day]` targets are ignored, `PRIORITY_HOME` is never reached, battery support never engages → the EV charges from solar **without any home-battery SOC protection**. The degradation was invisible (INFO-level log only). Critical for hybrid installs with large home batteries reserving capacity for outages. The issue also flagged two adjacent gaps: the balancer's enable switch was **dead code** in the auto-dashboard (`priorityBalancerId` defined, never rendered), and the fresh-install default is OFF.
+
+**Solution** (visibility, not a behavior change — confirmed with maintainer): the fresh-install default stays **OFF** (no silent behavior change for existing/new installs). The degradation is now surfaced three ways:
+- **WARNING log**, throttled once per day, when the balancer is OFF **and** at least one home SOC target is configured > 0%.
+- **Persistent notification** ("Battery protection inactive", EN/IT/NL) with a **fixed id** (`NOTIF_ID_BALANCER_DISABLED = "evsc_priority_balancer_disabled"`) so it updates in place instead of stacking. **Auto-dismissed** when the balancer is re-enabled — with a per-setup one-shot dismiss (`_balancer_dismiss_done`) so a notification created before an HA restart is still cleaned up after the in-memory date-guard resets.
+- **Dashboard switch**: new 🛡 **Safety** accordion in the settings `SETTINGS_CATALOG` rendering `priorityBalancer` + `smartBlocker` (both previously dead code); the unused `priorityBalancerId`/`smartBlockerId` locals were removed.
+
+**Scope / safety**:
+- **Detection-only.** Reuses `NotificationService.send_warning/dismiss`, `state_helper.get_int`, `has_home_battery(config)`, and the date-guard pattern from `hybrid_inverter_mode.py`. Never touches the charger control contract.
+- **Correct trigger window (deliberate).** The check lives in the Solar Surplus periodic loop → fires only on profile `solar_surplus` with the charger plugged in, i.e. exactly when the bypass can materialize. No false alarms on `manual` profile or when unplugged.
+- **No-op cases.** PV-only mode (no home battery) or no home target > 0% → silent (the issue's "acceptable" case). Balancer ON → byte-for-byte unchanged, no notification.
+- **No new entity / no config-flow change.** Entity counts unchanged (**67 / 53**). New public helper `PriorityBalancer.has_active_home_soc_target()`.
+- **Doc note:** README already documented the switch as default `OFF` (no false "default ON" claim to fix) — the docs were *enriched* with the new warning behavior, not corrected.
+
+**Files**: `priority_balancer.py` (`has_active_home_soc_target()`), `solar_surplus.py` (`NotificationService` + `_maybe_warn_balancer_disabled` / `_clear_balancer_disabled_warning` + 2 call sites), `const.py` (`NOTIF_ID_BALANCER_DISABLED`, VERSION), `localization.py` (`priority_balancer.disabled.{title,message}` EN/IT/NL), `frontend/ev-smart-charger-dashboard.js` (Safety accordion + dead-code removal + `.shield` icon CSS), `manifest.json`, `README.md`, `docs/SSOT.md` (§5); tests: `tests/test_solar_surplus*.py` (warn-once, no-op, auto-dismiss, regression). `VERSION = "2.5.0"`.
+
+**Upgrade priority**: 🟢 RECOMMENDED for anyone running Solar Surplus with home SOC targets configured but the Priority Balancer left OFF — you'll now see the warning + a one-click switch in the dashboard Safety panel. ⚪ NO-OP for everyone else (balancer ON, or no home targets).
+
+---
 
 ### v2.4.0 (2026-06-04)
 **FEATURE: Night Smart Charge grid mode honours `home_battery_min_soc` on hybrid inverters (opt-in — [issue #33](https://github.com/antbald/ha-ev-smart-charger/issues/33), DJm00n)**
