@@ -28,7 +28,7 @@ Most "smart charging" integrations stop at "use solar surplus". This one orchest
 
 - 🌞 **Solar Surplus** — dynamic amperage control (6 → 32 A) with grid-import protection, surplus-drop hysteresis and a per-wallbox ceiling.
 - ⚖️ **Priority Balancer** — daily SOC targets per day-of-week for both EV *and* home battery, automatically arbitrated. EV at 50% on weekdays, 80% on weekends? Done.
-- 🌙 **Night Smart Charge** — overnight session driven by *tomorrow's* PV forecast. Battery mode if forecast is good, grid fallback otherwise, skipped entirely on days you don't need the car.
+- 🌙 **Night Smart Charge** — overnight session driven by *tomorrow's* PV forecast. Battery mode if forecast is good, grid fallback otherwise, skipped entirely on days you don't need the car. *(v2.4.0+)* on hybrid inverters with a mapped **battery-power sensor**, grid mode honours `home_battery_min_soc` as an effective floor — it won't let the inverter silently drain the home battery to power the EV. Solves [issue #33](https://github.com/antbald/ha-ev-smart-charger/issues/33).
 - ⚡ **Boost Charge** — manual or scheduled high-priority session with automatic SOC stop.
 - 🛡️ **Smart Charger Blocker** — prevents charging outside your allowed window (sunset → night-charge time, or sunset → sunrise).
 - ⚡ **Hybrid Inverter Mode** *(v1.8.0+)* — empirically probes for hidden PV capacity in zero-export hybrid systems (Deye, Sunsynk, Solis, Growatt, Goodwe…). Solves [issue #20](https://github.com/antbald/ha-ev-smart-charger/issues/20). *(v2.1.0+)* optional **battery-power sensor** lets the probe tell real solar headroom apart from the home battery silently covering the load, and a configurable **max battery discharge for EV** smooths Solar-Surplus stop-start cycling. Solves [issue #29](https://github.com/antbald/ha-ev-smart-charger/issues/29).
@@ -51,6 +51,8 @@ Most projects target one charger brand or assume a single-phase home. EV Smart C
 > **🎉 New in v2.0.0** — Universal compatibility lands: opt-in **three-phase** support and a **Tuya / generic wallbox** selector mean EV Smart Charger now adapts to *any* solar + EV setup on the market. **Upgrading changes nothing for existing users** — defaults stay single-phase + Tuya, with no migration. [Jump to the setup ↓](#three-phase-support--charger-model--v200)
 
 > **🔋 New in v2.1.0** — Hybrid Inverter Mode now detects **battery-discharge masking**: map an optional **signed battery-power sensor** (negative = discharging) in the new "Hybrid Inverter Mode" setup step, and the probe will no longer mistake the home battery covering the EV for real solar headroom. Set **Max Battery Discharge for EV** (0 = off) to also let Solar Surplus ride out brief PV dips without stop-start cycling. **No-op for everyone who leaves it at 0 / unmapped.** Solves [issue #29](https://github.com/antbald/ha-ev-smart-charger/issues/29).
+
+> **🔋 New in v2.4.0** — the same **battery-power sensor** now also protects **Night Smart Charge grid mode**. On hybrid "Battery First" inverters, grid-mode charging can silently drain the home battery (grid stays ≈ 0 W) instead of pulling from the grid; v2.4.0 stops the session once the battery is being drained *and* has reached `home_battery_min_soc`, making that floor effective in grid mode just like it already is in battery mode. **No-op without the sensor.** Solves [issue #33](https://github.com/antbald/ha-ev-smart-charger/issues/33).
 
 ---
 

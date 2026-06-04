@@ -162,6 +162,12 @@ class NightSmartCharge:
         # v2.2.0: grid session start, for the startup ramp grace (an EV can take
         # tens of seconds to begin drawing after the wallbox says 'charging').
         self._grid_session_start = None
+        # v2.4.0 (issue #33): debounce for the grid-mode home-battery masking
+        # stop. On hybrid 'Battery First' inverters the EV charge silently drains
+        # the home battery (grid_import ~ 0) instead of the grid; this tracker
+        # holds the time the masking condition first held so a transient battery
+        # discharge spike never false-stops a legitimate grid session.
+        self._grid_battery_masking_tracker = StabilityTracker()
         self._night_charge_active = False
         # v1.11.9: `_active_mode` is now a property — assignments are
         # automatically published to sensor.evsc_night_session_state so the
@@ -1609,6 +1615,66 @@ class NightSmartCharge:
 
         self.logger.info(f"   {self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - continuing charge")
 
+        # Check 1.5 (v2.4.0, issue #33): home-battery masking protection.
+        # On hybrid 'Battery First' inverters (Deye/Sunsynk/Solis), grid mode
+        # can silently drain the home battery instead of the grid: the inverter
+        # covers the EV load from the battery (grid_import ~ 0) until it reaches
+        # its own internal min SOC, bypassing evsc_home_battery_min_soc. Make
+        # that floor effective in grid mode too — but ONLY when a battery-power
+        # sensor is mapped (read_battery_discharge != None). No sensor → no-op,
+        # byte-for-byte v2.3.x. Orthogonal to Hybrid Inverter Mode's masking
+        # check (daytime, lower priority); they never run concurrently here.
+        if self._has_home_battery:
+            discharge = self._power_model.read_battery_discharge(self.hass)
+            if discharge is None:
+                # No battery-power sensor mapped → feature off.
+                self._grid_battery_masking_tracker.reset()
+            else:
+                grid_import = self._power_model.read_grid_import(self.hass)
+                # get_home_current_soc() returns the sentinel 100.0 on an
+                # unavailable/unknown SOC sensor → home_soc <= home_min is False
+                # → fail-safe (a sensor fault never triggers a spurious stop).
+                home_soc = await self.priority_balancer.get_home_current_soc()
+                home_min = self._get_home_battery_min_soc()
+                threshold = self._get_grid_import_threshold()
+                sustain = self._get_grid_import_delay()
+                # Masking signature: battery discharging meaningfully AND grid
+                # near zero (so the EV's energy is NOT really from the grid) AND
+                # the home battery already at/below its protection floor. The
+                # grid_import guard avoids stopping when the EV genuinely charges
+                # from the grid while the battery serves house loads separately.
+                masking = (
+                    discharge > threshold
+                    and grid_import < threshold
+                    and home_soc <= home_min
+                )
+                if masking:
+                    self._grid_battery_masking_tracker.start_tracking()
+                    elapsed = self._grid_battery_masking_tracker.get_elapsed()
+                    if self._grid_battery_masking_tracker.is_stable(sustain):
+                        reason = (
+                            f"Home battery masking in grid mode: discharge "
+                            f"{discharge:.0f}W, grid {grid_import:.0f}W, "
+                            f"SOC {home_soc}% <= {home_min}%"
+                        )
+                        self.logger.warning(
+                            f"{self.logger.HOME} {self.logger.STOP} {reason} "
+                            f"(sustained {elapsed:.0f}s) - stopping grid mode"
+                        )
+                        if await self._stop_charger_with_control(reason):
+                            await self._complete_night_charge(
+                                STOP_REASON_HOME_BATTERY_MIN, terminal=True
+                            )
+                        return
+                    self.logger.info(
+                        f"{self.logger.HOME} Home battery masking "
+                        f"(discharge {discharge:.0f}W, grid {grid_import:.0f}W, "
+                        f"SOC {home_soc}% <= {home_min}%) sustained {elapsed:.0f}s "
+                        f"(need {sustain}s) - waiting"
+                    )
+                else:
+                    self._grid_battery_masking_tracker.reset()
+
         # Check 2: Validate the charger is still actually charging.
         # v2.2.0 has TWO independent stop reasons:
         #   (a) Lifecycle stop — an explicit not-charging status (free/end/
@@ -1767,6 +1833,9 @@ class NightSmartCharge:
             # stamp the session start for the startup ramp grace.
             self._grid_drawing_low_since = None
             self._grid_session_start = dt_util.now()
+            # v2.4.0 (issue #33): fresh session → clear the home-battery masking
+            # debounce so a leftover _stable_since can't fire on the first tick.
+            self._grid_battery_masking_tracker.reset()
             # v2.3.0 (issue #32): start each session with a clean PV-handoff debounce
             # and stamp the session start for the handoff hard-cap anchor.
             self._pv_handoff_tracker.reset()
@@ -2017,6 +2086,8 @@ class NightSmartCharge:
         # _stable_since can't make the next session's first check fire instantly.
         # Placed before the boost-preempt early return so both exit paths reset it.
         self._pv_handoff_tracker.reset()
+        # v2.4.0 (issue #33): same hygiene for the home-battery masking debounce.
+        self._grid_battery_masking_tracker.reset()
 
         # Boost Charge can preempt Night Smart Charge while a monitor callback is already
         # running. In that race, this cleanup must not mark the night session as completed

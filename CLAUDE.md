@@ -757,6 +757,37 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.4.0 (2026-06-04)
+**FEATURE: Night Smart Charge grid mode honours `home_battery_min_soc` on hybrid inverters (opt-in — [issue #33](https://github.com/antbald/ha-ev-smart-charger/issues/33), DJm00n)**
+
+**Problem**: same root cause as the battery-masking work in #29/#20, now in **Night Smart Charge grid mode**. On hybrid "Battery First" inverters (Deye/Sunsynk/Solis), when the EV charge starts the inverter discharges the **home battery first** — `grid_import ≈ 0` throughout — and only begins importing from the grid once the battery hits the inverter's *own internal* min SOC. The integration believes grid mode is drawing from the grid while it is actually draining the home battery, so `evsc_home_battery_min_soc` (an effective floor in **battery mode**, where the monitor stops at `home_soc <= home_min`) is silently bypassed in **grid mode** (whose monitor never read the home SOC).
+
+**Solution**: a new **Check 1.5 (home-battery masking protection)** in the GRID monitor loop (`_async_monitor_grid_charge`, 15 s), mirroring the battery-mode floor. The session stops (terminal) when, **sustained for `evsc_grid_import_delay`** (default 30 s, debounced via a `StabilityTracker` — same pattern as the v2.3.0 PV-handoff):
+
+```
+read_battery_discharge() > evsc_grid_import_threshold   # battery discharging meaningfully
+AND read_grid_import()   < evsc_grid_import_threshold   # EV energy NOT really from the grid
+AND home_soc            <= evsc_home_battery_min_soc     # battery at/below its protection floor
+```
+
+The `grid_import < threshold` guard (added vs the literal issue proposal, per adversarial review) makes it a true masking detector: it won't stop when the EV genuinely charges from the grid while the battery serves house loads separately.
+
+**Scope / safety**:
+- **Opt-in / additive.** Gated on a mapped `battery_power` sensor (already optional since v2.1.0): `ChargingModel.read_battery_discharge()` returns `None` when unconfigured → the check is a no-op, byte-for-byte v2.3.x. No new entity, no config-flow change, entity counts unchanged (**67 / 53**).
+- **`car_ready` ignored** (deliberate): the floor is a hard protection. The stop is **terminal**, consistent with battery-mode's home-min stop — recovery at dawn is handled by Solar Surplus / the v2.3.0 PV-handoff during the day, not by a nighttime re-activation that would just re-drain the battery.
+- **Fail-safe SOC.** `priority_balancer.get_home_current_soc()` returns the sentinel `100.0` on an unavailable/unknown SOC sensor and in PV-only mode → `home_soc <= home_min` is False → a sensor fault never triggers a spurious stop (adversarial-review claim of a SOC=0 false-stop invalidated).
+- **No new `STOP_REASON_*`** (same convention as v2.3.0/#32): the descriptive reason string is logged, but the diagnostic terminal code reuses `STOP_REASON_HOME_BATTERY_MIN` (the floor *was* reached) → **telemetry GAS schema untouched**, dashboard diagnostic rendering unchanged.
+- **Tracker reset** on grid-session start, on the condition clearing, and in `_complete_night_charge` — no stale debounce across sessions/days. The battery→grid fallback path is covered automatically (it routes through the same grid monitor).
+- **Orthogonal to Hybrid Inverter Mode** (its masking check is daytime-only, lower priority `SOLAR_SURPLUS=6 < NIGHT_CHARGE=4`, mutually-exclusive day/night windows) → no double-stop.
+
+**Known limitations (documented)**: on `car_ready=ON` workdays a stop can leave the EV undercharged — **silently**, exactly as battery mode's home-min stop already does today (no notification keys off this reason; a dedicated notification is a possible follow-up). On `car_ready=OFF` days with PV-handoff (#32) enabled and a *high* `home_battery_min_soc`, an overnight drop below the floor can stop the session before the handoff window (still correct protection; set the floor below the expected overnight drain).
+
+**Files**: `night_smart_charge.py` (`_grid_battery_masking_tracker` + 3 reset points + Check 1.5), `const.py` (VERSION), `manifest.json`, `README.md`, `docs/SSOT.md` (§4.2.1); tests: `test_night_smart_charge.py` (+6: masking stop, debounce wait, no-sensor no-op, grid-high no-stop, soc-above-min no-stop, reset-on-clear). Dashboard unchanged — `battery_power_entity` is already mapped since v2.1.0. `VERSION = "2.4.0"`. Full suite green except the pre-existing environment-only baseline failures (identical on clean master: 5 failed / 27 passed in this file, now 5 / 33 with the new tests).
+
+**Upgrade priority**: 🟢 RECOMMENDED for hybrid-inverter installs **with a home battery** on overnight grid charging — map the `battery_power` sensor to make `home_battery_min_soc` an effective floor in grid mode. ⚪ NO-OP for everyone else — without the sensor, behaviour is identical to v2.3.x.
+
+---
+
 ### v2.3.0 (2026-06-04)
 **FEATURE: Night Smart Charge stops on real PV availability, not astronomical sunrise (opt-in — [issue #32](https://github.com/antbald/ha-ev-smart-charger/issues/32), DJm00n)**
 

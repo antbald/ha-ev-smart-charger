@@ -8,6 +8,7 @@ from custom_components.ev_smart_charger.night_smart_charge import (
     NightSmartCharge,
     STOP_REASON_BOOST_PREEMPTED,
     STOP_REASON_EV_TARGET,
+    STOP_REASON_HOME_BATTERY_MIN,
 )
 from custom_components.ev_smart_charger.runtime import EVSCRuntimeData
 from custom_components.ev_smart_charger.const import (
@@ -835,6 +836,135 @@ async def test_grid_monitor_clears_stale_clock_on_sensor_unavailable(hass, night
 
     night_charge._complete_night_charge.assert_not_awaited()
     assert night_charge._grid_drawing_low_since is None
+
+
+# ============================================================================
+# v2.4.0 (issue #33) — grid-mode home-battery masking protection (Check 1.5)
+# ============================================================================
+
+
+async def _prime_grid_masking(
+    hass, night_charge, *, discharge, grid_import, home_soc
+):
+    """Arrange the grid monitor so execution reaches Check 1.5.
+
+    Check 2 is made to pass (status charging + real draw) so any non-stop
+    outcome is attributable to the masking check alone. ``discharge=None``
+    simulates 'no battery-power sensor mapped'.
+    """
+    # Make Check 2 a no-op (status charging, drawing well above the floor).
+    await _prime_grid_monitor(
+        hass,
+        night_charge,
+        status=CHARGER_STATUS_CHARGING,
+        measured=CHARGING_POWER_DRAWING_FLOOR_W + 3000,
+    )
+    night_charge._grid_session_start = dt_util.now() - timedelta(seconds=300)
+
+    # Check 1.5 reads from self._power_model (distinct from the Check-2 model).
+    masking_model = MagicMock()
+    masking_model.read_battery_discharge = MagicMock(return_value=discharge)
+    masking_model.read_grid_import = MagicMock(return_value=grid_import)
+    night_charge._power_model = masking_model
+
+    night_charge.priority_balancer.get_home_current_soc = AsyncMock(
+        return_value=home_soc
+    )
+    # Helper entities (min=20, threshold=50, delay=30) come from the fixture.
+
+
+async def test_grid_masking_stops_when_sustained(hass, night_charge):
+    """Battery draining (grid ~0) with SOC at/below floor, sustained → stop."""
+    await _prime_grid_masking(
+        hass, night_charge, discharge=3500, grid_import=0, home_soc=15
+    )
+    # Pre-arm the debounce past the 30 s sustain window.
+    night_charge._grid_battery_masking_tracker._stable_since = (
+        dt_util.now() - timedelta(seconds=35)
+    )
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_awaited_once()
+    assert (
+        night_charge._complete_night_charge.await_args.args[0]
+        == STOP_REASON_HOME_BATTERY_MIN
+    )
+    assert night_charge._complete_night_charge.await_args.kwargs["terminal"] is True
+
+
+async def test_grid_masking_waits_within_debounce(hass, night_charge):
+    """First masking tick only arms the debounce; no stop yet."""
+    await _prime_grid_masking(
+        hass, night_charge, discharge=3500, grid_import=0, home_soc=15
+    )
+    night_charge._grid_battery_masking_tracker.reset()  # fresh
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_not_awaited()
+    assert night_charge._grid_battery_masking_tracker.get_elapsed() >= 0
+    assert night_charge._grid_battery_masking_tracker._stable_since is not None
+
+
+async def test_grid_masking_no_battery_sensor_is_noop(hass, night_charge):
+    """No battery-power sensor (read_battery_discharge None) → no stop, byte-for-byte."""
+    await _prime_grid_masking(
+        hass, night_charge, discharge=None, grid_import=0, home_soc=15
+    )
+    night_charge._grid_battery_masking_tracker._stable_since = (
+        dt_util.now() - timedelta(seconds=120)
+    )
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_not_awaited()
+    assert night_charge._grid_battery_masking_tracker._stable_since is None
+
+
+async def test_grid_masking_no_stop_when_grid_high(hass, night_charge):
+    """Battery discharging but grid_import >= threshold → EV genuinely on grid → no stop."""
+    await _prime_grid_masking(
+        hass, night_charge, discharge=3500, grid_import=100, home_soc=15
+    )
+    night_charge._grid_battery_masking_tracker._stable_since = (
+        dt_util.now() - timedelta(seconds=120)
+    )
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_not_awaited()
+    assert night_charge._grid_battery_masking_tracker._stable_since is None
+
+
+async def test_grid_masking_no_stop_when_soc_above_min(hass, night_charge):
+    """SOC above the floor → no stop even with high discharge and low grid."""
+    await _prime_grid_masking(
+        hass, night_charge, discharge=3500, grid_import=0, home_soc=50
+    )
+    night_charge._grid_battery_masking_tracker._stable_since = (
+        dt_util.now() - timedelta(seconds=120)
+    )
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_not_awaited()
+    assert night_charge._grid_battery_masking_tracker._stable_since is None
+
+
+async def test_grid_masking_resets_when_condition_clears(hass, night_charge):
+    """A previously-armed debounce is reset when the condition stops holding."""
+    await _prime_grid_masking(
+        hass, night_charge, discharge=3500, grid_import=200, home_soc=15
+    )
+    night_charge._grid_battery_masking_tracker._stable_since = (
+        dt_util.now() - timedelta(seconds=20)
+    )
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_not_awaited()
+    assert night_charge._grid_battery_masking_tracker._stable_since is None
 
 
 # ============================================================================

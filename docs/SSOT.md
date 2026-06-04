@@ -154,6 +154,39 @@ No new terminal stop-reason is introduced: the dynamic reason string is logged,
 and the diagnostic terminal code stays `STOP_REASON_DEADLINE_OR_TARGET`. The PV
 reading is detection-only and never changes the commanded-control contract (§4.1).
 
+#### 4.2.1 Grid-mode home-battery masking protection (v2.4.0, issue #33)
+
+In **grid mode** the GRID monitor (15 s) adds a home-battery protection that
+makes `evsc_home_battery_min_soc` an effective floor — mirroring battery mode,
+which already stops at `home_soc <= home_min`. On hybrid "Battery First"
+inverters the EV charge silently drains the home battery (`grid_import ≈ 0`)
+instead of the grid until the inverter hits its own internal min SOC, bypassing
+the configured floor.
+
+The session stops (terminal) when, **sustained for `evsc_grid_import_delay`**
+(default 30 s, debounced via a `StabilityTracker`):
+
+```
+read_battery_discharge() > evsc_grid_import_threshold   # battery discharging meaningfully
+AND read_grid_import()   < evsc_grid_import_threshold   # EV energy NOT really from the grid
+AND home_soc            <= evsc_home_battery_min_soc     # battery at/below its protection floor
+```
+
+- **Opt-in / additive**: gated on a mapped `battery_power` sensor
+  (`read_battery_discharge()` returns `None` when unconfigured → no-op,
+  byte-for-byte). `car_ready` is intentionally ignored (the floor is a hard
+  protection); the stop is terminal, consistent with battery mode's home-min stop.
+- **Fail-safe**: `get_home_current_soc()` returns the sentinel `100.0` on an
+  unavailable SOC sensor / PV-only mode → the condition is False → no spurious stop.
+- **No new stop-reason** (same convention as §4.2): the descriptive reason is
+  logged, the diagnostic terminal code reuses `STOP_REASON_HOME_BATTERY_MIN`
+  (the floor *was* reached) → telemetry schema untouched. Detection-only; the
+  commanded-control contract (§4.1) is unchanged.
+- **Known interaction**: on `car_ready=OFF` days with PV-handoff (§4.2) enabled
+  and a high `evsc_home_battery_min_soc`, an overnight drop below the floor can
+  stop the session before the handoff window — this is still correct protection.
+  Set the floor below the expected overnight drain to avoid it.
+
 ## 5. Ownership and arbitration
 
 `custom_components/ev_smart_charger/automation_coordinator.py` is the canonical ownership plane for any automation that may start, stop, or adjust the charger.
