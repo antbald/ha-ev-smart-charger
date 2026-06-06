@@ -119,7 +119,12 @@ class AstralTimeService:
 
         return now < sunrise
 
-    def is_nighttime(self, now: datetime = None) -> bool:
+    def is_nighttime(
+        self,
+        now: datetime = None,
+        sunset_offset_minutes: int = 0,
+        sunrise_offset_minutes: int = 0,
+    ) -> bool:
         """
         Check if current time is nighttime (after sunset AND before sunrise).
 
@@ -127,6 +132,10 @@ class AstralTimeService:
 
         Args:
             now: Reference time (defaults to current time)
+            sunset_offset_minutes: minutes BEFORE sunset at which the night
+                window starts (issue #42; 0 = astronomical sunset).
+            sunrise_offset_minutes: minutes AFTER sunrise at which the night
+                window ends (issue #42; 0 = astronomical sunrise).
 
         Returns:
             True if nighttime, False otherwise
@@ -148,11 +157,18 @@ class AstralTimeService:
         if sunset_today is None or sunrise_today is None:
             return False
 
-        # Case 1: Current time is after sunset today
+        # issue #42: positive offsets EXTEND the night window (start earlier,
+        # end later). Defaults of 0 preserve the astronomical behaviour.
+        if sunset_offset_minutes:
+            sunset_today = sunset_today - timedelta(minutes=sunset_offset_minutes)
+        if sunrise_offset_minutes:
+            sunrise_today = sunrise_today + timedelta(minutes=sunrise_offset_minutes)
+
+        # Case 1: Current time is after (adjusted) sunset today
         if now >= sunset_today:
             return True
 
-        # Case 2: Current time is before sunrise today
+        # Case 2: Current time is before (adjusted) sunrise today
         # (means we're in the night period from yesterday's sunset)
         if now < sunrise_today:
             return True

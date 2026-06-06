@@ -30,6 +30,10 @@ from .const import (
     DEFAULT_NIGHT_CHARGE_AMPERAGE,
     DEFAULT_NIGHT_PV_HANDOFF_THRESHOLD,
     HELPER_NIGHT_PV_HANDOFF_THRESHOLD_SUFFIX,
+    DEFAULT_NIGHTTIME_SUNSET_OFFSET,
+    DEFAULT_NIGHTTIME_SUNRISE_OFFSET,
+    HELPER_NIGHTTIME_SUNSET_OFFSET_SUFFIX,
+    HELPER_NIGHTTIME_SUNRISE_OFFSET_SUFFIX,
     DEFAULT_BOOST_CHARGE_AMPERAGE,
     DEFAULT_BOOST_TARGET_SOC,
     DEFAULT_HYBRID_BATTERY_FULL_THRESHOLD,
@@ -75,6 +79,9 @@ async def async_setup_entry(
         ("evsc_min_solar_forecast_threshold", "EVSC Min Solar Forecast Threshold", "mdi:solar-power-variant", 0, 100, 1, DEFAULT_MIN_SOLAR_FORECAST_THRESHOLD, "kWh"),
         ("evsc_night_charge_amperage", "EVSC Night Charge Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_NIGHT_CHARGE_AMPERAGE, "A"),
         (HELPER_NIGHT_PV_HANDOFF_THRESHOLD_SUFFIX, "EVSC Night PV Handoff Threshold", "mdi:solar-power", 0, 5000, 50, DEFAULT_NIGHT_PV_HANDOFF_THRESHOLD, "W"),
+        # Nighttime window offsets (v2.6.0 — issue #42)
+        (HELPER_NIGHTTIME_SUNSET_OFFSET_SUFFIX, "EVSC Nighttime Sunset Offset", "mdi:weather-sunset-down", 0, 120, 5, DEFAULT_NIGHTTIME_SUNSET_OFFSET, "min"),
+        (HELPER_NIGHTTIME_SUNRISE_OFFSET_SUFFIX, "EVSC Nighttime Sunrise Offset", "mdi:weather-sunset-up", 0, 120, 5, DEFAULT_NIGHTTIME_SUNRISE_OFFSET, "min"),
         # Boost Charge
         ("evsc_boost_charge_amperage", "EVSC Boost Charge Amperage", "mdi:flash", 6, 32, 2, DEFAULT_BOOST_CHARGE_AMPERAGE, "A"),
         ("evsc_boost_target_soc", "EVSC Boost Target SOC", "mdi:battery-charging-90", 0, 100, 1, DEFAULT_BOOST_TARGET_SOC, "%"),
@@ -126,15 +133,27 @@ async def async_setup_entry(
         ("saturday", DEFAULT_EV_MIN_SOC_WEEKEND),
         ("sunday", DEFAULT_EV_MIN_SOC_WEEKEND),
     ]
+    # issue #37: "mdi:calendar-<weekday>" icons do NOT exist in Material Design
+    # Icons (HA renders an empty icon). Map to valid MDI icons instead.
+    _DAY_ICONS = {
+        "monday": "mdi:calendar-week",
+        "tuesday": "mdi:calendar-week",
+        "wednesday": "mdi:calendar-week",
+        "thursday": "mdi:calendar-week",
+        "friday": "mdi:calendar-week",
+        "saturday": "mdi:calendar-weekend",
+        "sunday": "mdi:calendar-weekend",
+    }
     for day, ev_default in _DAYS:
         cap = day.capitalize()
+        day_icon = _DAY_ICONS[day]
         # EV daily SOC target
         entities.append(
             EVSCNumber(
                 runtime_data, entry.entry_id,
                 f"evsc_ev_min_soc_{day}",
                 f"EVSC EV Min SOC {cap}",
-                f"mdi:calendar-{day}",
+                day_icon,
                 min_value=0, max_value=100, step=5,
                 default_value=ev_default, unit="%",
             )
@@ -146,7 +165,7 @@ async def async_setup_entry(
                     runtime_data, entry.entry_id,
                     f"evsc_home_min_soc_{day}",
                     f"EVSC Home Min SOC {cap}",
-                    f"mdi:calendar-{day}",
+                    day_icon,
                     min_value=0, max_value=100, step=5,
                     default_value=DEFAULT_HOME_MIN_SOC, unit="%",
                 )

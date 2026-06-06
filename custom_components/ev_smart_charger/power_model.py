@@ -30,6 +30,7 @@ from .const import (
     CONF_FV_PRODUCTION,
     CONF_FV_PRODUCTION_L2,
     CONF_FV_PRODUCTION_L3,
+    CONF_GRID_AVAILABLE,
     CONF_GRID_IMPORT,
     CONF_GRID_IMPORT_L2,
     CONF_GRID_IMPORT_L3,
@@ -95,6 +96,9 @@ class ChargingModel:
     # the model so is_charging() is a genuine single source of truth.
     _charging_power_entities: list[str] = field(default_factory=list)
     _charger_status_entity: str | None = None
+    # v2.6.0 (issue #36) — optional binary_sensor for grid availability
+    # (on = grid present, off = grid lost). None when unmapped.
+    _grid_available_entity: str | None = None
 
     @classmethod
     def from_config(cls, config: dict) -> "ChargingModel":
@@ -110,7 +114,24 @@ class ChargingModel:
             _battery_power_entity=config.get(CONF_BATTERY_POWER),
             _charging_power_entities=_entities_for(config, _CHARGING_POWER_KEYS),
             _charger_status_entity=config.get(CONF_EV_CHARGER_STATUS),
+            _grid_available_entity=config.get(CONF_GRID_AVAILABLE),
         )
+
+    def is_grid_available(self, hass) -> bool | None:
+        """Return grid availability from the optional binary_sensor (issue #36).
+
+        Fail-safe: returns ``None`` when the sensor is unmapped OR its state is
+        unknown/unavailable/None — callers must treat ``None`` as "don't act".
+        Only an explicit ``on``/``off`` yields ``True``/``False``. This prevents
+        a boot-time or inverter-integration-restart ``unavailable`` from being
+        read as "grid lost" and spuriously stopping a night session.
+        """
+        if not self._grid_available_entity:
+            return None
+        state = get_state(hass, self._grid_available_entity)
+        if state in _UNAVAILABLE_STATES:
+            return None
+        return str(state).lower() in ("on", "true", "1", "yes", "home", "present")
 
     # ----- entity lists (for validation / dashboard) -----
     def production_entities(self) -> list[str]:

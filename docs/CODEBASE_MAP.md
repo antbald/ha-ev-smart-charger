@@ -56,7 +56,7 @@ Makefile
 | `custom_components/ev_smart_charger/priority_balancer.py` | EV vs home battery decision logic | Decision-only, not a charger actuator |
 | `custom_components/ev_smart_charger/boost_charge.py` | Fixed-current override with SOC auto-stop; supports manual trigger and daily scheduled window | High-priority automation |
 | `custom_components/ev_smart_charger/automations.py` | Smart Charger Blocker | Can preempt lower-priority charging |
-| `custom_components/ev_smart_charger/night_smart_charge.py` | Overnight charging workflow with battery or grid mode | Owns night-session logic and handoff paths; PV-production handoff stop (v2.3.0, issue #32) in `_should_stop_for_deadline` |
+| `custom_components/ev_smart_charger/night_smart_charge.py` | Overnight charging workflow with battery or grid mode | Owns night-session logic and handoff paths; PV-production handoff stop (v2.3.0, issue #32) in `_should_stop_for_deadline`; grid-availability terminal stop (v2.6.0, issue #36) as grid-monitor Check 0.5 |
 | `custom_components/ev_smart_charger/solar_surplus.py` | Daytime solar-surplus charging and dynamic current control | Owns daytime adaptive loop |
 
 ## 4. Supporting services
@@ -67,7 +67,7 @@ Makefile
 | `custom_components/ev_smart_charger/diagnostic_manager.py` | Unified diagnostic sensor state, recent event history, and trace toggle handling |
 | `custom_components/ev_smart_charger/log_manager.py` | File logging toggle and log file path handling |
 | `custom_components/ev_smart_charger/utils/amperage_helper.py` | Amperage math and surplus-control helpers |
-| `custom_components/ev_smart_charger/utils/astral_time_service.py` | Sunrise and sunset window calculations |
+| `custom_components/ev_smart_charger/utils/astral_time_service.py` | Sunrise and sunset window calculations; `is_nighttime()` accepts optional sunset/sunrise offsets (v2.6.0, issue #42) |
 | `custom_components/ev_smart_charger/utils/time_parsing_service.py` | Parsing helper for time values |
 | `custom_components/ev_smart_charger/utils/logging_helper.py` | Shared logging setup |
 | `custom_components/ev_smart_charger/utils/notification_service.py` | Persistent notifications |

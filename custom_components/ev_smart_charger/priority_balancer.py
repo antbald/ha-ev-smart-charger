@@ -169,27 +169,16 @@ class PriorityBalancer:
             PRIORITY_HOME: EV at/above target, Home below target
             PRIORITY_EV_FREE: Both at/above targets
         """
-        self.logger.separator()
-        self.logger.start("Priority calculation")
-        self.logger.separator()
-
         # Get today
         today = dt_util.now().strftime("%A").lower()
-        self.logger.sensor_value(f"{self.logger.CALENDAR} Today", today.capitalize())
 
         # Get current SOCs
         ev_soc = await self.get_ev_current_soc()
         home_soc = await self.get_home_current_soc()
 
-        self.logger.sensor_value(f"{self.logger.EV} Current EV SOC", ev_soc, "%")
-        self.logger.sensor_value(f"{self.logger.HOME} Current Home SOC", home_soc, "%")
-
         # Get targets
         ev_target = self.get_ev_target_for_today()
         home_target = self.get_home_target_for_today()
-
-        self.logger.sensor_value(f"{self.logger.EV} Target EV SOC", ev_target, "%")
-        self.logger.sensor_value(f"{self.logger.HOME} Target Home SOC", home_target, "%")
 
         # Decision logic
         if ev_soc < ev_target:
@@ -202,9 +191,29 @@ class PriorityBalancer:
             priority = PRIORITY_EV_FREE
             reason = f"Both targets met: EV {ev_soc}% >= {ev_target}%, Home {home_soc}% >= {home_target}%"
 
-        self.logger.separator()
-        self.logger.decision("Priority", priority, reason)
-        self.logger.separator()
+        # issue #40: emit the verbose decision block at INFO only on the first
+        # call after setup and on a state transition. Stable-result ticks (the
+        # priority stays the same all afternoon) emit a single DEBUG line. The
+        # _emit_diagnostic telemetry call, the change-notification path and the
+        # sensor update below are intentionally untouched.
+        if self._last_priority is None or self._last_priority != priority:
+            self.logger.separator()
+            self.logger.start("Priority calculation")
+            self.logger.separator()
+            self.logger.sensor_value(f"{self.logger.CALENDAR} Today", today.capitalize())
+            self.logger.sensor_value(f"{self.logger.EV} Current EV SOC", ev_soc, "%")
+            self.logger.sensor_value(f"{self.logger.HOME} Current Home SOC", home_soc, "%")
+            self.logger.sensor_value(f"{self.logger.EV} Target EV SOC", ev_target, "%")
+            self.logger.sensor_value(f"{self.logger.HOME} Target Home SOC", home_target, "%")
+            self.logger.separator()
+            self.logger.decision("Priority", priority, reason)
+            self.logger.separator()
+        else:
+            self.logger.debug(
+                f"Priority unchanged: {priority} "
+                f"(EV {ev_soc}%/{ev_target}%, Home {home_soc}%/{home_target}%)"
+            )
+
         await self._emit_diagnostic(
             event="priority_calculated",
             result=priority,

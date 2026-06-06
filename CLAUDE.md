@@ -757,6 +757,109 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.6.0 (2026-06-06)
+**Mass bug-fixing & improvement release — 7 issues (#36–#42)**
+
+A grouped release closing seven reports (six from DJm00n, one from xion2000):
+three confirmed bugs, one log-noise cleanup, one self-tuning enhancement and two
+opt-in features. Fully backward compatible — existing installs see no behaviour
+change unless they map the new optional sensor or set the new numbers.
+
+**#37 — Invalid MDI day icons (BUG).** The daily SOC-target numbers built
+`mdi:calendar-{weekday}` icons (`mdi:calendar-monday`…`-sunday`) that do not
+exist in Material Design Icons, so HA rendered an empty icon. [number.py](custom_components/ev_smart_charger/number.py)
+now maps each day to a valid icon (`mdi:calendar-week` weekdays / `mdi:calendar-weekend`
+weekend). No entity/behaviour change.
+
+**#39 — Hybrid Mode EV_FREE guard hardcoded to 100% (BUG).** In
+[hybrid_inverter_mode.py](custom_components/ev_smart_charger/hybrid_inverter_mode.py)
+the `PRIORITY_EV_FREE` override guard compared `soc_home < 100` while the
+IDLE-entry and keep-alive guards used `evsc_hybrid_battery_full_threshold`. On
+large BMS-managed batteries that sit at 98–99% before briefly touching 100%, a
+user who set the threshold to 98 saw the probe refused. Both sites now use the
+configured `threshold` (default 95% → more permissive than 100, fully
+backward-compatible).
+
+**#41 — Telemetry 302 raw body looked like an error (BUG, cosmetic).**
+[telemetry.py](custom_components/ev_smart_charger/telemetry.py) logged the raw
+response body *before* the status check, so the standard GAS redirect HTML
+(`<!-- GSE Default Error --> Moved Temporarily`) printed on every successful
+302 and read as a failure. The raw-body log now runs only for non-302 (2xx /
+error) responses; the 302 happy path logs a single success line. Delivery/retry
+logic unchanged.
+
+**#40 — INFO log flood at idle (~48k lines/day) (IMPROVEMENT, detection-only).**
+Three components logged verbose INFO blocks on every periodic tick even when
+nothing changed. Now they emit the full block at INFO only when something
+actionable happens, and a single DEBUG line otherwise — no behaviour change, and
+the diagnostic sensors still update every tick.
+- [solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py): the
+  sensor/decision readout is consolidated after `target_amps` is finalized and
+  gated on `target_amps != current_amps`; the per-tick header, "Priority
+  Balancer:" and "Both targets met" lines and the "Amperage optimal at 0A"
+  confirmation are DEBUG on no-op ticks.
+- [priority_balancer.py](custom_components/ev_smart_charger/priority_balancer.py):
+  the decision block logs at INFO only on the first call and on a state
+  transition (reusing `_last_priority`); stable ticks emit one DEBUG line. The
+  diagnostic-telemetry and change-notification paths are untouched.
+- [night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py):
+  the "WINDOW CHECK DIAGNOSTIC" block (a v1.4.2 debug relic) is now INFO only
+  when the window is active or within 30 minutes of opening; otherwise DEBUG.
+
+**#38 — Slow RIDING_EDGE convergence on Generic chargers (ENHANCEMENT,
+self-tuning).** Generic chargers step in 1 A increments, so RIDING_EDGE took
+~11 ticks (6→17 A) vs ~5 for Tuya. [hybrid_inverter_mode.py](custom_components/ev_smart_charger/hybrid_inverter_mode.py)
+now tracks consecutive stable step-ups (`_consecutive_stepup_count`) and, on a
+Generic charger only, jumps 2 levels per tick after 2 consecutive single-level
+step-ups (capped at `solar_max_amperage`). The counter resets on any step-down
+and on every state transition. Tuya is unaffected (its levels are already
+coarse). No new entity — counts unchanged.
+
+**#36 — Grid loss drains the home battery (FEATURE / SAFETY).** On hybrid
+"Battery First"/UPS inverters a grid outage is invisible to the integration
+(all power sensors keep reporting), so Night Smart Charge grid mode keeps
+drawing — now from the home battery — during the outage. New **optional
+`grid_available` binary_sensor** (mapped in the Sensors step): when it reads OFF
+(debounced for the grid-import delay, default 30 s) the grid-mode session stops
+terminally. **Fail-safe** ([power_model.py](custom_components/ev_smart_charger/power_model.py)
+`is_grid_available`): an unmapped sensor OR an `unavailable`/`unknown` state
+returns `None` and never triggers a stop (so a boot-time / inverter-restart
+`unavailable` cannot spuriously kill the session). Solar Surplus and Hybrid
+Mode need no change (they key off PV surplus). New `STOP_REASON_GRID_LOSS`;
+unmapped → byte-for-byte legacy behaviour. No new helper entity (counts
+unchanged).
+
+**#42 — Customizable nighttime period (FEATURE).** Two opt-in numbers,
+`evsc_nighttime_sunset_offset` and `evsc_nighttime_sunrise_offset` (minutes,
+0–120, default 0). Positive values **extend** the nighttime window that gates
+Solar Surplus (the "SKIPPED: Nighttime" decision): night starts this many
+minutes before sunset and ends this many minutes after sunrise.
+`AstralTimeService.is_nighttime` takes the offsets (default 0 = astronomical,
+byte-for-byte legacy); only the Solar Surplus call passes them — the Smart
+Blocker window and Hybrid Mode daytime gate are intentionally unchanged.
+
+**Entity counts**: +2 always-created numbers (issue #42) →
+`TOTAL_INTEGRATION_ENTITIES` 67→**69**, `TOTAL_INTEGRATION_ENTITIES_NO_BATTERY`
+53→**55**. #36 is a mapped sensor, not a helper (counts unchanged).
+
+**Files**: `number.py` (#37, #42), `hybrid_inverter_mode.py` (#39, #38),
+`telemetry.py` (#41), `solar_surplus.py` (#40, #42), `priority_balancer.py`
+(#40), `night_smart_charge.py` (#40, #36), `power_model.py` (#36),
+`config_flow.py` (#36), `dashboard_manager.py` (#36), `utils/astral_time_service.py`
+(#42), `const.py`, `strings.json` + `translations/{en,it,nl}.json`,
+`frontend/ev-smart-charger-dashboard.js` (#42 steppers + #36 whitelist),
+`manifest.json`; tests: new `tests/test_v260_fixes.py` (#36 fail-safe reader,
+#42 offsets), `tests/test_config_flow.py` (counts 69/55). `VERSION = "2.6.0"`.
+Full suite green except the pre-existing environment-only baseline failures
+(identical on clean master).
+
+**Upgrade priority**: 🟢 RECOMMENDED for hybrid-inverter installs (map
+`grid_available` for outage protection #36) and anyone bothered by the INFO log
+flood (#40). ⚪ Otherwise low-impact — the bug fixes are transparent and the two
+features are opt-in.
+
+---
+
 ### v2.5.1 (2026-06-04)
 **FIX: Stale "SKIPPED: Nighttime" on the Solar Surplus diagnostic + self-diagnosable astral times ([issue #34](https://github.com/antbald/ha-ev-smart-charger/issues/34), xion2000)**
 

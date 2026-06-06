@@ -42,7 +42,8 @@
           "grid_import_l3": "Netafname (L3)",
           "charging_power": "EV-laadvermogen",
           "charging_power_l2": "EV-laadvermogen (L2)",
-          "charging_power_l3": "EV-laadvermogen (L3)"
+          "charging_power_l3": "EV-laadvermogen (L3)",
+          "grid_available": "Net beschikbaar (binaire sensor)"
         },
         "data_description": {
           "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
@@ -58,7 +59,8 @@
           "grid_import_l3": "Netafname op fase L3, in watt.",
           "charging_power": "Optioneel maar aanbevolen. Gemeten EV-laadvermogen in watt — het betrouwbaarste signaal of de auto daadwerkelijk stroom verbruikt. Indien toegewezen heeft het voorrang op de statussensor voor laaddetectie. In driefasemodus wijs je alle drie de fasesensoren toe of laat je ze alle drie leeg (ze worden opgeteld).",
           "charging_power_l2": "EV-laadvermogen op fase L2, in watt. Wijs alle drie de fasen toe of geen.",
-          "charging_power_l3": "EV-laadvermogen op fase L3, in watt. Wijs alle drie de fasen toe of geen."
+          "charging_power_l3": "EV-laadvermogen op fase L3, in watt. Wijs alle drie de fasen toe of geen.",
+          "grid_available": "Optioneel. Binaire sensor die de netbeschikbaarheid aangeeft (on = net aanwezig, off = net weg). Indien toegewezen en off stopt de grid-modus van Night Smart Charge, zodat de thuisbatterij tijdens een stroomstoring niet wordt leeggetrokken (handig bij hybride Battery First / UPS-omvormers). Laat leeg om het vorige gedrag te behouden."
         }
       },
       "hybrid_inverter": {
@@ -146,7 +148,8 @@
           "grid_import_l3": "Netafname (L3)",
           "charging_power": "EV-laadvermogen",
           "charging_power_l2": "EV-laadvermogen (L2)",
-          "charging_power_l3": "EV-laadvermogen (L3)"
+          "charging_power_l3": "EV-laadvermogen (L3)",
+          "grid_available": "Net beschikbaar (binaire sensor)"
         },
         "data_description": {
           "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
@@ -162,7 +165,8 @@
           "grid_import_l3": "Netafname op fase L3, in watt.",
           "charging_power": "Optioneel maar aanbevolen. Gemeten EV-laadvermogen in watt — het betrouwbaarste signaal of de auto daadwerkelijk stroom verbruikt. Indien toegewezen heeft het voorrang op de statussensor voor laaddetectie. In driefasemodus wijs je alle drie de fasesensoren toe of laat je ze alle drie leeg (ze worden opgeteld).",
           "charging_power_l2": "EV-laadvermogen op fase L2, in watt. Wijs alle drie de fasen toe of geen.",
-          "charging_power_l3": "EV-laadvermogen op fase L3, in watt. Wijs alle drie de fasen toe of geen."
+          "charging_power_l3": "EV-laadvermogen op fase L3, in watt. Wijs alle drie de fasen toe of geen.",
+          "grid_available": "Optioneel. Binaire sensor die de netbeschikbaarheid aangeeft (on = net aanwezig, off = net weg). Indien toegewezen en off stopt de grid-modus van Night Smart Charge, zodat de thuisbatterij tijdens een stroomstoring niet wordt leeggetrokken (handig bij hybride Battery First / UPS-omvormers). Laat leeg om het vorige gedrag te behouden."
         }
       },
       "reconfigure_hybrid_inverter": {
@@ -307,7 +311,8 @@
           "grid_import_l3": "Netafname (L3)",
           "charging_power": "EV-laadvermogen",
           "charging_power_l2": "EV-laadvermogen (L2)",
-          "charging_power_l3": "EV-laadvermogen (L3)"
+          "charging_power_l3": "EV-laadvermogen (L3)",
+          "grid_available": "Net beschikbaar (binaire sensor)"
         },
         "data_description": {
           "soc_car": "Sensor met de laadtoestand van de EV in procenten.",
@@ -323,7 +328,8 @@
           "grid_import_l3": "Netafname op fase L3, in watt.",
           "charging_power": "Optioneel maar aanbevolen. Gemeten EV-laadvermogen in watt — het betrouwbaarste signaal of de auto daadwerkelijk stroom verbruikt. Indien toegewezen heeft het voorrang op de statussensor voor laaddetectie. In driefasemodus wijs je alle drie de fasesensoren toe of laat je ze alle drie leeg (ze worden opgeteld).",
           "charging_power_l2": "EV-laadvermogen op fase L2, in watt. Wijs alle drie de fasen toe of geen.",
-          "charging_power_l3": "EV-laadvermogen op fase L3, in watt. Wijs alle drie de fasen toe of geen."
+          "charging_power_l3": "EV-laadvermogen op fase L3, in watt. Wijs alle drie de fasen toe of geen.",
+          "grid_available": "Optioneel. Binaire sensor die de netbeschikbaarheid aangeeft (on = net aanwezig, off = net weg). Indien toegewezen en off stopt de grid-modus van Night Smart Charge, zodat de thuisbatterij tijdens een stroomstoring niet wordt leeggetrokken (handig bij hybride Battery First / UPS-omvormers). Laat leeg om het vorige gedrag te behouden."
         }
       },
       "hybrid_inverter": {
@@ -543,6 +549,12 @@
       },
       "evsc_night_pv_handoff_threshold": {
         "name": "PV-drempel voor dagoverdracht"
+      },
+      "evsc_nighttime_sunset_offset": {
+        "name": "Nacht-offset vóór zonsondergang"
+      },
+      "evsc_nighttime_sunrise_offset": {
+        "name": "Nacht-offset na zonsopkomst"
       },
       "evsc_boost_charge_amperage": {
         "name": "Boostlaadstroom"

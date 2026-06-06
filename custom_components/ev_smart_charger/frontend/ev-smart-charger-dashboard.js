@@ -93,6 +93,8 @@ const DOMAIN_SUFFIXES = {
   minSolarForecast: ["number", "evsc_min_solar_forecast_threshold"],
   nightAmperage: ["number", "evsc_night_charge_amperage"],
   nightPvHandoff: ["number", "evsc_night_pv_handoff_threshold"],
+  nighttimeSunsetOffset: ["number", "evsc_nighttime_sunset_offset"],
+  nighttimeSunriseOffset: ["number", "evsc_nighttime_sunrise_offset"],
 
   // ── Solar Surplus
   checkInterval: ["number", "evsc_check_interval"],
@@ -262,6 +264,22 @@ const SETTINGS_CATALOG = [
           nl: "Alleen voor dagen dat de auto NIET als klaar is gemarkeerd. Night Charge stopt normaal bij astronomische zonsopkomst, wat op hoge breedtegraden uren voor de echte zonneopbrengst kan zijn. Zet boven 0 W om door te laden na zonsopkomst en pas over te dragen aan Solar Surplus zodra de PV-productie 5 minuten boven deze waarde blijft. Stopt op bewolkte dagen uiterlijk op de Auto-klaar-tijd.",
         },
         hint: { en: "Default 0 W = off (stop at sunrise). Suggested ~200 W", it: "Default 0 W = disattivato (stop all'alba). Consigliato ~200 W", nl: "Standaard 0 W = uit (stop bij zonsopkomst). Aanbevolen ~200 W" } },
+      { entityKey: "nighttimeSunsetOffset", kind: "stepper",
+        name: { en: "Nighttime Sunset Offset", it: "Offset notte prima del tramonto", nl: "Nacht-offset vóór zonsondergang" },
+        desc: {
+          en: "Extend the nighttime window EARLIER: start treating it as night this many minutes before sunset. This is the window where Solar Surplus is skipped (\"SKIPPED: Nighttime\").",
+          it: "Estende la finestra notturna PRIMA: considera notte questi minuti prima del tramonto. È la finestra in cui Solar Surplus viene saltato (\"SKIPPED: Nighttime\").",
+          nl: "Verleng het nachtvenster EERDER: behandel het als nacht zoveel minuten vóór zonsondergang. Dit is het venster waarin Solar Surplus wordt overgeslagen (\"SKIPPED: Nighttime\").",
+        },
+        hint: { en: "Default 0 min = astronomical sunset · Range 0–120", it: "Default 0 min = tramonto astronomico · Range 0–120", nl: "Standaard 0 min = astronomische zonsondergang · Bereik 0–120" } },
+      { entityKey: "nighttimeSunriseOffset", kind: "stepper",
+        name: { en: "Nighttime Sunrise Offset", it: "Offset notte dopo l'alba", nl: "Nacht-offset na zonsopkomst" },
+        desc: {
+          en: "Extend the nighttime window LATER: keep treating it as night this many minutes after sunrise, delaying when Solar Surplus resumes.",
+          it: "Estende la finestra notturna DOPO: continua a considerare notte questi minuti dopo l'alba, ritardando la ripresa di Solar Surplus.",
+          nl: "Verleng het nachtvenster LATER: behandel het als nacht zoveel minuten na zonsopkomst, waardoor Solar Surplus later hervat.",
+        },
+        hint: { en: "Default 0 min = astronomical sunrise · Range 0–120", it: "Default 0 min = alba astronomica · Range 0–120", nl: "Standaard 0 min = astronomische zonsopkomst · Bereik 0–120" } },
       { entityKey: "preserveHomeBattery", kind: "toggle",
         name: { en: "Preserve Home Battery", it: "Preserva batteria di casa", nl: "Thuisbatterij sparen" },
         desc: {
@@ -1036,6 +1054,9 @@ class EvSmartChargerDashboard extends HTMLElement {
       // v2.1.0 (issue #29): signed battery-power sensor. MUST be whitelisted
       // here or it is silently dropped (cf. the v1.11.13 regression above).
       battery_power_entity: config?.battery_power_entity,
+      // v2.6.0 (issue #36): grid-availability binary_sensor. MUST be whitelisted
+      // here or it is silently dropped (cf. the v1.11.13 regression above).
+      grid_available_entity: config?.grid_available_entity,
       // v2.0.0: phase mode + charger model. In three-phase the *_entities
       // arrays carry the per-phase sensors so the power tiles can sum them;
       // phase_mode drives the 230 V vs 690 V charging-power derivation.

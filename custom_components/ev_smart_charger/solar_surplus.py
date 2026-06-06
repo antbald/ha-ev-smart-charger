@@ -25,6 +25,8 @@ from .const import (
     HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX,
     HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX,
     HELPER_SOLAR_MAX_AMPERAGE_SUFFIX,
+    HELPER_NIGHTTIME_SUNSET_OFFSET_SUFFIX,
+    HELPER_NIGHTTIME_SUNRISE_OFFSET_SUFFIX,
     DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
     DEFAULT_SOLAR_MAX_AMPERAGE,
     SURPLUS_START_THRESHOLD,
@@ -120,6 +122,9 @@ class SolarSurplusAutomation:
         self._battery_support_amperage_entity = None
         self._battery_support_sunset_buffer_entity = None
         self._solar_max_amperage_entity = None
+        # v2.6.0 (issue #42): nighttime window offsets (minutes). 0 = astronomical.
+        self._nighttime_sunset_offset_entity = None
+        self._nighttime_sunrise_offset_entity = None
         # v2.1.0 (issue #29): battery-only deadband buffer limit (W). 0 = off.
         self._max_battery_discharge_entity = None
         self._solar_surplus_diagnostic_sensor_entity = None
@@ -365,6 +370,13 @@ class SolarSurplusAutomation:
         self._grid_import_threshold_entity = self._find_entity_by_suffix("evsc_grid_import_threshold")
         self._grid_import_delay_entity = self._find_entity_by_suffix("evsc_grid_import_delay")
         self._surplus_drop_delay_entity = self._find_entity_by_suffix("evsc_surplus_drop_delay")
+        # v2.6.0 (issue #42): nighttime window offsets
+        self._nighttime_sunset_offset_entity = self._find_entity_by_suffix(
+            HELPER_NIGHTTIME_SUNSET_OFFSET_SUFFIX
+        )
+        self._nighttime_sunrise_offset_entity = self._find_entity_by_suffix(
+            HELPER_NIGHTTIME_SUNRISE_OFFSET_SUFFIX
+        )
         # v1.7.0: skip battery helper discovery in PV-only mode
         if self._has_home_battery:
             self._use_home_battery_entity = self._find_entity_by_suffix("evsc_use_home_battery")
@@ -532,8 +544,10 @@ class SolarSurplusAutomation:
 
         self._check_count += 1
 
-        self.logger.separator()
-        self.logger.start(f"Periodic check #{self._check_count}")
+        # issue #40: this header (and most per-tick readout below) is DEBUG now.
+        # On idle no-op ticks nothing actionable happens, so INFO is reserved for
+        # ticks that take an action; the diagnostic sensor still updates every tick.
+        self.logger.debug(f"Periodic check #{self._check_count}")
 
         # === 1. Check Forza Ricarica (Kill Switch) ===
         if get_bool(self.hass, self._forza_ricarica_entity):
@@ -580,7 +594,11 @@ class SolarSurplusAutomation:
         now = dt_util.now()
         current_profile = get_state(self.hass, self._charging_profile_entity)
 
-        if self._astral_service.is_nighttime(now):
+        # issue #42: optional user offsets extend the nighttime window (start
+        # before sunset / end after sunrise). 0 = astronomical (legacy).
+        sunset_offset = int(get_float(self.hass, self._nighttime_sunset_offset_entity, 0))
+        sunrise_offset = int(get_float(self.hass, self._nighttime_sunrise_offset_entity, 0))
+        if self._astral_service.is_nighttime(now, sunset_offset, sunrise_offset):
             await self._handle_nighttime_transition(now, current_profile)
             self.logger.separator()
             return
@@ -691,7 +709,7 @@ class SolarSurplusAutomation:
             # "disabled" warning surfaced while it was off.
             await self._clear_balancer_disabled_warning()
             priority = await self.priority_balancer.calculate_priority()
-            self.logger.info(f"Priority Balancer: {priority}")
+            self.logger.debug(f"Priority Balancer: {priority}")
 
             if priority == PRIORITY_HOME:
                 self.logger.warning("Priority = HOME - Stopping EV charger")
@@ -708,7 +726,7 @@ class SolarSurplusAutomation:
                 return
 
             if priority == PRIORITY_EV_FREE:
-                self.logger.info(
+                self.logger.debug(
                     f"{self.logger.SUCCESS} Both targets met (Priority = EV_FREE) - "
                     "allowing opportunistic solar charging"
                 )
@@ -768,11 +786,8 @@ class SolarSurplusAutomation:
         grid_import = self._power_model.read_grid_import(self.hass)
         surplus_watts = fv_production - home_consumption
         surplus_amps = surplus_watts / self._effective_voltage
-
-        self.logger.info(f"Solar Production: {fv_production}W")
-        self.logger.info(f"Home Consumption: {home_consumption}W")
-        self.logger.info(f"Surplus: {surplus_watts}W ({surplus_amps:.2f}A)")
-        self.logger.info(f"Grid Import: {grid_import}W")
+        # issue #40: the full sensor readout is logged once, conditionally, after
+        # target_amps is finalized (see "issue #40 readout" block below).
 
         # === 10b. Hybrid Inverter Mode (v1.8.0 — issue #20) ===
         # In hybrid zero-export systems, when the home battery is full the
@@ -815,8 +830,6 @@ class SolarSurplusAutomation:
             current_amps = await self.charger_controller.get_current_amperage() or 6
         else:
             current_amps = 0
-
-        self.logger.info(f"Current charging: {current_amps}A (charger {'ON' if charger_is_on else 'OFF'})")
 
         # === 12. Calculate Target Amperage (with hysteresis) ===
         target_amps = self._calculate_target_amperage(surplus_watts, current_amps)
@@ -862,8 +875,6 @@ class SolarSurplusAutomation:
                 self.logger.info(f"Target capped: {target_amps}A → {capped}A (solar max amperage: {max_amps}A)")
                 target_amps = capped
 
-        self.logger.info(f"Target amperage: {target_amps}A")
-
         # === 12b. Opportunistic Dead Band Start ===
         # When charger is OFF and surplus is in dead band (5.5-6.5A) for a prolonged
         # period, override target to 6A. This prevents the charger from sitting idle
@@ -900,6 +911,28 @@ class SolarSurplusAutomation:
             if self._deadband_start_time is not None:
                 self.logger.debug("Dead band timer reset (conditions changed)")
                 self._deadband_start_time = None
+
+        # === issue #40 readout ===
+        # target_amps is now final. Emit the full sensor/decision block at INFO
+        # only when an action will be taken (target != current). On stable no-op
+        # ticks emit a single DEBUG line. The diagnostic sensor (section below)
+        # still updates every tick regardless.
+        if target_amps != current_amps:
+            self.logger.info(f"Solar Production: {fv_production}W")
+            self.logger.info(f"Home Consumption: {home_consumption}W")
+            self.logger.info(f"Surplus: {surplus_watts}W ({surplus_amps:.2f}A)")
+            self.logger.info(f"Grid Import: {grid_import}W")
+            self.logger.info(
+                f"Current charging: {current_amps}A "
+                f"(charger {'ON' if charger_is_on else 'OFF'})"
+            )
+            self.logger.info(f"Target amperage: {target_amps}A")
+        else:
+            self.logger.debug(
+                f"No action: surplus={surplus_watts:.0f}W ({surplus_amps:.2f}A), "
+                f"current={current_amps}A, target={target_amps}A, "
+                f"grid={grid_import}W, priority={priority if priority else 'DISABLED'}"
+            )
 
         # === 13. Get Configuration Values ===
         grid_threshold = get_float(self.hass, self._grid_import_threshold_entity)
@@ -1022,13 +1055,20 @@ class SolarSurplusAutomation:
         # Surplus-based adjustment
         if target_amps < current_amps:
             await self._handle_surplus_decrease(target_amps, current_amps, surplus_amps, surplus_drop_delay)
+            self.logger.separator()
         elif target_amps > current_amps:
             await self._handle_surplus_increase(target_amps, current_amps)
+            self.logger.separator()
         else:
-            self.logger.success(f"Amperage optimal at {current_amps}A")
+            # issue #40: charger already off and nothing to confirm → DEBUG, no
+            # separator (keeps idle no-op ticks to a single DEBUG line). When
+            # actually charging at the optimal level, keep the INFO confirmation.
+            if current_amps == 0:
+                self.logger.debug("Amperage optimal at 0A (charger off — nothing to confirm)")
+            else:
+                self.logger.success(f"Amperage optimal at {current_amps}A")
+                self.logger.separator()
             self._reset_state_tracking()
-
-        self.logger.separator()
 
     def _get_ev_soc_staleness(self) -> dict:
         """Return EV SOC freshness metadata based on cached sensor update age."""
@@ -1147,13 +1187,22 @@ class SolarSurplusAutomation:
         Lets users self-diagnose a "SKIPPED: Nighttime" shown in daytime:
         if these sunrise/sunset times look wrong, the HA location/timezone is
         misconfigured; if they look right, the value is stale (issue #34).
+
+        Sunrise/sunset are the RAW astronomical times. The nighttime-window
+        offsets (issue #42) are reported alongside so the effective window can
+        be reconstructed: night starts (sunset - sunset_offset) and ends
+        (sunrise + sunrise_offset).
         """
         sunset = self._astral_service.get_sunset(now)
         sunrise = self._astral_service.get_sunrise(now)
+        sunset_offset = int(get_float(self.hass, self._nighttime_sunset_offset_entity, 0))
+        sunrise_offset = int(get_float(self.hass, self._nighttime_sunrise_offset_entity, 0))
         return {
             "now": now.isoformat(),
             "sunrise_today": sunrise.isoformat() if sunrise else None,
             "sunset_today": sunset.isoformat() if sunset else None,
+            "nighttime_sunset_offset_min": sunset_offset,
+            "nighttime_sunrise_offset_min": sunrise_offset,
         }
 
     async def _handle_nighttime_transition(self, now: datetime, current_profile: str | None) -> None:

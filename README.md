@@ -54,6 +54,8 @@ Most projects target one charger brand or assume a single-phase home. EV Smart C
 
 > **🔋 New in v2.4.0** — the same **battery-power sensor** now also protects **Night Smart Charge grid mode**. On hybrid "Battery First" inverters, grid-mode charging can silently drain the home battery (grid stays ≈ 0 W) instead of pulling from the grid; v2.4.0 stops the session once the battery is being drained *and* has reached `home_battery_min_soc`, making that floor effective in grid mode just like it already is in battery mode. **No-op without the sensor.** Solves [issue #33](https://github.com/antbald/ha-ev-smart-charger/issues/33).
 
+> **🆕 New in v2.6.0** — mass bug-fix & improvement release (issues #36–#42). Highlights: an optional **`grid_available` binary sensor** ([issue #36](https://github.com/antbald/ha-ev-smart-charger/issues/36)) stops Night Smart Charge grid mode during a **grid outage** so it doesn't drain the home battery on hybrid Battery First / UPS inverters (fail-safe: an unavailable sensor never triggers a false stop); a **customizable nighttime window** ([issue #42](https://github.com/antbald/ha-ev-smart-charger/issues/42)) via two opt-in offset numbers (start before sunset / end after sunrise); and a big **INFO log-noise reduction** ([issue #40](https://github.com/antbald/ha-ev-smart-charger/issues/40)) — idle ticks no longer flood the HA log. Also: valid day icons (#37), faster Generic-charger ramp-up (#38), a consistent Hybrid full-battery threshold (#39), and a cleaner telemetry log (#41). **All backward compatible** — the two features are opt-in.
+
 ---
 
 ## 📸 Preview
@@ -416,8 +418,11 @@ The charger switch entity is used as the unique ID for the config entry. Adding 
 | Home consumption | Yes | `W` |
 | Grid import | Yes | `W` |
 | EV charging power (v2.2.0) | No | `W` |
+| Grid available (v2.6.0) | No | `binary_sensor` |
 
 **EV charging power (v2.2.0):** the most reliable signal for whether the car is actually drawing current — when mapped it becomes the single source of truth for charging detection (and the dashboard's green "EV charging" banner), overriding the status string. In three-phase mode map all three per-phase sensors (they are summed) or leave all blank. The sensor must report positive watts while charging; if yours reports negative, wrap it in a template sensor (`{{ states('sensor.your_power') | float(0) | abs }}`) — the diagnostic sensor's `charging_power_w` will read a flat 0 W if the sign is reversed.
+
+**Grid available (v2.6.0 — [issue #36](https://github.com/antbald/ha-ev-smart-charger/issues/36)):** optional `binary_sensor` (on = grid present, off = grid lost), typically exposed by hybrid inverter integrations (e.g. `binary_sensor.inverter_grid`). On hybrid "Battery First"/UPS inverters a grid outage is invisible to the integration (every power sensor keeps reporting), so Night Smart Charge **grid mode** would keep drawing — now from the home battery — during the outage. When mapped and OFF (sustained for the grid-import delay, default 30 s), the grid-mode session stops. **Fail-safe:** an `unavailable`/`unknown` state (e.g. at HA boot or an inverter-integration restart) is treated as "unknown" and never triggers a stop. Leave empty to keep the previous behaviour.
 
 ### Step 4 — PV Forecast
 
@@ -554,6 +559,8 @@ When a day's flag is **ON** and the EV target is not yet reached at sunrise, Nig
 | `evsc_night_charge_amperage` | `16` | `6–32` | A | Amperage for overnight charging sessions. |
 | `evsc_min_solar_forecast_threshold` | `20` | `0–100` | kWh | If tomorrow's forecast ≥ this value, Night Smart Charge uses home battery mode instead of grid mode. |
 | `evsc_night_pv_handoff_threshold` | `0` | `0–5000` | W | **v2.3.0 (opt-in).** `0` = disabled (stop at astronomical sunrise). When > 0, on `car_ready` OFF days Night Smart Charge continues past sunrise and hands off to Solar Surplus once measured `fv_production` stays ≥ this value for 5 min (hard-capped at `evsc_car_ready_time`). Recommended ~200 W, above your inverter's idle reading. See the high-latitude note in [Night Smart Charge](#night-smart-charge). |
+| `evsc_nighttime_sunset_offset` | `0` | `0–120` | min | **v2.6.0 (opt-in — [issue #42](https://github.com/antbald/ha-ev-smart-charger/issues/42)).** Minutes **before** sunset at which the nighttime window starts. `0` = astronomical sunset. Extends the window where Solar Surplus is skipped ("SKIPPED: Nighttime"). |
+| `evsc_nighttime_sunrise_offset` | `0` | `0–120` | min | **v2.6.0 (opt-in — [issue #42](https://github.com/antbald/ha-ev-smart-charger/issues/42)).** Minutes **after** sunrise at which the nighttime window ends. `0` = astronomical sunrise. Delays when Solar Surplus resumes in the morning. |
 
 ---
 

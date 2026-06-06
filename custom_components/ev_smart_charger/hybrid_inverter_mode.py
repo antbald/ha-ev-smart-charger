@@ -59,6 +59,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CHARGER_MODEL_GENERIC,
     CHARGER_STATUS_END,
     CHARGER_STATUS_FREE,
     CONF_CAR_OWNER,
@@ -199,6 +200,12 @@ class HybridInverterMode:
         self._headroom_ok_since: datetime | None = None
         self._riding_edge_entered_at: datetime | None = None
         self._current_target_amps: int = 0
+        # issue #38: self-tuning step-up for Generic chargers. Generic uses 1A
+        # levels, so 6→17A is 11 ticks (~11 min at 1-min check interval) vs ~5
+        # for Tuya. After 2 consecutive single-level step-ups on stable headroom
+        # we jump 2 levels at a time to converge faster. Reset on any step-down
+        # or exit. Tuya is unaffected (its levels are already coarse).
+        self._consecutive_stepup_count: int = 0
 
         # Grid import entry smoothing (so we don't enter PROBING on a 1s dip)
         self._grid_import_below_threshold_since: datetime | None = None
@@ -387,11 +394,14 @@ class HybridInverterMode:
             return False
 
         # Priority Balancer must not say HOME. EV_FREE override is allowed only
-        # when home SOC is truly 100% (strict — see adversarial review #10).
+        # when the home battery is "full" per the user-configured threshold
+        # (issue #39 — was hardcoded 100, inconsistent with the IDLE-entry guard
+        # above which already uses battery_full_threshold; BMS systems can sit at
+        # 98–99% for a long time before briefly touching 100%).
         if priority == PRIORITY_HOME:
             return False
         if priority == PRIORITY_EV_FREE:
-            if soc_home < 100:
+            if soc_home < threshold:
                 return False
 
         # Grid import must be valid
@@ -596,8 +606,14 @@ class HybridInverterMode:
         # PRIORITY checks
         if priority == PRIORITY_HOME:
             return "Priority Balancer = HOME"
-        if priority == PRIORITY_EV_FREE and soc_home < 100:
-            return "EV_FREE override requires home SOC = 100%"
+        # issue #39: use the configured battery_full_threshold, not a hardcoded
+        # 100, to stay consistent with the IDLE-entry guard and the keep-alive
+        # threshold check above.
+        if priority == PRIORITY_EV_FREE and soc_home < threshold:
+            return (
+                f"EV_FREE override requires home SOC >= {threshold}% "
+                "(battery_full_threshold)"
+            )
 
         return None
 
@@ -816,6 +832,7 @@ class HybridInverterMode:
                         self._current_target_amps = next_down
                         self._import_violation_since = None
                         self._headroom_ok_since = None
+                        self._consecutive_stepup_count = 0  # issue #38
                         await self._publish_diagnostic(
                             reason=f"RIDING_EDGE @ {next_down}A (reduced)"
                         )
@@ -873,6 +890,7 @@ class HybridInverterMode:
                             self._current_target_amps = next_down
                             self._battery_violation_since = None
                             self._headroom_ok_since = None
+                            self._consecutive_stepup_count = 0  # issue #38
                             await self._publish_diagnostic(
                                 reason=f"RIDING_EDGE @ {next_down}A (reduced, battery)"
                             )
@@ -907,6 +925,19 @@ class HybridInverterMode:
                 next_up = AmperageCalculator.get_next_level_up(
                     current_amps, solar_max_amperage, self._amp_levels
                 )
+                # issue #38: self-tuning — on a Generic charger (1A levels), once
+                # we've already stepped up twice in a row on stable headroom, jump
+                # 2 levels per tick to converge faster. Tuya keeps single-level
+                # steps (its levels are already coarse → avoid overshoot).
+                if (
+                    self._power_model.charger_model == CHARGER_MODEL_GENERIC
+                    and self._consecutive_stepup_count >= 2
+                    and next_up > current_amps
+                    and next_up < solar_max_amperage
+                ):
+                    next_up = AmperageCalculator.get_next_level_up(
+                        next_up, solar_max_amperage, self._amp_levels
+                    )
                 if next_up > current_amps:
                     self.logger.info(
                         f"{self.logger.ACTION} RIDING_EDGE: grid {grid_import:.0f}W "
@@ -920,6 +951,7 @@ class HybridInverterMode:
                     if result.success:
                         self._current_target_amps = next_up
                         self._headroom_ok_since = None  # restart stability clock
+                        self._consecutive_stepup_count += 1  # issue #38
                         await self._publish_diagnostic(
                             reason=f"RIDING_EDGE @ {next_up}A (increased)"
                         )
@@ -1052,6 +1084,11 @@ class HybridInverterMode:
             return
         self._state = new_state
         self._state_entered_at = dt_util.now()
+        # issue #38: any real state change (enter/leave RIDING_EDGE, cooldown,
+        # idle, fail) restarts the self-tuning ramp from single-level steps.
+        # Step-ups/step-downs within RIDING_EDGE do NOT call _transition, so this
+        # never clobbers the counter mid-ramp.
+        self._consecutive_stepup_count = 0
         if new_state == HYBRID_STATE_IDLE:
             self._probe_started_at = None
             self._import_violation_since = None

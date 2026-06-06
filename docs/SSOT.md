@@ -187,6 +187,29 @@ AND home_soc            <= evsc_home_battery_min_soc     # battery at/below its 
   stop the session before the handoff window — this is still correct protection.
   Set the floor below the expected overnight drain to avoid it.
 
+#### 4.2.2 Grid-availability stop (v2.6.0, issue #36)
+
+In **grid mode** the GRID monitor (15 s) adds a **Check 0.5** that stops the
+session (terminal) on a grid outage. On hybrid "Battery First"/UPS inverters a
+grid loss is invisible to the integration — every power sensor keeps reporting —
+so grid mode would keep drawing from the home battery during the outage.
+
+Driven by an optional user-mapped `grid_available` binary_sensor read through
+`ChargingModel.is_grid_available(hass)`:
+
+- **Fail-safe tri-state**: returns `None` when the sensor is unmapped OR its
+  state is `unavailable`/`unknown`/`None`; `True`/`False` only on a real on/off.
+  The monitor stops **only** when the reader is `False` — never on `None`. This
+  prevents a boot-time / inverter-restart `unavailable` from spuriously ending a
+  session (the bug avoided vs a naive `get_bool(default=False)`).
+- **Debounced**: requires OFF sustained for `evsc_grid_import_delay` (default
+  30 s) via a `StabilityTracker`, reset on grid-present/None, on grid-session
+  start and in `_complete_night_charge`.
+- **Terminal** (`STOP_REASON_GRID_LOSS`, severity warning): grid mode has
+  nothing to draw from; recovery is left to the day (Solar Surplus / PV-handoff).
+- **Scope**: only Night Smart Charge grid mode. Solar Surplus and Hybrid Mode
+  key off PV surplus and need no change. Unmapped → byte-for-byte legacy.
+
 ## 5. Ownership and arbitration
 
 `custom_components/ev_smart_charger/automation_coordinator.py` is the canonical ownership plane for any automation that may start, stop, or adjust the charger.

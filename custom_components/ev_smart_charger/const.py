@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.5.1"
+VERSION = "2.6.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -111,6 +111,13 @@ CONF_FV_PRODUCTION = "fv_production"
 CONF_HOME_CONSUMPTION = "home_consumption"
 CONF_GRID_IMPORT = "grid_import"
 CONF_PV_FORECAST = "pv_forecast"
+# v2.6.0 (issue #36): optional binary_sensor reporting grid availability
+# (on = grid present, off = grid lost). On hybrid "Battery First"/UPS inverters
+# a grid outage is invisible to the integration (all power sensors keep
+# reporting), so Night Smart Charge grid mode would keep draining the home
+# battery. When mapped and OFF (sustained), the night session stops. Unmapped =
+# byte-for-byte legacy behaviour.
+CONF_GRID_AVAILABLE = "grid_available"
 
 # Phase mode + per-phase sensors (v2.0.0). The existing keys above act as L1
 # (so single-phase installs are byte-for-byte unchanged); L2/L3 are only mapped
@@ -205,6 +212,14 @@ HELPER_SOLAR_MAX_AMPERAGE_SUFFIX = "evsc_solar_max_amperage"
 # charging floor (deadband buffer + Hybrid Mode masking checks). 0 = feature off.
 # Battery-only helper (meaningless without a home battery).
 HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX = "evsc_max_battery_discharge_for_ev"
+
+# Numbers - Nighttime window (v2.6.0, issue #42). Customise the "nighttime"
+# period that gates Solar Surplus (the "SKIPPED: Nighttime" decision). Both
+# default to 0 = astronomical sunset/sunrise (legacy behaviour). Positive values
+# EXTEND the night window: it starts <sunset_offset> minutes before sunset and
+# ends <sunrise_offset> minutes after sunrise.
+HELPER_NIGHTTIME_SUNSET_OFFSET_SUFFIX = "evsc_nighttime_sunset_offset"
+HELPER_NIGHTTIME_SUNRISE_OFFSET_SUFFIX = "evsc_nighttime_sunrise_offset"
 
 # Numbers - Night Smart Charge
 HELPER_NIGHT_CHARGE_AMPERAGE_SUFFIX = "evsc_night_charge_amperage"
@@ -313,6 +328,12 @@ DEFAULT_NIGHT_PV_HANDOFF_THRESHOLD = 0  # watts (recommended ~200 when enabled)
 # Sustained seconds PV must stay >= threshold before handing off (internal, not a helper).
 NIGHT_PV_HANDOFF_SUSTAIN_SECONDS = 300  # 5 minutes
 
+# v2.6.0 (issue #42): nighttime window offsets (minutes). 0 = astronomical
+# sunset/sunrise (legacy). Positive extends the night: starts this many minutes
+# before sunset / ends this many minutes after sunrise.
+DEFAULT_NIGHTTIME_SUNSET_OFFSET = 0  # minutes before sunset
+DEFAULT_NIGHTTIME_SUNRISE_OFFSET = 0  # minutes after sunrise
+
 # ========== NIGHT SMART CHARGE RETRY SETTINGS (v1.6.1) ==========
 NIGHT_CHARGE_START_MAX_RETRIES = 3  # Maximum attempts to start charger
 NIGHT_CHARGE_START_RETRY_DELAYS = [5, 15, 30]  # Seconds between retry attempts (backoff)
@@ -391,21 +412,23 @@ HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 # v1.8.0 set the baseline to 64 (added 6 Hybrid Mode entities). v1.11.9 added
 # 1 sensor (evsc_night_session_state) → 65. v2.1.0 (issue #29) adds 1 battery-only
 # number (evsc_max_battery_discharge_for_ev) → 66. v2.3.0 (issue #32) adds 1
-# always-created number (evsc_night_pv_handoff_threshold) → 67.
+# always-created number (evsc_night_pv_handoff_threshold) → 67. v2.6.0 (issue #42)
+# adds 2 always-created numbers (nighttime sunset/sunrise offsets) → 69.
 # COUPLING (issue #22): the disabled-helper tolerance in
 # __init__._async_wait_for_helper_registration assumes this equals the number
 # of entities actually created when nothing is disabled. If it drifts above
 # reality (cf. v1.6.20), a single user-disabled entity turns the tolerant
 # startup path back into a hard ConfigEntryNotReady. Keep this in sync.
-TOTAL_INTEGRATION_ENTITIES = 67
+TOTAL_INTEGRATION_ENTITIES = 69
 # Verified count (v2.3.0): 53 entities when running in PV-only mode.
 # Unchanged in v2.1.0: the discharge number is battery-only (skipped in PV-only mode).
 # v2.3.0 (issue #32): evsc_night_pv_handoff_threshold is NOT battery-only → +1 → 53.
+# v2.6.0 (issue #42): 2 nighttime offset numbers are NOT battery-only → +2 → 55.
 # Skipped helpers (13): 2 switches (use_home_battery, preserve_home_battery),
 # 3 numbers (home_battery_min_soc, battery_support_amperage, battery_support_sunset_buffer),
 # 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).
 # Hybrid Mode entities are still created in PV-only mode but stay IDLE (requires soc_home).
-TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 53
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 55
 
 
 def has_home_battery(config: dict) -> bool:

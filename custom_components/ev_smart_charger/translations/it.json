@@ -42,7 +42,8 @@
           "grid_import_l3": "Prelievo rete (L3)",
           "charging_power": "Potenza di ricarica EV",
           "charging_power_l2": "Potenza di ricarica EV (L2)",
-          "charging_power_l3": "Potenza di ricarica EV (L3)"
+          "charging_power_l3": "Potenza di ricarica EV (L3)",
+          "grid_available": "Rete disponibile (binary sensor)"
         },
         "data_description": {
           "soc_car": "Sensore con lo stato di carica EV in percentuale.",
@@ -58,7 +59,8 @@
           "grid_import_l3": "Prelievo rete sulla fase L3, in watt.",
           "charging_power": "Opzionale ma consigliato. Potenza di ricarica EV misurata in watt — il segnale più affidabile per sapere se la macchina sta davvero assorbendo corrente. Se mappato, ha la precedenza sul sensore di stato per il rilevamento della ricarica. In trifase mappa tutti e tre i sensori di fase oppure lasciali tutti vuoti (vengono sommati).",
           "charging_power_l2": "Potenza di ricarica EV sulla fase L2, in watt. Mappa tutte e tre le fasi o nessuna.",
-          "charging_power_l3": "Potenza di ricarica EV sulla fase L3, in watt. Mappa tutte e tre le fasi o nessuna."
+          "charging_power_l3": "Potenza di ricarica EV sulla fase L3, in watt. Mappa tutte e tre le fasi o nessuna.",
+          "grid_available": "Opzionale. Binary sensor che indica la disponibilità della rete (on = rete presente, off = rete assente). Se mappato e off, la modalità grid di Night Smart Charge si ferma per non scaricare la batteria di casa durante un blackout (utile su inverter ibridi Battery First / UPS). Lascia vuoto per mantenere il comportamento precedente."
         }
       },
       "hybrid_inverter": {
@@ -146,7 +148,8 @@
           "grid_import_l3": "Prelievo rete (L3)",
           "charging_power": "Potenza di ricarica EV",
           "charging_power_l2": "Potenza di ricarica EV (L2)",
-          "charging_power_l3": "Potenza di ricarica EV (L3)"
+          "charging_power_l3": "Potenza di ricarica EV (L3)",
+          "grid_available": "Rete disponibile (binary sensor)"
         },
         "data_description": {
           "soc_car": "Sensore con lo stato di carica EV in percentuale.",
@@ -162,7 +165,8 @@
           "grid_import_l3": "Prelievo rete sulla fase L3, in watt.",
           "charging_power": "Opzionale ma consigliato. Potenza di ricarica EV misurata in watt — il segnale più affidabile per sapere se la macchina sta davvero assorbendo corrente. Se mappato, ha la precedenza sul sensore di stato per il rilevamento della ricarica. In trifase mappa tutti e tre i sensori di fase oppure lasciali tutti vuoti (vengono sommati).",
           "charging_power_l2": "Potenza di ricarica EV sulla fase L2, in watt. Mappa tutte e tre le fasi o nessuna.",
-          "charging_power_l3": "Potenza di ricarica EV sulla fase L3, in watt. Mappa tutte e tre le fasi o nessuna."
+          "charging_power_l3": "Potenza di ricarica EV sulla fase L3, in watt. Mappa tutte e tre le fasi o nessuna.",
+          "grid_available": "Opzionale. Binary sensor che indica la disponibilità della rete (on = rete presente, off = rete assente). Se mappato e off, la modalità grid di Night Smart Charge si ferma per non scaricare la batteria di casa durante un blackout (utile su inverter ibridi Battery First / UPS). Lascia vuoto per mantenere il comportamento precedente."
         }
       },
       "reconfigure_hybrid_inverter": {
@@ -307,7 +311,8 @@
           "grid_import_l3": "Prelievo rete (L3)",
           "charging_power": "Potenza di ricarica EV",
           "charging_power_l2": "Potenza di ricarica EV (L2)",
-          "charging_power_l3": "Potenza di ricarica EV (L3)"
+          "charging_power_l3": "Potenza di ricarica EV (L3)",
+          "grid_available": "Rete disponibile (binary sensor)"
         },
         "data_description": {
           "soc_car": "Sensore con lo stato di carica EV in percentuale.",
@@ -323,7 +328,8 @@
           "grid_import_l3": "Prelievo rete sulla fase L3, in watt.",
           "charging_power": "Opzionale ma consigliato. Potenza di ricarica EV misurata in watt — il segnale più affidabile per sapere se la macchina sta davvero assorbendo corrente. Se mappato, ha la precedenza sul sensore di stato per il rilevamento della ricarica. In trifase mappa tutti e tre i sensori di fase oppure lasciali tutti vuoti (vengono sommati).",
           "charging_power_l2": "Potenza di ricarica EV sulla fase L2, in watt. Mappa tutte e tre le fasi o nessuna.",
-          "charging_power_l3": "Potenza di ricarica EV sulla fase L3, in watt. Mappa tutte e tre le fasi o nessuna."
+          "charging_power_l3": "Potenza di ricarica EV sulla fase L3, in watt. Mappa tutte e tre le fasi o nessuna.",
+          "grid_available": "Opzionale. Binary sensor che indica la disponibilità della rete (on = rete presente, off = rete assente). Se mappato e off, la modalità grid di Night Smart Charge si ferma per non scaricare la batteria di casa durante un blackout (utile su inverter ibridi Battery First / UPS). Lascia vuoto per mantenere il comportamento precedente."
         }
       },
       "hybrid_inverter": {
@@ -543,6 +549,12 @@
       },
       "evsc_night_pv_handoff_threshold": {
         "name": "Soglia FV per handoff diurno"
+      },
+      "evsc_nighttime_sunset_offset": {
+        "name": "Offset notte prima del tramonto"
+      },
+      "evsc_nighttime_sunrise_offset": {
+        "name": "Offset notte dopo l'alba"
       },
       "evsc_boost_charge_amperage": {
         "name": "Amperaggio boost"

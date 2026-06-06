@@ -63,6 +63,7 @@ from .const import (
     CONF_FV_PRODUCTION,
     CONF_FV_PRODUCTION_L2,
     CONF_FV_PRODUCTION_L3,
+    CONF_GRID_AVAILABLE,
     CONF_GRID_IMPORT,
     CONF_GRID_IMPORT_L2,
     CONF_GRID_IMPORT_L3,
@@ -237,6 +238,8 @@ def _build_card_config(entry: ConfigEntry) -> dict[str, Any]:
         "pv_forecast_tomorrow_entity": CONF_PV_FORECAST_TOMORROW,
         # v2.1.0 (issue #29): optional signed battery-power sensor.
         "battery_power_entity": CONF_BATTERY_POWER,
+        # v2.6.0 (issue #36): optional grid-availability binary_sensor.
+        "grid_available_entity": CONF_GRID_AVAILABLE,
     }
     for card_key, conf_key in mapping.items():
         value = data.get(conf_key)

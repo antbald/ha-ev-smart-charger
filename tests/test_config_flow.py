@@ -431,11 +431,11 @@ async def test_status_optional_and_charging_power_roundtrip(hass: HomeAssistant)
 
 
 def test_entity_counts_v230():
-    """v2.3.0 (issue #32) adds 1 always-created number → counts 67 / 53."""
+    """v2.6.0 (issue #42) adds 2 always-created nighttime-offset numbers → 69 / 55."""
     from custom_components.ev_smart_charger.const import (
         TOTAL_INTEGRATION_ENTITIES,
         TOTAL_INTEGRATION_ENTITIES_NO_BATTERY,
     )
 
-    assert TOTAL_INTEGRATION_ENTITIES == 67
-    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 53
+    assert TOTAL_INTEGRATION_ENTITIES == 69
+    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 55

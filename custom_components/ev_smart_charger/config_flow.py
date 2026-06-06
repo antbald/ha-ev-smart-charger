@@ -24,6 +24,7 @@ from .const import (
     CONF_FV_PRODUCTION,
     CONF_FV_PRODUCTION_L2,
     CONF_FV_PRODUCTION_L3,
+    CONF_GRID_AVAILABLE,
     CONF_GRID_IMPORT,
     CONF_GRID_IMPORT_L2,
     CONF_GRID_IMPORT_L3,
@@ -258,6 +259,14 @@ def _sensor_schema(
         fields[
             vol.Optional(CONF_CHARGING_POWER_L3, **_field_config(current_data.get(CONF_CHARGING_POWER_L3)))
         ] = _entity_selector("sensor")
+
+    # v2.6.0 (issue #36): optional grid-availability binary_sensor. When mapped
+    # and OFF, Night Smart Charge grid mode stops (avoids draining the home
+    # battery during a grid outage on hybrid Battery First/UPS inverters).
+    # Unmapped → byte-for-byte legacy behaviour.
+    fields[
+        vol.Optional(CONF_GRID_AVAILABLE, **_field_config(current_data.get(CONF_GRID_AVAILABLE)))
+    ] = _entity_selector("binary_sensor")
 
     return vol.Schema(fields)
 

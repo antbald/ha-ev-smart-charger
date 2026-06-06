@@ -75,6 +75,10 @@ STOP_REASON_CHARGER_NOT_CHARGING = "charger_not_charging"
 STOP_REASON_GRID_FALLBACK_FAILED = "grid_fallback_failed"
 STOP_REASON_GRID_IMPORT_CAR_NOT_READY = "grid_import_detected_car_not_ready"
 STOP_REASON_BOOST_PREEMPTED = "boost_preempted"
+# v2.6.0 (issue #36): grid outage detected via the optional grid_available
+# binary_sensor. Terminal — grid mode has nothing to draw from; continuing would
+# drain the home battery during the outage.
+STOP_REASON_GRID_LOSS = "grid_loss"
 REASON_CODE_PRESERVE_HOME_BATTERY = "preserve_home_battery"
 
 
@@ -168,6 +172,11 @@ class NightSmartCharge:
         # holds the time the masking condition first held so a transient battery
         # discharge spike never false-stops a legitimate grid session.
         self._grid_battery_masking_tracker = StabilityTracker()
+        # v2.6.0 (issue #36): debounce for the grid-availability stop. Requires
+        # the grid_available sensor to read OFF for a sustained period (reusing
+        # the grid-import delay, default 30s) before the terminal stop — so a
+        # 1-tick glitch on a noisy binary sensor never kills a night session.
+        self._grid_loss_tracker = StabilityTracker()
         self._night_charge_active = False
         # v1.11.9: `_active_mode` is now a property — assignments are
         # automatically published to sensor.evsc_night_session_state so the
@@ -832,8 +841,19 @@ class NightSmartCharge:
 
         is_active = (in_grace or (past_scheduled and before_sunrise))
 
-        # === STEP 4: Comprehensive diagnostic logging (throttled) ===
-        if self._last_diagnostic_log_time is None or (now - self._last_diagnostic_log_time).total_seconds() >= 60:
+        # === STEP 4: Comprehensive diagnostic logging ===
+        # issue #40: this WINDOW CHECK DIAGNOSTIC block (added in v1.4.2 to debug
+        # an activation failure, fixed in v1.4.4) ran at INFO every 60s ALL DAY —
+        # e.g. ~18h of INFO before a 23:13 window. Emit it at INFO only when the
+        # window is active OR within 30 min of the grace window opening; otherwise
+        # a single DEBUG line. The 60s throttle still applies to the INFO case.
+        time_to_grace = (grace_start - now).total_seconds()
+        approaching = 0 <= time_to_grace <= 1800  # within 30 min before grace start
+        throttle_ok = (
+            self._last_diagnostic_log_time is None
+            or (now - self._last_diagnostic_log_time).total_seconds() >= 60
+        )
+        if (is_active or approaching) and throttle_ok:
             self.logger.separator()
             self.logger.info(f"{self.logger.CALENDAR} 🔍 WINDOW CHECK DIAGNOSTIC")
             self.logger.info(f"   Current: {now.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -1595,6 +1615,40 @@ class NightSmartCharge:
                 await self._complete_night_charge(STOP_REASON_DEADLINE_OR_TARGET, terminal=True)
             return
 
+        # Check 0.5 (v2.6.0, issue #36): grid availability. On hybrid
+        # 'Battery First'/UPS inverters a grid outage is invisible to the
+        # integration (PV/consumption/SOC/battery-power sensors all keep
+        # reporting), so grid mode would keep draining the HOME battery during
+        # the outage. When the optional grid_available binary_sensor reads OFF
+        # (debounced for the grid-import delay), stop — terminal, because grid
+        # mode has nothing to draw from. Fail-safe: is_grid_available() returns
+        # None when the sensor is unmapped OR unavailable/unknown → no action
+        # (a boot-time 'unavailable' never spuriously kills the session).
+        grid_available = self._power_model.is_grid_available(self.hass)
+        if grid_available is False:
+            sustain = self._get_grid_import_delay()
+            self._grid_loss_tracker.start_tracking()
+            elapsed = self._grid_loss_tracker.get_elapsed()
+            if self._grid_loss_tracker.is_stable(sustain):
+                reason = (
+                    "Grid lost (grid_available = off) - stopping grid mode to "
+                    "preserve home battery during the outage"
+                )
+                self.logger.warning(
+                    f"{self.logger.GRID} {self.logger.STOP} {reason} "
+                    f"(sustained {elapsed:.0f}s)"
+                )
+                if await self._stop_charger_with_control(reason):
+                    await self._complete_night_charge(STOP_REASON_GRID_LOSS, terminal=True)
+                return
+            self.logger.warning(
+                f"{self.logger.GRID} Grid reported unavailable (grid_available = off) "
+                f"- confirming for {sustain}s ({elapsed:.0f}s elapsed)"
+            )
+        else:
+            # Grid present (True) or unknown/unmapped (None) → clear debounce.
+            self._grid_loss_tracker.reset()
+
         # Check 1: EV target SOC reached
         ev_target_reached = await self.priority_balancer.is_ev_target_reached()
         ev_soc = await self.priority_balancer.get_ev_current_soc()
@@ -1836,6 +1890,8 @@ class NightSmartCharge:
             # v2.4.0 (issue #33): fresh session → clear the home-battery masking
             # debounce so a leftover _stable_since can't fire on the first tick.
             self._grid_battery_masking_tracker.reset()
+            # v2.6.0 (issue #36): same for the grid-loss debounce.
+            self._grid_loss_tracker.reset()
             # v2.3.0 (issue #32): start each session with a clean PV-handoff debounce
             # and stamp the session start for the handoff hard-cap anchor.
             self._pv_handoff_tracker.reset()
@@ -2034,6 +2090,7 @@ class NightSmartCharge:
             STOP_REASON_CHARGER_NOT_CHARGING,
             STOP_REASON_GRID_FALLBACK_FAILED,
             STOP_REASON_GRID_IMPORT_CAR_NOT_READY,
+            STOP_REASON_GRID_LOSS,  # v2.6.0 (issue #36)
         }
         non_terminal_reasons = {
             STOP_REASON_BOOST_PREEMPTED,
@@ -2067,7 +2124,7 @@ class NightSmartCharge:
                 "previous_mode": self._active_mode,
                 "session_state": self._session_state,
             },
-            severity="warning" if stop_reason in (STOP_REASON_HOME_BATTERY_MIN, STOP_REASON_GRID_IMPORT_CAR_NOT_READY) else "info",
+            severity="warning" if stop_reason in (STOP_REASON_HOME_BATTERY_MIN, STOP_REASON_GRID_IMPORT_CAR_NOT_READY, STOP_REASON_GRID_LOSS) else "info",
         )
 
         # Stop battery monitoring if active
@@ -2088,6 +2145,8 @@ class NightSmartCharge:
         self._pv_handoff_tracker.reset()
         # v2.4.0 (issue #33): same hygiene for the home-battery masking debounce.
         self._grid_battery_masking_tracker.reset()
+        # v2.6.0 (issue #36): same hygiene for the grid-loss debounce.
+        self._grid_loss_tracker.reset()
 
         # Boost Charge can preempt Night Smart Charge while a monitor callback is already
         # running. In that race, this cleanup must not mark the night session as completed

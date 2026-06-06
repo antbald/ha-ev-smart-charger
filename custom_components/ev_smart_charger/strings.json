@@ -42,7 +42,8 @@
           "grid_import_l3": "Grid import (L3)",
           "charging_power": "EV charging power",
           "charging_power_l2": "EV charging power (L2)",
-          "charging_power_l3": "EV charging power (L3)"
+          "charging_power_l3": "EV charging power (L3)",
+          "grid_available": "Grid available (binary sensor)"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
@@ -58,7 +59,8 @@
           "grid_import_l3": "Grid import on phase L3, in watts.",
           "charging_power": "Optional but recommended. Measured EV charging power in watts — the most reliable signal for whether the car is actually drawing current. When mapped it overrides the status sensor for charging detection. In three-phase mode map all three phase sensors or leave all three empty (they are summed).",
           "charging_power_l2": "EV charging power on phase L2, in watts. Map all three phases or none.",
-          "charging_power_l3": "EV charging power on phase L3, in watts. Map all three phases or none."
+          "charging_power_l3": "EV charging power on phase L3, in watts. Map all three phases or none.",
+          "grid_available": "Optional. Binary sensor reporting grid availability (on = grid present, off = grid lost). When mapped and off, Night Smart Charge grid mode stops so it does not drain the home battery during a grid outage (useful on hybrid Battery First / UPS inverters). Leave empty to keep the previous behaviour."
         }
       },
       "hybrid_inverter": {
@@ -146,7 +148,8 @@
           "grid_import_l3": "Grid import (L3)",
           "charging_power": "EV charging power",
           "charging_power_l2": "EV charging power (L2)",
-          "charging_power_l3": "EV charging power (L3)"
+          "charging_power_l3": "EV charging power (L3)",
+          "grid_available": "Grid available (binary sensor)"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
@@ -162,7 +165,8 @@
           "grid_import_l3": "Grid import on phase L3, in watts.",
           "charging_power": "Optional but recommended. Measured EV charging power in watts — the most reliable signal for whether the car is actually drawing current. When mapped it overrides the status sensor for charging detection. In three-phase mode map all three phase sensors or leave all three empty (they are summed).",
           "charging_power_l2": "EV charging power on phase L2, in watts. Map all three phases or none.",
-          "charging_power_l3": "EV charging power on phase L3, in watts. Map all three phases or none."
+          "charging_power_l3": "EV charging power on phase L3, in watts. Map all three phases or none.",
+          "grid_available": "Optional. Binary sensor reporting grid availability (on = grid present, off = grid lost). When mapped and off, Night Smart Charge grid mode stops so it does not drain the home battery during a grid outage (useful on hybrid Battery First / UPS inverters). Leave empty to keep the previous behaviour."
         }
       },
       "reconfigure_hybrid_inverter": {
@@ -307,7 +311,8 @@
           "grid_import_l3": "Grid import (L3)",
           "charging_power": "EV charging power",
           "charging_power_l2": "EV charging power (L2)",
-          "charging_power_l3": "EV charging power (L3)"
+          "charging_power_l3": "EV charging power (L3)",
+          "grid_available": "Grid available (binary sensor)"
         },
         "data_description": {
           "soc_car": "Sensor with the EV state of charge in percent.",
@@ -323,7 +328,8 @@
           "grid_import_l3": "Grid import on phase L3, in watts.",
           "charging_power": "Optional but recommended. Measured EV charging power in watts — the most reliable signal for whether the car is actually drawing current. When mapped it overrides the status sensor for charging detection. In three-phase mode map all three phase sensors or leave all three empty (they are summed).",
           "charging_power_l2": "EV charging power on phase L2, in watts. Map all three phases or none.",
-          "charging_power_l3": "EV charging power on phase L3, in watts. Map all three phases or none."
+          "charging_power_l3": "EV charging power on phase L3, in watts. Map all three phases or none.",
+          "grid_available": "Optional. Binary sensor reporting grid availability (on = grid present, off = grid lost). When mapped and off, Night Smart Charge grid mode stops so it does not drain the home battery during a grid outage (useful on hybrid Battery First / UPS inverters). Leave empty to keep the previous behaviour."
         }
       },
       "hybrid_inverter": {
@@ -543,6 +549,12 @@
       },
       "evsc_night_pv_handoff_threshold": {
         "name": "Night PV handoff threshold"
+      },
+      "evsc_nighttime_sunset_offset": {
+        "name": "Nighttime sunset offset"
+      },
+      "evsc_nighttime_sunrise_offset": {
+        "name": "Nighttime sunrise offset"
       },
       "evsc_boost_charge_amperage": {
         "name": "Boost charge amperage"

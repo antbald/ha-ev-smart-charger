@@ -438,10 +438,6 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
             ) as resp:
                 raw = await resp.text()
                 elapsed = time.monotonic() - started
-                tlog.info(
-                    f"📊 HTTP {resp.status} in {elapsed:.1f}s — "
-                    f"raw response (first 300 chars): {raw[:300]}"
-                )
                 # GAS returns 302 on success (points to the
                 # googleusercontent.com "echo" page). Treat 302 AND 2xx
                 # as successful delivery — doPost() has already run by
@@ -449,6 +445,12 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
                 # sheet. For direct-2xx responses we still try to parse
                 # the JSON body so we can surface "created" vs "updated"
                 # in the log, but it's purely informational.
+                #
+                # issue #41: do NOT log the raw body on the 302 happy path.
+                # The 302 body is the standard GAS redirect HTML
+                # ("<!-- GSE Default Error --> Moved Temporarily") which
+                # carries no diagnostic value and reads like a failure.
+                # The raw body is logged below only for 2xx/error responses.
                 if resp.status == 302:
                     tlog.success(
                         f"📊 Ping delivered (HTTP 302 → sheet updated, "
@@ -460,6 +462,12 @@ async def send_telemetry_ping(hass: HomeAssistant) -> None:
                     )
                     tlog.separator()
                     return
+
+                # Non-302: the body may carry useful diagnostic info.
+                tlog.info(
+                    f"📊 HTTP {resp.status} in {elapsed:.1f}s — "
+                    f"raw response (first 300 chars): {raw[:300]}"
+                )
 
                 if 200 <= resp.status < 300:
                     try:
