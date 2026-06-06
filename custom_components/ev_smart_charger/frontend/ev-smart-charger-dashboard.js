@@ -581,6 +581,7 @@ const FRONTEND_LOCALES = {
     "hero.banner.night_charge": "Night Smart Charge Active",
     "hero.banner.charging": "EV Charging",
     "hero.forecast_tomorrow": "Tomorrow Forecast",
+    "hero.grid_lost": "⚠ Grid lost",
     "toast.boost.target_reached": "Boost can't start: EV at {ev}% (≥ target {target}%). Raise the target or wait for the battery to drain.",
     "toast.boost.missing_soc": "Boost can't start: EV SOC sensor unavailable. Check the mapped sensor.",
     "toast.dismiss_aria": "Dismiss notification",
@@ -729,6 +730,7 @@ const FRONTEND_LOCALES = {
     "hero.banner.night_charge": "Night Smart Charge in corso",
     "hero.banner.charging": "EV in ricarica",
     "hero.forecast_tomorrow": "Forecast Domani",
+    "hero.grid_lost": "⚠ Rete assente",
     "toast.boost.target_reached": "Boost non può partire: EV al {ev}% (≥ target {target}%). Alza il target o aspetta che la batteria scenda.",
     "toast.boost.missing_soc": "Boost non può partire: sensore SOC EV non disponibile. Controlla la mappatura.",
     "toast.dismiss_aria": "Chiudi notifica",
@@ -877,6 +879,7 @@ const FRONTEND_LOCALES = {
     "hero.banner.night_charge": "Slim nachtelijk laden actief",
     "hero.banner.charging": "EV aan het laden",
     "hero.forecast_tomorrow": "Verwachting morgen",
+    "hero.grid_lost": "⚠ Net weg",
     "toast.boost.target_reached": "Boost kan niet starten: EV op {ev}% (≥ doel {target}%). Verhoog het doel of wacht tot de batterij zakt.",
     "toast.boost.missing_soc": "Boost kan niet starten: EV SOC-sensor niet beschikbaar. Controleer de mapping.",
     "toast.dismiss_aria": "Melding sluiten",
@@ -1863,6 +1866,35 @@ class EvSmartChargerDashboard extends HTMLElement {
   }
 
   /**
+   * v2.6.0 (issue #36): tri-state read of the optional grid_available
+   * binary_sensor, mirroring the backend ChargingModel.is_grid_available.
+   * Returns true (present) / false (lost) / null (unmapped or unavailable/
+   * unknown → "don't know", never a false alarm).
+   */
+  _gridAvailable() {
+    const entityId = this._config?.grid_available_entity;
+    if (!entityId) return null;
+    const raw = this._stateObj(entityId)?.state;
+    if (raw === undefined || raw === null || raw === "unavailable" || raw === "unknown") {
+      return null;
+    }
+    return ["on", "true", "1", "yes", "home", "present"].includes(
+      String(raw).toLowerCase()
+    );
+  }
+
+  /**
+   * v2.6.0 (issue #36): render a compact "Grid lost" warning pill next to the
+   * priority / forecast pills, shown ONLY when grid_available is explicitly
+   * off. Empty string otherwise (unmapped / present / unknown) — so existing
+   * dashboards and a boot-time `unavailable` never surface a false alarm.
+   */
+  _renderGridLostPill() {
+    if (this._gridAvailable() !== false) return "";
+    return `<span class="grid-lost-pill" role="status" aria-live="polite">${this._t("hero.grid_lost")}</span>`;
+  }
+
+  /**
    * v1.11.8: Render the next-day PV forecast as an orange chip placed
    * next to the priority pill. Returns an empty string when the
    * `pv_forecast_entity` is not configured or the state is unavailable —
@@ -2594,6 +2626,7 @@ class EvSmartChargerDashboard extends HTMLElement {
                 <div class="hero-pill-row">
                   ${this._renderPriorityPill(priorityState)}
                   ${this._renderForecastPill()}
+                  ${this._renderGridLostPill()}
                 </div>
                 <h1>${this._config.title || this._t("title.default")}</h1>
                 <div class="evsc-metric-row">
@@ -2841,6 +2874,9 @@ class EvSmartChargerDashboard extends HTMLElement {
     // left the banner stale in three-phase — Risk #5), and a power-only signal
     // (no status entity mapped) still rebuilds.
     const chargingOnForKey = this._isDrawingNow();
+    // v2.6.0 (issue #36): the grid-lost pill appears/disappears, so it is
+    // structural — include it so a transition triggers exactly one rebuild.
+    const gridLost = this._gridAvailable() === false;
 
     return JSON.stringify({
       view: this._view,
@@ -2855,6 +2891,7 @@ class EvSmartChargerDashboard extends HTMLElement {
       bo: boostOn,
       ni: nightOn,
       ch: chargingOnForKey,
+      gl: gridLost,
     });
   }
 
@@ -3971,6 +4008,27 @@ class EvSmartChargerDashboard extends HTMLElement {
           background: currentColor;
           box-shadow: 0 0 10px currentColor;
           animation: evsc-pulse-slow 3.2s ease-in-out infinite;
+        }
+        /* v2.6.0 (issue #36): grid-lost warning pill — shown only when the
+           optional grid_available sensor reads explicitly off. */
+        .grid-lost-pill {
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 6px 12px;
+          border-radius: var(--evsc-radius-pill);
+          font-size: 0.85rem;
+          font-weight: 600;
+          color: #fff;
+          background: var(--evsc-sys-red);
+          box-shadow: 0 0 14px 1px var(--evsc-sys-red);
+        }
+        .grid-lost-pill::before {
+          content: ""; width: 7px; height: 7px; border-radius: 50%;
+          background: #fff;
+          box-shadow: 0 0 10px #fff;
+          animation: evsc-pulse-slow 1.8s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .grid-lost-pill::before { animation: none; }
         }
         @keyframes evsc-pulse-slow {
           0%, 100% { opacity: 1; box-shadow: 0 0 10px currentColor; }

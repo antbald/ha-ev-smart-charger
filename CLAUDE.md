@@ -757,6 +757,31 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.6.1 (2026-06-06)
+**Dashboard: grid-lost indicator for issue #36 (frontend-only)**
+
+v2.6.0 plumbed the optional `grid_available` sensor through to the card config
+but did not surface it visually. v2.6.1 adds a compact **"Grid lost" warning
+pill** in the hero pill-row (next to the priority / forecast pills), shown
+**only** when `grid_available` reads explicitly off.
+
+- New frontend helper `_gridAvailable()` mirrors the backend
+  `ChargingModel.is_grid_available` tri-state: `null` when the sensor is unmapped
+  OR its state is `unavailable`/`unknown` (→ pill hidden, no false alarm at boot),
+  `true`/`false` only on a real on/off. `_renderGridLostPill()` renders the pill
+  only on an explicit `false`.
+- Rendered as an independent pill (not folded into the single hero banner), so it
+  coexists with the Force / Boost / Night / Charging banners instead of hiding
+  them. Added to `_computeStructuralKey` (`gl`) so it appears/disappears via one
+  rebuild. New i18n key `hero.grid_lost` (EN/IT/NL), new `.grid-lost-pill` CSS
+  (system-red, reduced-motion safe).
+
+Frontend-only — no schema/entity/config change, counts unchanged (69 / 55). The
+`?v=`+content-hash cache-buster picks up the new bundle on the next reload.
+`VERSION = "2.6.1"`.
+
+---
+
 ### v2.6.0 (2026-06-06)
 **Mass bug-fixing & improvement release — 7 issues (#36–#42)**
 
