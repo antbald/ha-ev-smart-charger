@@ -72,7 +72,7 @@
         },
         "data_description": {
           "hybrid_inverter_mode": "Schakelt de empirische curtailment-sonde in voor hybride omvormers zonder teruglevering. Je kunt het later altijd via het dashboard omschakelen — dit stelt alleen de begintoestand in.",
-          "battery_power": "Optioneel. Batterijvermogen met teken in watt — NEGATIEF = ontladen, POSITIEF = laden. Laat de sonde detecteren wanneer de thuisbatterij (niet de zon) de EV dekt, om valse 'ruimte gevonden'-resultaten te voorkomen. Gebruikt je sensor het omgekeerde teken, maak dan een template-sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
+          "battery_power": "Optioneel. Batterijvermogen met teken in watt — NEGATIEF = ontladen, POSITIEF = laden. Laat de sonde detecteren wanneer de thuisbatterij (niet de zon) de EV dekt, om valse 'ruimte gevonden'-resultaten te voorkomen. Gebruikt je sensor het omgekeerde teken, keer het dan om met een template-sensor die de waarde negeert — zie de README voor een voorbeeld."
         }
       },
       "pv_forecast": {
@@ -176,7 +176,7 @@
           "battery_power": "Batterijvermogenssensor (W, met teken)"
         },
         "data_description": {
-          "battery_power": "Optioneel. Batterijvermogen met teken in watt — NEGATIEF = ontladen, POSITIEF = laden. Laat de sonde detecteren wanneer de thuisbatterij (niet de zon) de EV dekt, om valse 'ruimte gevonden'-resultaten te voorkomen. Gebruikt je sensor het omgekeerde teken, maak dan een template-sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
+          "battery_power": "Optioneel. Batterijvermogen met teken in watt — NEGATIEF = ontladen, POSITIEF = laden. Laat de sonde detecteren wanneer de thuisbatterij (niet de zon) de EV dekt, om valse 'ruimte gevonden'-resultaten te voorkomen. Gebruikt je sensor het omgekeerde teken, keer het dan om met een template-sensor die de waarde negeert — zie de README voor een voorbeeld."
         }
       },
       "reconfigure_pv_forecast": {
@@ -339,7 +339,7 @@
           "battery_power": "Batterijvermogenssensor (W, met teken)"
         },
         "data_description": {
-          "battery_power": "Optioneel. Batterijvermogen met teken in watt — NEGATIEF = ontladen, POSITIEF = laden. Laat de sonde detecteren wanneer de thuisbatterij (niet de zon) de EV dekt, om valse 'ruimte gevonden'-resultaten te voorkomen. Gebruikt je sensor het omgekeerde teken, maak dan een template-sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
+          "battery_power": "Optioneel. Batterijvermogen met teken in watt — NEGATIEF = ontladen, POSITIEF = laden. Laat de sonde detecteren wanneer de thuisbatterij (niet de zon) de EV dekt, om valse 'ruimte gevonden'-resultaten te voorkomen. Gebruikt je sensor het omgekeerde teken, keer het dan om met een template-sensor die de waarde negeert — zie de README voor een voorbeeld."
         }
       },
       "pv_forecast": {

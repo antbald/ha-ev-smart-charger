@@ -72,7 +72,7 @@
         },
         "data_description": {
           "hybrid_inverter_mode": "Attiva la sonda empirica di curtailment per inverter ibridi a zero immissione. Puoi attivarla/disattivarla in qualsiasi momento dalla dashboard — qui imposti solo lo stato iniziale.",
-          "battery_power": "Opzionale. Potenza batteria con segno in watt — NEGATIVO = in scarica, POSITIVO = in carica. Permette alla sonda di rilevare quando è la batteria di casa (non il sole) a coprire l'EV, evitando falsi risultati 'margine trovato'. Se il tuo sensore usa il segno opposto, crea un sensore template: {{ - states('sensor.your_battery_power') | float(0) }}."
+          "battery_power": "Opzionale. Potenza batteria con segno in watt — NEGATIVO = in scarica, POSITIVO = in carica. Permette alla sonda di rilevare quando è la batteria di casa (non il sole) a coprire l'EV, evitando falsi risultati 'margine trovato'. Se il tuo sensore usa il segno opposto, invertilo con un sensore template che ne nega il valore — vedi il README per un esempio."
         }
       },
       "pv_forecast": {
@@ -176,7 +176,7 @@
           "battery_power": "Sensore potenza batteria (W, con segno)"
         },
         "data_description": {
-          "battery_power": "Opzionale. Potenza batteria con segno in watt — NEGATIVO = in scarica, POSITIVO = in carica. Permette alla sonda di rilevare quando è la batteria di casa (non il sole) a coprire l'EV, evitando falsi risultati 'margine trovato'. Se il tuo sensore usa il segno opposto, crea un sensore template: {{ - states('sensor.your_battery_power') | float(0) }}."
+          "battery_power": "Opzionale. Potenza batteria con segno in watt — NEGATIVO = in scarica, POSITIVO = in carica. Permette alla sonda di rilevare quando è la batteria di casa (non il sole) a coprire l'EV, evitando falsi risultati 'margine trovato'. Se il tuo sensore usa il segno opposto, invertilo con un sensore template che ne nega il valore — vedi il README per un esempio."
         }
       },
       "reconfigure_pv_forecast": {
@@ -339,7 +339,7 @@
           "battery_power": "Sensore potenza batteria (W, con segno)"
         },
         "data_description": {
-          "battery_power": "Opzionale. Potenza batteria con segno in watt — NEGATIVO = in scarica, POSITIVO = in carica. Permette alla sonda di rilevare quando è la batteria di casa (non il sole) a coprire l'EV, evitando falsi risultati 'margine trovato'. Se il tuo sensore usa il segno opposto, crea un sensore template: {{ - states('sensor.your_battery_power') | float(0) }}."
+          "battery_power": "Opzionale. Potenza batteria con segno in watt — NEGATIVO = in scarica, POSITIVO = in carica. Permette alla sonda di rilevare quando è la batteria di casa (non il sole) a coprire l'EV, evitando falsi risultati 'margine trovato'. Se il tuo sensore usa il segno opposto, invertilo con un sensore template che ne nega il valore — vedi il README per un esempio."
         }
       },
       "pv_forecast": {

@@ -1107,3 +1107,22 @@ async def test_pv_handoff_ignored_when_car_ready_on(hass, night_charge):
 
     assert should_stop is False
     assert "handing off" not in reason.lower()
+
+
+async def test_disabled_switch_does_not_mutate_session_state(hass, night_charge):
+    """issue #45: with the enable switch OFF, the enabled check must short-circuit
+    BEFORE _is_in_active_window() (which mutates _session_state to 'active').
+
+    Regression for the phantom 'Already active (hysteresis)' + 'disabled, skipping'
+    loop on never-enabled installs.
+    """
+    hass.states.async_set("switch.test_evsc_night_smart_charge_enabled", "off")
+    night_charge._session_state = "ready"
+
+    # Spy: the window check must NOT be reached while disabled.
+    night_charge._is_in_active_window = AsyncMock(return_value=True)
+
+    await night_charge._async_periodic_check(dt_util.now())
+
+    night_charge._is_in_active_window.assert_not_called()
+    assert night_charge._session_state == "ready"

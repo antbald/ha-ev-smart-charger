@@ -72,7 +72,7 @@
         },
         "data_description": {
           "hybrid_inverter_mode": "Turns on the empirical curtailment probe for zero-export hybrid inverters. You can toggle it any time later from the dashboard — this only sets the initial state.",
-          "battery_power": "Optional. Signed battery power in watts — NEGATIVE = discharging, POSITIVE = charging. Lets the probe detect when the home battery (not solar) is covering the EV, preventing false 'headroom found' results. If your sensor uses the opposite sign, create a template sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
+          "battery_power": "Optional. Signed battery power in watts — NEGATIVE = discharging, POSITIVE = charging. Lets the probe detect when the home battery (not solar) is covering the EV, preventing false 'headroom found' results. If your sensor reports the opposite sign, invert it with a template sensor that negates the value — see the README for an example."
         }
       },
       "pv_forecast": {
@@ -176,7 +176,7 @@
           "battery_power": "Battery power sensor (W, signed)"
         },
         "data_description": {
-          "battery_power": "Optional. Signed battery power in watts — NEGATIVE = discharging, POSITIVE = charging. Lets the probe detect when the home battery (not solar) is covering the EV, preventing false 'headroom found' results. If your sensor uses the opposite sign, create a template sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
+          "battery_power": "Optional. Signed battery power in watts — NEGATIVE = discharging, POSITIVE = charging. Lets the probe detect when the home battery (not solar) is covering the EV, preventing false 'headroom found' results. If your sensor reports the opposite sign, invert it with a template sensor that negates the value — see the README for an example."
         }
       },
       "reconfigure_pv_forecast": {
@@ -339,7 +339,7 @@
           "battery_power": "Battery power sensor (W, signed)"
         },
         "data_description": {
-          "battery_power": "Optional. Signed battery power in watts — NEGATIVE = discharging, POSITIVE = charging. Lets the probe detect when the home battery (not solar) is covering the EV, preventing false 'headroom found' results. If your sensor uses the opposite sign, create a template sensor: {{ - states('sensor.your_battery_power') | float(0) }}."
+          "battery_power": "Optional. Signed battery power in watts — NEGATIVE = discharging, POSITIVE = charging. Lets the probe detect when the home battery (not solar) is covering the EV, preventing false 'headroom found' results. If your sensor reports the opposite sign, invert it with a template sensor that negates the value — see the README for an example."
         }
       },
       "pv_forecast": {

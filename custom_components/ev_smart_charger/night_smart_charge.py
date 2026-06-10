@@ -725,14 +725,19 @@ class NightSmartCharge:
                 self.logger.debug("Already active and within valid window, skipping re-evaluation")
             return
 
+        # Check if enabled FIRST (issue #45): _is_in_active_window() is not a
+        # pure predicate — it mutates _session_state to "active" at the
+        # activation window. If the enabled check ran after it, a never-enabled
+        # install would get stuck logging "Already active (hysteresis)" +
+        # "disabled, skipping" every minute. Gating on enabled first means the
+        # window check (and its mutation) is never reached while the switch is off.
+        if not self.is_enabled():
+            self.logger.debug("Night Smart Charge disabled, skipping")
+            return
+
         # Check if we're in active window
         if not await self._is_in_active_window(current_time):
             self.logger.debug("Not in active window, skipping")
-            return
-
-        # Check if enabled
-        if not self.is_enabled():
-            self.logger.debug("Night Smart Charge disabled, skipping")
             return
 
         # Run evaluation

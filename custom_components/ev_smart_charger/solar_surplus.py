@@ -712,17 +712,34 @@ class SolarSurplusAutomation:
             self.logger.debug(f"Priority Balancer: {priority}")
 
             if priority == PRIORITY_HOME:
-                self.logger.warning("Priority = HOME - Stopping EV charger")
-                if await self._acquire_control(
-                    "turn_off",
-                    "Home battery needs charging (Priority = HOME)",
-                ):
-                    await self.charger_controller.stop_charger(
-                        "Home battery needs charging (Priority = HOME)"
+                # issue #44: only act when there is something to do. Calling
+                # stop_charger() every tick on an already-off charger floods the
+                # log, churns coordinator ownership and dispatches a no-op
+                # switch.turn_off. Guard on the real charger state.
+                if await self.charger_controller.is_charging():
+                    self.logger.warning("Priority = HOME - Stopping EV charger")
+                    if await self._acquire_control(
+                        "turn_off",
+                        "Home battery needs charging (Priority = HOME)",
+                    ):
+                        await self.charger_controller.stop_charger(
+                            "Home battery needs charging (Priority = HOME)"
+                        )
+                        self._release_control("Priority = HOME")
+                        self._handle_control_loss("Priority = HOME")
+                    self.logger.separator()
+                elif self._has_control():
+                    # Charger already off but we still hold the coordinator —
+                    # release it so we don't leave a phantom owner.
+                    self._release_control("Priority = HOME (charger already off)")
+                    self._handle_control_loss("Priority = HOME (charger already off)")
+                    self.logger.debug(
+                        "Priority = HOME, charger already off — released stale control"
                     )
-                    self._release_control("Priority = HOME")
-                    self._handle_control_loss("Priority = HOME")
-                self.logger.separator()
+                else:
+                    self.logger.debug(
+                        "Priority = HOME, charger already off — skipping stop"
+                    )
                 return
 
             if priority == PRIORITY_EV_FREE:
@@ -741,6 +758,7 @@ class SolarSurplusAutomation:
         # BEFORE summing — a single unavailable phase would otherwise be read as
         # 0 W by get_float and silently halve production/consumption.
         sensor_errors = []
+        failed_entities = []  # issue #48: which sensors failed (for the state string)
         sensors_to_validate = self._power_model.labelled_power_entities()
 
         # Check each sensor and track error state changes
@@ -750,6 +768,7 @@ class SolarSurplusAutomation:
 
             if not is_valid:
                 sensor_errors.append(error_msg)
+                failed_entities.append(entity_id)
                 # Only log if this is a NEW error or error message changed
                 if entity_id not in self._sensor_error_state or self._sensor_error_state[entity_id] != error_msg:
                     self._sensor_error_state[entity_id] = error_msg
@@ -770,8 +789,18 @@ class SolarSurplusAutomation:
                 # Existing errors - just update diagnostic sensor quietly
                 self.logger.debug(f"Sensor errors still present ({len(sensor_errors)} sensors unavailable)")
 
+            # issue #48: name the failing sensor(s) in the state string so the
+            # user can see which one at a glance, not just an opaque "ERROR".
+            # The HA state value is capped at 255 chars — keep it well under.
+            if len(failed_entities) == 1:
+                state_str = f"ERROR: Invalid sensor ({failed_entities[0]})"
+            else:
+                state_str = (
+                    f"ERROR: Invalid sensor ({failed_entities[0]} +"
+                    f"{len(failed_entities) - 1} more)"
+                )
             await self._update_diagnostic_sensor(
-                "ERROR: Invalid sensor values",
+                state_str[:200],
                 {"errors": sensor_errors, "last_check": dt_util.now().isoformat()}
             )
             self.logger.separator()
@@ -1203,6 +1232,12 @@ class SolarSurplusAutomation:
             "sunset_today": sunset.isoformat() if sunset else None,
             "nighttime_sunset_offset_min": sunset_offset,
             "nighttime_sunrise_offset_min": sunrise_offset,
+            # issue #47: expose the raw computed result so a "SKIPPED: Nighttime"
+            # in daytime is fully self-diagnosable (right times + True here =>
+            # genuine logic input; otherwise location/tz misconfig or stale).
+            "is_nighttime_computed": self._astral_service.is_nighttime(
+                now, sunset_offset, sunrise_offset
+            ),
         }
 
     async def _handle_nighttime_transition(self, now: datetime, current_profile: str | None) -> None:
@@ -1495,6 +1530,12 @@ class SolarSurplusAutomation:
 
         if self._last_grid_import_high is None:
             self._last_grid_import_high = current_time
+            # issue #46: invalidate any pre-cloud stability credit the moment
+            # grid import is first detected. Otherwise _surplus_stable_since
+            # keeps accumulating through the cloud and, once it passes, the
+            # system jumps straight to full target amperage in one step (large
+            # battery draw) instead of re-earning a fresh 60s stability window.
+            self._surplus_stable_since = None
             self.logger.warning(
                 f"Grid import ({grid_import}W) > threshold ({grid_threshold}W) - Starting {grid_import_delay}s delay"
             )
@@ -1533,6 +1574,9 @@ class SolarSurplusAutomation:
 
         self.logger.warning("Grid import delay ELAPSED - Reducing charging")
         self._last_grid_import_high = None
+        # issue #46: belt-and-suspenders — require a fresh stability window
+        # after each step-down too, so the ramp can't jump back up in one step.
+        self._surplus_stable_since = None
 
         # Gradual ramp down: one level at a time via AmperageCalculator
         next_amps = AmperageCalculator.get_next_level_down(current_amps, self._amp_levels)

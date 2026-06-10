@@ -212,6 +212,66 @@ async def test_surplus_increase_stability(hass, automation):
         automation.charger_controller.set_amperage.assert_called_with(16, "Stable surplus increase")
         assert automation._surplus_stable_since is None
 
+
+async def test_grid_import_resets_surplus_stable_since(hass, automation):
+    """issue #46: detecting grid import must invalidate pre-cloud stability credit.
+
+    Otherwise _surplus_stable_since survives the cloud and, once it passes, the
+    ramp jumps straight to full target amperage in one step (large battery draw)
+    instead of re-earning a fresh 60s stability window.
+    """
+    # Pre-cloud: stability already accumulated.
+    automation._surplus_stable_since = datetime(2023, 1, 1, 12, 0, 0)
+
+    # First grid-import detection.
+    with patch("time.monotonic", return_value=5000):
+        await automation._handle_grid_import_protection(
+            grid_import=100, grid_threshold=50, grid_import_delay=30, current_amps=16
+        )
+
+    assert automation._surplus_stable_since is None  # credit invalidated
+
+    # And again after the step-down (belt-and-suspenders).
+    automation._surplus_stable_since = datetime(2023, 1, 1, 12, 5, 0)
+    with patch("time.monotonic", return_value=5031):  # delay elapsed
+        await automation._handle_grid_import_protection(
+            grid_import=100, grid_threshold=50, grid_import_delay=30, current_amps=16
+        )
+    assert automation._surplus_stable_since is None
+
+
+async def test_priority_home_skips_stop_when_charger_off(hass, automation):
+    """issue #44: PRIORITY_HOME must not call stop_charger on an already-off charger."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+
+    automation.priority_balancer.is_enabled.return_value = True
+    automation.priority_balancer.calculate_priority = AsyncMock(return_value=PRIORITY_HOME)
+    automation.charger_controller.is_charging = AsyncMock(return_value=False)
+    automation._has_control = MagicMock(return_value=False)
+
+    await automation._async_periodic_check()
+
+    automation.charger_controller.stop_charger.assert_not_called()
+
+
+async def test_priority_home_still_stops_when_charging(hass, automation):
+    """issue #44: PRIORITY_HOME still stops a charger that IS charging."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+
+    automation.priority_balancer.is_enabled.return_value = True
+    automation.priority_balancer.calculate_priority = AsyncMock(return_value=PRIORITY_HOME)
+    automation.charger_controller.is_charging = AsyncMock(return_value=True)
+    automation._acquire_control = AsyncMock(return_value=True)
+
+    await automation._async_periodic_check()
+
+    automation.charger_controller.stop_charger.assert_called_once()
+
+
 async def test_ev_free_does_not_stop_before_energy_checks(hass, automation):
     """Priority EV_FREE must not stop charging before Solar Surplus evaluates energy sensors."""
     # Preconditions for periodic flow

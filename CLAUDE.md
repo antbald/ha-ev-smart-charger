@@ -757,6 +757,57 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.7.0 (2026-06-10)
+**Bug-fix wave — 4 issues (#43–#46)**
+
+A focused bug-fix release closing four reports from DJm00n. Fully backward
+compatible — no schema/entity/config-flow change, entity counts unchanged
+(69 / 55), no dashboard change.
+
+**#43 — Translation `MALFORMED_ARGUMENT` on the battery-power field (BUG).** The
+`battery_power` `data_description` embedded a Jinja example `{{ - states(...) |
+float(0) }}`; HA's translation engine treats `{{ }}` as an interpolation
+placeholder and replaced the whole string with the error label. The Jinja was
+removed from the description (plain-text instruction pointing to the README) in
+all 12 occurrences (`strings.json` + `translations/{en,it,nl}.json`, 3 steps
+each), and a sign-inversion template example was added to the README. Text only.
+
+**#44 — Solar Surplus stopped an already-off charger every tick on `PRIORITY_HOME`
+(BUG, log/coordinator churn).** The `PRIORITY_HOME` branch in [solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py)
+called `stop_charger()` unconditionally, dispatching a no-op `switch.turn_off`,
+flapping coordinator ownership and resetting the check counter every 60 s while
+the home target was unmet. Now a 3-branch guard: stop only when actually
+charging; if off but still holding the coordinator, release it (no phantom
+owner); otherwise a single DEBUG line and return.
+
+**#45 — Night Smart Charge phantom "active" loop when the switch is OFF (BUG,
+state machine).** In `_async_periodic_check` the `is_enabled()` check ran *after*
+`_is_in_active_window()`, which is not a pure predicate — it mutates
+`_session_state` to `"active"` at the activation window. A never-enabled install
+got stuck logging `Already active (hysteresis)` + `disabled, skipping` every
+minute until restart. The enabled check now runs first, so the window check (and
+its mutation) is never reached while the switch is off.
+
+**#46 — Solar Surplus jumped to full amperage after a cloud (BUG, battery drain).**
+`_handle_grid_import_protection` reset `_last_grid_import_high` but not
+`_surplus_stable_since`, so the pre-cloud stability credit survived the grid-import
+event; once the cloud passed the system jumped straight to the full target in one
+step (a large home-battery draw). `_surplus_stable_since` is now reset both at
+first grid-import detection and after each step-down, forcing a fresh 60 s
+stability window before any increase.
+
+**Diagnostic hardening (#47/#48).** The Solar Surplus diagnostic now exposes the
+raw `is_nighttime_computed` result alongside the already-present sunrise/sunset/
+offset attributes (so a daytime "SKIPPED: Nighttime" is fully self-diagnosable),
+and the `ERROR: Invalid sensor values` state now names the failing sensor
+(truncated, full list still in the `errors` attribute).
+
+**Files**: `solar_surplus.py` (#44, #46, #47/#48), `night_smart_charge.py` (#45),
+`strings.json` + `translations/{en,it,nl}.json` (#43), `README.md` (#43),
+`const.py` + `manifest.json` (VERSION). `VERSION = "2.7.0"`.
+
+---
+
 ### v2.6.1 (2026-06-06)
 **Dashboard: grid-lost indicator for issue #36 (frontend-only)**
 
