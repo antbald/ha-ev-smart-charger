@@ -21,6 +21,7 @@ from .const import (
     PRIORITY_SOLAR_SURPLUS,
     SOLAR_SURPLUS_MIN_CHECK_INTERVAL,
     SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE,
+    SENSOR_UNAVAILABLE_ERROR_TICKS,
     HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX,
     HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX,
     HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX,
@@ -152,6 +153,9 @@ class SolarSurplusAutomation:
 
         # Sensor error tracking (prevent log spam)
         self._sensor_error_state = {}  # {sensor_entity_id: error_message}
+        # issue #47/#48: consecutive ticks with at least one invalid sensor.
+        # Used to debounce the diagnostic ERROR label (display-only).
+        self._sensor_error_consecutive = 0
 
         # v2.5.0 (issue #35): surface the silent "Priority Balancer disabled"
         # degradation when home SOC targets are configured. Persistent notification
@@ -544,10 +548,19 @@ class SolarSurplusAutomation:
 
         self._check_count += 1
 
+        # issue #50C: one separator per tick (fence pattern). Early-return
+        # branches below no longer emit their own separator, so a single tick
+        # produces exactly one ═══ at the top regardless of which branch fires.
+        self.logger.separator()
+
         # issue #40: this header (and most per-tick readout below) is DEBUG now.
         # On idle no-op ticks nothing actionable happens, so INFO is reserved for
         # ticks that take an action; the diagnostic sensor still updates every tick.
-        self.logger.debug(f"Periodic check #{self._check_count}")
+        # issue #50A: the counter is reset every 60s and there is one tick per
+        # 60s window, so it is always #1 — only log it when it is genuinely > 1
+        # (i.e. something triggered extra checks within the window).
+        if self._check_count > 1:
+            self.logger.debug(f"Periodic check #{self._check_count}")
 
         # === 1. Check Forza Ricarica (Kill Switch) ===
         if get_bool(self.hass, self._forza_ricarica_entity):
@@ -565,7 +578,6 @@ class SolarSurplusAutomation:
                 "SKIPPED: Forza Ricarica ON",
                 {"reason": "Override switch enabled", "last_check": dt_util.now().isoformat()}
             )
-            self.logger.separator()
             return
 
         # === 2. Check Boost Charge (manual override) ===
@@ -587,7 +599,6 @@ class SolarSurplusAutomation:
                 "SKIPPED: Boost Charge Active",
                 {"reason": "Boost override enabled", "last_check": dt_util.now().isoformat()}
             )
-            self.logger.separator()
             return
 
         # === 3. Check Nighttime (Solar Surplus only works during daytime) ===
@@ -600,7 +611,6 @@ class SolarSurplusAutomation:
         sunrise_offset = int(get_float(self.hass, self._nighttime_sunrise_offset_entity, 0))
         if self._astral_service.is_nighttime(now, sunset_offset, sunrise_offset):
             await self._handle_nighttime_transition(now, current_profile)
-            self.logger.separator()
             return
 
         # === 4. Check Night Smart Charge ===
@@ -623,7 +633,6 @@ class SolarSurplusAutomation:
                 "SKIPPED: Night Smart Charge Active",
                 {"night_mode": night_mode, "last_check": dt_util.now().isoformat()}
             )
-            self.logger.separator()
             return
 
         # === 5. Check Night Smart Charge Cooldown ===
@@ -642,7 +651,6 @@ class SolarSurplusAutomation:
                         "last_check": dt_util.now().isoformat()
                     }
                 )
-                self.logger.separator()
                 return
 
         # === 6. Check Charging Profile ===
@@ -664,7 +672,6 @@ class SolarSurplusAutomation:
                 "SKIPPED: Wrong Profile",
                 {"profile": current_profile, "last_check": dt_util.now().isoformat()}
             )
-            self.logger.separator()
             return
 
         # === 7. Check Charger Status ===
@@ -677,7 +684,6 @@ class SolarSurplusAutomation:
             charger_status = get_state(self.hass, self._charger_status)
             if not charger_status:
                 self.logger.warning("Charger status unavailable")
-                self.logger.separator()
                 return
 
             if charger_status == CHARGER_STATUS_FREE:
@@ -694,7 +700,6 @@ class SolarSurplusAutomation:
                     reason_detail="Charger is free (not connected)",
                     external_cause="charger_disconnected",
                 )
-                self.logger.separator()
                 return
 
             self.logger.info(f"Charger status: '{charger_status}' - proceeding")
@@ -727,7 +732,6 @@ class SolarSurplusAutomation:
                         )
                         self._release_control("Priority = HOME")
                         self._handle_control_loss("Priority = HOME")
-                    self.logger.separator()
                 elif self._has_control():
                     # Charger already off but we still hold the coordinator —
                     # release it so we don't leave a phantom owner.
@@ -780,6 +784,15 @@ class SolarSurplusAutomation:
                     del self._sensor_error_state[entity_id]
 
         if sensor_errors:
+            # issue #47/#48: debounce the hard ERROR label. Noisy integrations
+            # (e.g. GivEnergy/givtcp) briefly drop sensors to unavailable; a
+            # single flap should not surface a scary "ERROR" or a stale-looking
+            # value. Show a soft WAITING state for the first few consecutive
+            # ticks, escalate to ERROR only if it persists. Display-only — the
+            # tick still skips (returns) while sensors are unavailable, so no
+            # charging decision is ever made on invalid data.
+            self._sensor_error_consecutive += 1
+
             # Only log full error details if there are NEW errors
             if new_errors:
                 self.logger.error("Sensor validation failed:")
@@ -789,10 +802,11 @@ class SolarSurplusAutomation:
                 # Existing errors - just update diagnostic sensor quietly
                 self.logger.debug(f"Sensor errors still present ({len(sensor_errors)} sensors unavailable)")
 
-            # issue #48: name the failing sensor(s) in the state string so the
-            # user can see which one at a glance, not just an opaque "ERROR".
-            # The HA state value is capped at 255 chars — keep it well under.
-            if len(failed_entities) == 1:
+            if self._sensor_error_consecutive < SENSOR_UNAVAILABLE_ERROR_TICKS:
+                state_str = "WAITING: sensor momentarily unavailable"
+            elif len(failed_entities) == 1:
+                # issue #48: name the failing sensor at a glance (full list in
+                # the `errors` attribute). HA state is capped at 255 chars.
                 state_str = f"ERROR: Invalid sensor ({failed_entities[0]})"
             else:
                 state_str = (
@@ -801,10 +815,16 @@ class SolarSurplusAutomation:
                 )
             await self._update_diagnostic_sensor(
                 state_str[:200],
-                {"errors": sensor_errors, "last_check": dt_util.now().isoformat()}
+                {
+                    "errors": sensor_errors,
+                    "consecutive_error_ticks": self._sensor_error_consecutive,
+                    "last_check": dt_util.now().isoformat(),
+                },
             )
-            self.logger.separator()
             return
+
+        # All sensors valid — reset the debounce counter (issue #47/#48).
+        self._sensor_error_consecutive = 0
 
         # === 10. Calculate Surplus ===
         # v2.0.0: power readers sum across phases (single-phase = single sensor),
@@ -848,7 +868,6 @@ class SolarSurplusAutomation:
                 )
                 if handled:
                     self.logger.info("Hybrid Inverter Mode handled this tick")
-                    self.logger.separator()
                     return
 
         # === 11. Handle Home Battery Usage ===
@@ -1026,7 +1045,6 @@ class SolarSurplusAutomation:
                 },
             )
             await self._handle_grid_import_protection(grid_import, grid_threshold, grid_import_delay, current_amps)
-            self.logger.separator()
             return
         else:
             # Reset timer when import goes back below threshold
@@ -1040,7 +1058,6 @@ class SolarSurplusAutomation:
                     target_amps,
                     "Solar surplus available",
                 )
-            self.logger.separator()
             return
 
         # EV_FREE Mode: Apply delay before stopping (same as PRIORITY_EV)
@@ -1053,7 +1070,6 @@ class SolarSurplusAutomation:
                     f"EV_FREE mode: Insufficient surplus ({surplus_amps:.2f}A < {SURPLUS_STOP_THRESHOLD}A) - "
                     f"Starting {surplus_drop_delay}s delay before stopping"
                 )
-                self.logger.separator()
                 return
 
             # Check if delay elapsed
@@ -1062,7 +1078,6 @@ class SolarSurplusAutomation:
                 self.logger.info(
                     f"EV_FREE mode: Waiting for surplus drop delay ({elapsed:.1f}s / {surplus_drop_delay}s)"
                 )
-                self.logger.separator()
                 return
 
             # Delay elapsed, stop charging
@@ -1078,16 +1093,13 @@ class SolarSurplusAutomation:
                 )
                 self._release_control("EV_FREE stop after delay")
                 self._handle_control_loss("EV_FREE stop after delay")
-            self.logger.separator()
             return
 
         # Surplus-based adjustment
         if target_amps < current_amps:
             await self._handle_surplus_decrease(target_amps, current_amps, surplus_amps, surplus_drop_delay)
-            self.logger.separator()
         elif target_amps > current_amps:
             await self._handle_surplus_increase(target_amps, current_amps)
-            self.logger.separator()
         else:
             # issue #40: charger already off and nothing to confirm → DEBUG, no
             # separator (keeps idle no-op ticks to a single DEBUG line). When
@@ -1096,7 +1108,6 @@ class SolarSurplusAutomation:
                 self.logger.debug("Amperage optimal at 0A (charger off — nothing to confirm)")
             else:
                 self.logger.success(f"Amperage optimal at {current_amps}A")
-                self.logger.separator()
             self._reset_state_tracking()
 
     def _get_ev_soc_staleness(self) -> dict:
@@ -1483,13 +1494,34 @@ class SolarSurplusAutomation:
         # Maintain current level - don't increase, don't decrease
         if surplus_amps >= SURPLUS_STOP_THRESHOLD:
             if is_charging:
-                # Continue at current level (prevent oscillation)
-                self.logger.debug(
-                    f"Surplus in hysteresis band ({surplus_amps:.2f}A, "
-                    f"range {SURPLUS_STOP_THRESHOLD}-{SURPLUS_START_THRESHOLD}A) - "
-                    f"Maintaining current {current_amperage}A"
+                # issue #51: the dead-band "maintain" rule is only valid at the
+                # FLOOR — it exists to prevent stop/start oscillation around the
+                # 6 A minimum. Applied to a higher current (e.g. 20 A with only
+                # 5.6 A of surplus) it locks an over-sized level and the home
+                # battery silently covers the deficit on hybrid inverters until
+                # a grid spike finally fires grid-import protection.
+                floor = self._amp_levels[0]
+                if current_amperage <= floor:
+                    # At the floor — maintain to prevent oscillation (original intent).
+                    self.logger.debug(
+                        f"Surplus in hysteresis band ({surplus_amps:.2f}A, "
+                        f"range {SURPLUS_STOP_THRESHOLD}-{SURPLUS_START_THRESHOLD}A) "
+                        f"and at floor {floor}A - maintaining"
+                    )
+                    return current_amperage
+                # Above the floor: surplus is a clear deficit. Return one level
+                # down so the surplus-decrease path applies its 30s drop delay.
+                # Clamp at the floor — only CASE 3 (< stop threshold) may stop.
+                next_amps = AmperageCalculator.get_next_level_down(
+                    current_amperage, self._amp_levels
                 )
-                return current_amperage
+                next_amps = next_amps if next_amps >= floor else floor
+                self.logger.info(
+                    f"Surplus in hysteresis band ({surplus_amps:.2f}A) but current "
+                    f"{current_amperage}A is above floor {floor}A - "
+                    f"requesting step down to {next_amps}A"
+                )
+                return next_amps
             else:
                 # Not charging yet - wait for surplus to exceed START threshold
                 self.logger.debug(
@@ -1759,14 +1791,22 @@ class SolarSurplusAutomation:
                 )
                 return
 
-            # Stability confirmed, increase amperage
+            # Stability confirmed — step up ONE level only (issue #49).
+            # Jumping straight to target_amps (e.g. 13A → 23A) overshoots the
+            # inverter's PV ramp on zero-export hybrids, triggers grid-import
+            # protection, and forces a slow walk-down. One level per stability
+            # window keeps each step inside the grid-import delay window.
+            next_amps = AmperageCalculator.get_next_level_up(
+                current_amps, target_amps, self._power_model.amp_levels
+            )
             self.logger.action(
                 f"Surplus stable for {SURPLUS_INCREASE_DELAY}s - "
-                f"Increasing from {current_amps}A to {target_amps}A"
+                f"stepping {current_amps}A → {next_amps}A (target {target_amps}A)"
             )
-            self._reset_state_tracking()
+            # Re-arm the stability window so the next step needs another 60s.
+            self._surplus_stable_since = None
             if await self._ensure_control("Stable surplus increase"):
-                await self.charger_controller.set_amperage(target_amps, "Stable surplus increase")
+                await self.charger_controller.set_amperage(next_amps, "Stable surplus step-up")
 
     def _reset_state_tracking(self) -> None:
         """Reset state tracking flags."""

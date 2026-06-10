@@ -205,11 +205,12 @@ async def test_surplus_increase_stability(hass, automation):
         await automation._handle_surplus_increase(target_amps=16, current_amps=10)
         automation.charger_controller.set_amperage.assert_not_called()
         
-        # Stability confirmed (> 60s)
+        # Stability confirmed (> 60s) — issue #49: step ONE level (10A → 13A on
+        # Tuya levels), not straight to the 16A target; timer re-armed.
         mock_dt.now.return_value = datetime(2023, 1, 1, 12, 1, 1)
         await automation._handle_surplus_increase(target_amps=16, current_amps=10)
-        
-        automation.charger_controller.set_amperage.assert_called_with(16, "Stable surplus increase")
+
+        automation.charger_controller.set_amperage.assert_called_with(13, "Stable surplus step-up")
         assert automation._surplus_stable_since is None
 
 
@@ -606,3 +607,73 @@ async def test_start_timer_runs_initial_check(hass, automation):
         await automation._start_timer()
 
     automation._async_periodic_check.assert_awaited_once_with(ignore_rate_limit=True)
+
+
+async def test_dead_band_steps_down_above_floor(hass, automation):
+    """issue #51: in the hysteresis dead band, maintain ONLY at the floor.
+    Above the floor a band-level surplus is a deficit → step one level down."""
+    # surplus 1288W → 5.6A, inside the 5.5–6.5A dead band.
+    # Tuya levels [6,8,10,13,16,20,24,32]: 20A is above floor → step to 16A.
+    assert automation._calculate_target_amperage(1288, current_amperage=20) == 16
+    # At the floor (6A): maintain (original anti-oscillation intent).
+    assert automation._calculate_target_amperage(1288, current_amperage=6) == 6
+
+
+async def test_surplus_increase_steps_one_level(hass, automation):
+    """issue #49: confirmed-stable increase steps ONE level, not to full target."""
+    import homeassistant.util.dt as dt_util
+    automation._ensure_control = AsyncMock(return_value=True)
+    automation._surplus_stable_since = dt_util.now() - timedelta(seconds=70)
+    await automation._handle_surplus_increase(target_amps=23, current_amps=13)
+    # next level up from 13 (Tuya) is 16, capped at target 23 → 16.
+    automation.charger_controller.set_amperage.assert_called_with(16, "Stable surplus step-up")
+    assert automation._surplus_stable_since is None
+
+
+async def test_sensor_error_debounce_waiting_then_error(hass, automation):
+    """issue #47/#48: soft WAITING for the first ticks, ERROR only after the
+    sensors stay unavailable for SENSOR_UNAVAILABLE_ERROR_TICKS consecutive ticks."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+    automation._astral_service.is_nighttime.return_value = False
+    automation.priority_balancer.is_enabled.return_value = False
+    hass.states.async_set("sensor.solar", "unavailable")
+    hass.states.async_set("sensor.consumption", "unavailable")
+    hass.states.async_set("sensor.grid", "unavailable")
+
+    captured = []
+
+    async def _cap(state, attrs):
+        captured.append(state)
+
+    automation._update_diagnostic_sensor = _cap
+
+    for _ in range(3):
+        await automation._async_periodic_check(ignore_rate_limit=True)
+
+    assert captured[0].startswith("WAITING")
+    assert captured[1].startswith("WAITING")
+    assert captured[2].startswith("ERROR")
+
+
+async def test_sensor_error_counter_resets_on_recovery(hass, automation):
+    """issue #47/#48: the debounce counter resets once sensors are valid again."""
+    automation._sensor_error_consecutive = 5
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_CHARGING)
+    automation._astral_service.is_nighttime.return_value = False
+    automation.priority_balancer.is_enabled.return_value = False
+    hass.states.async_set("sensor.solar", "3000")
+    hass.states.async_set("sensor.consumption", "1000")
+    hass.states.async_set("sensor.grid", "0")
+    hass.states.async_set("number.grid_threshold", "50")
+    hass.states.async_set("number.grid_delay", "30")
+    hass.states.async_set("number.surplus_delay", "30")
+    hass.states.async_set("switch.use_battery", "off")
+    automation._update_diagnostic_sensor = AsyncMock()
+
+    await automation._async_periodic_check(ignore_rate_limit=True)
+
+    assert automation._sensor_error_consecutive == 0

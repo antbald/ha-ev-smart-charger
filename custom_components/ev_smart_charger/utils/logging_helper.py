@@ -35,6 +35,7 @@ class EVSCLogger:
     SKIP = "⏭️"
     START = "🔄"
     STOP = "🛑"
+    TRACE = "🔍"  # debug / trace level (issue #50)
     NIGHT = "🌙"
     DAY = "☀️"
     BATTERY = "🔋"
@@ -179,7 +180,7 @@ class EVSCLogger:
         """Log debug message."""
         if args:
             message = message % args
-        _LOGGER.debug(f"[{self.component}] {message}")
+        _LOGGER.debug(f"{self.TRACE} [{self.component}] {message}")
 
     def event(
         self,

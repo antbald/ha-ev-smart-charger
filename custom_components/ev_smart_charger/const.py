@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.7.0"
+VERSION = "2.7.1"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -358,6 +358,14 @@ SMART_BLOCKER_ENFORCEMENT_TIMEOUT = 1800  # 30 minutes in seconds
 # ========== RATE LIMITING ==========
 SOLAR_SURPLUS_MIN_CHECK_INTERVAL = 30  # seconds between checks
 SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE = 10  # warning threshold
+
+# issue #47/#48: consecutive ticks a mapped energy sensor must read
+# unknown/unavailable before the Solar Surplus diagnostic shows the hard
+# "ERROR: Invalid sensor values" state. Below this, a softer "WAITING: sensor
+# momentarily unavailable" is shown — so a single flap from a noisy integration
+# (e.g. GivEnergy/givtcp briefly dropping sensors) does not look like a fault.
+# Display-only: the tick still skips while sensors are unavailable.
+SENSOR_UNAVAILABLE_ERROR_TICKS = 3
 
 # ========== CHARGER CONTROLLER SETTINGS ==========
 CHARGER_MIN_OPERATION_INTERVAL = 30  # seconds between charger operations (rate limiting)

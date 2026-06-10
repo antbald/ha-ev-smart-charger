@@ -757,6 +757,57 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.7.1 (2026-06-10)
+**Solar Surplus ramp/hysteresis fixes + log polish (issues #49, #50, #51) + #47/#48 hardening**
+
+Follow-up to v2.7.0, all on Solar Surplus. Backward compatible — no schema /
+entity / config-flow / dashboard change, entity counts unchanged (69 / 55).
+
+**#51 — Hysteresis dead-band locked the charger at any current, not just the
+floor (BUG, silent battery drain).** `_calculate_target_amperage()` CASE 2
+returned `current_amperage` unchanged whenever surplus was in the 5.5–6.5 A dead
+band — even at, say, 20 A with only 5.6 A of surplus. On hybrid inverters the
+home battery silently covered the deficit until a grid spike finally tripped
+grid-import protection. The "maintain" rule now applies **only at the floor**
+(`current <= amp_levels[0]`); above the floor it returns one level down
+(`AmperageCalculator.get_next_level_down`, clamped at the floor), routed through
+the existing `_handle_surplus_decrease` 30 s drop delay. Only CASE 3 (< stop
+threshold) may still stop the charger.
+
+**#49 — Surplus increase jumped straight to the full target in one step (BUG,
+overshoot oscillation).** After 60 s of stable surplus, `_handle_surplus_increase()`
+set the full calculated target (e.g. 13 A → 23 A) in one step; on zero-export
+hybrids the inverter's PV ramp lagged the surge, tripping grid-import protection
+and forcing a slow walk-down. The "already charging" branch now steps **one
+level per stability window** (`get_next_level_up`) and re-arms `_surplus_stable_since`,
+so each step stays inside the grid-import delay window. The "start from off"
+branch is unchanged. Together with #51 this gives a clean one-level-per-tick ramp
+in both directions.
+
+**#50 — Log noise (cosmetic).** (A) `Periodic check #{n}` is logged only when
+`> 1` (it was always `#1`). (B) `EVSCLogger.debug()` now carries a `🔍` (`TRACE`)
+emoji prefix like every other level. (C) Fence pattern in
+`solar_surplus._async_periodic_check`: one separator at the top of each tick,
+removed from all 19 early-return branches (one `═══` per tick instead of 2–3).
+`night_smart_charge.py` left unchanged.
+
+**#47/#48 — Diagnostic ERROR debounce (display-only, hardening).** A noisy energy
+integration (e.g. GivEnergy/givtcp) briefly drops sensors to `unavailable`,
+which surfaced an alarming `ERROR: Invalid sensor values` on a single flap. The
+diagnostic now shows a soft `WAITING: sensor momentarily unavailable` for the
+first `SENSOR_UNAVAILABLE_ERROR_TICKS` (default 3) consecutive ticks and
+escalates to `ERROR` only if it persists. Display-only — the tick still skips
+while sensors are invalid, so no charging decision is ever made on bad data; the
+counter resets the moment sensors recover. (Root cause of #47/#48 is the
+external integration flapping, not an EVSC bug.)
+
+**Files**: `solar_surplus.py` (#49, #51, #50A/#50C, #47/#48), `utils/logging_helper.py`
+(#50B), `const.py` (`SENSOR_UNAVAILABLE_ERROR_TICKS`, VERSION), `manifest.json`;
+tests: `tests/test_v271_fixes.py` + targeted tests in `test_solar_surplus.py`.
+`VERSION = "2.7.1"`.
+
+---
+
 ### v2.7.0 (2026-06-10)
 **Bug-fix wave — 4 issues (#43–#46)**
 
