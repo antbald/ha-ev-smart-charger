@@ -1747,6 +1747,15 @@ class SolarSurplusAutomation:
             current_amps: Current amperage (0 if charger off)
         """
 
+        # issue #52: the dispatcher routed here because target_amps > current_amps,
+        # so any pending surplus-drop debounce is stale by definition. Clear it at
+        # the entry point (the only spot covering all return paths below) so a future
+        # dip starts a fresh evsc_surplus_drop_delay window instead of firing an
+        # immediate step-down against an old timestamp. This is what makes the
+        # one-level-per-tick ramp (#49) hold its level under surplus oscillation
+        # instead of ratcheting downward.
+        self._last_surplus_sufficient = None
+
         # Starting from 0A (charger off) requires 60s stability (cloud protection)
         if current_amps == 0:
             # Start stability tracking if not already started

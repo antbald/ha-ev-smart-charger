@@ -757,6 +757,41 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.7.2 (2026-06-13)
+**Solar Surplus: clear the stale surplus-drop debounce on recovery (issue #52)**
+
+Single-line follow-up to v2.7.1, all on Solar Surplus. Backward compatible — no
+schema / entity / config-flow / dashboard change, entity counts unchanged (69 / 55).
+
+**#52 — Drop-delay timer survived across surplus recoveries (BUG, silent battery
+drain).** `_handle_surplus_decrease()` arms `self._last_surplus_sufficient` (the
+`evsc_surplus_drop_delay` start timestamp) on the first sub-current tick and clears
+it only *after* a step-down fires. `_handle_surplus_increase()` never touched it, so
+when surplus recovered without committing a step-down the timer survived
+indefinitely; the next dip then fired an **immediate** step-down against a 60–180 s
+old timestamp, bypassing the `evsc_surplus_drop_delay` debounce and ratcheting the
+charger downward across surplus oscillation (net 0 A per two-minute cycle on the
+reporter's zero-export hybrid). Coupled to the v2.7.1 #49 one-level-per-tick ramp,
+which re-enters the increase path on every cycle, so the bug surfaced continuously.
+
+Fix: clear `self._last_surplus_sufficient = None` at the **entry point** of
+`_handle_surplus_increase()`, before any branching. The dispatcher only routes there
+when `target_amps > current_amps`, so any pending drop debounce is stale by
+definition — a future dip must start a fresh `evsc_surplus_drop_delay` window. Entry
+is the only spot covering all return paths (the post-step-up reset at the tail is
+unreachable on the "stability timer just started / still waiting" branches). The two
+existing `_surplus_stable_since = None` resets belong to a different invariant and
+are unchanged. This is what makes the #49 ramp hold its level under oscillation
+instead of ratcheting down.
+
+**Files**: `solar_surplus.py` (`_handle_surplus_increase` entry-point clear),
+`const.py` + `manifest.json` (VERSION); tests: `tests/test_solar_surplus.py`
+(`test_surplus_increase_clears_stale_drop_timer`, covering the early-return path).
+`VERSION = "2.7.2"`. Full suite green except the pre-existing environment-only
+baseline failures (identical on clean master).
+
+---
+
 ### v2.7.1 (2026-06-10)
 **Solar Surplus ramp/hysteresis fixes + log polish (issues #49, #50, #51) + #47/#48 hardening**
 

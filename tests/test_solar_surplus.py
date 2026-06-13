@@ -630,6 +630,31 @@ async def test_surplus_increase_steps_one_level(hass, automation):
     assert automation._surplus_stable_since is None
 
 
+async def test_surplus_increase_clears_stale_drop_timer(hass, automation):
+    """issue #52: a recovering surplus must clear the surplus-drop debounce.
+
+    _handle_surplus_decrease arms _last_surplus_sufficient and only clears it
+    after a step-down fires. If surplus recovers (increase path) the timer used
+    to survive, so the next dip fired an immediate step-down against a stale
+    timestamp, bypassing evsc_surplus_drop_delay and ratcheting downward.
+
+    This covers the "stability timer just started" path (returns early, before
+    the post-step-up reset): only the entry-point clear reaches it.
+    """
+    import homeassistant.util.dt as dt_util
+    # A stale drop timer left over from an earlier sub-current tick.
+    automation._last_surplus_sufficient = 5000.0
+    automation._surplus_stable_since = None
+
+    # Already charging; surplus recovered → increase path. This sets the
+    # stability timer and returns at the "waiting" branch without reaching the
+    # post-step-up reset (the line unreachable per the issue's instance 2).
+    await automation._handle_surplus_increase(target_amps=16, current_amps=10)
+
+    assert automation._last_surplus_sufficient is None
+    automation.charger_controller.set_amperage.assert_not_called()
+
+
 async def test_sensor_error_debounce_waiting_then_error(hass, automation):
     """issue #47/#48: soft WAITING for the first ticks, ERROR only after the
     sensors stay unavailable for SENSOR_UNAVAILABLE_ERROR_TICKS consecutive ticks."""
