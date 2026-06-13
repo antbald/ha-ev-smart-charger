@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from homeassistant.util import dt as dt_util
 
 from custom_components.ev_smart_charger.charger_controller import ChargerController
 from custom_components.ev_smart_charger.const import (
@@ -133,7 +134,9 @@ async def test_rate_limiting_waits_instead_of_queue(
     hass.states.async_set("number.charger_current", "6")
     controller = controller_factory()
     await controller.async_setup()
-    controller._last_operation_time = datetime.now()
+    # Must be timezone-aware: the controller computes the rate-limit delta with
+    # dt_util.now() (aware); a naive datetime.now() raises on the subtraction.
+    controller._last_operation_time = dt_util.now()
 
     with patch("asyncio.sleep", new=AsyncMock()) as sleep_mock:
         result = await controller.start_charger(10, reason="Rate limited")

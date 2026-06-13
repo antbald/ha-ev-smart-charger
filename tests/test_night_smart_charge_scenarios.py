@@ -345,7 +345,10 @@ async def test_scenario_6_race_condition(hass, night_charge):
         # CHECK: State must be active HERE, inside the start command
         assert night_charge.is_active() is True
         assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_GRID
-        return True
+        # Real ChargerController returns OperationResult, not bool — callers
+        # read result.success.
+        from custom_components.ev_smart_charger.charger_controller import OperationResult
+        return OperationResult(success=True, operation="start", reason="mock")
         
     night_charge.charger_controller.start_charger = AsyncMock(side_effect=mock_start_charger_side_effect)
     

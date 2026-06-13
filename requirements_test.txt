@@ -1,4 +1,7 @@
 pytest
-pytest-homeassistant-custom-component>=0.12.49
+# Pinned: this version pins homeassistant==2023.1.7, the HA the suite is
+# verified green against. An unpinned range lets CI pull a newer HA whose
+# entity/selector behaviour differs and silently reintroduces failures.
+pytest-homeassistant-custom-component==0.12.49
 pytest-asyncio
 pytest-cov

@@ -787,8 +787,26 @@ instead of ratcheting down.
 **Files**: `solar_surplus.py` (`_handle_surplus_increase` entry-point clear),
 `const.py` + `manifest.json` (VERSION); tests: `tests/test_solar_surplus.py`
 (`test_surplus_increase_clears_stale_drop_timer`, covering the early-return path).
-`VERSION = "2.7.2"`. Full suite green except the pre-existing environment-only
-baseline failures (identical on clean master).
+`VERSION = "2.7.2"`.
+
+**Test baseline made fully green (infra, no integration code change).** The
+long-standing "~19–22 pre-existing environmental baseline failures" were a
+misdiagnosis — all were **stale tests that drifted from the code after the
+v1.5.11 / v1.6.0 refactors**, now fixed so the suite is **232 passed / 0
+failed**: (a) `test_solar_surplus` grid-import/stability tests mocked `time.time`
+/ `solar_surplus.datetime` but the code uses `time.monotonic()` / `dt_util.now()`
+(no-op mocks); (b) the shared `mock_charger_controller` fixture returned `bool`
+where the real `ChargerController` returns `OperationResult` (callers read
+`result.success`) — fixed in `tests/conftest.py` via `_ok_result()`, plus a
+stale `_session_state` assertion and a wall-clock grid-import trigger under a
+patched clock in `test_night_smart_charge`; (c) `test_charger_controller`
+rate-limit test used a naive `datetime.now()` against the controller's aware
+`dt_util.now()`; (d) `test_entity_platforms` had stale hardcoded entity counts
+and a PV-only fixture that then looked up battery-only entities (`_mock_entry`
+now maps `CONF_SOC_HOME`; counts → 34/21/4/9). `requirements_test.txt` pins
+`pytest-homeassistant-custom-component==0.12.49` (was `>=`) and a new
+`.github/workflows/tests.yml` runs `pytest` on push/PR so the baseline can't
+silently rot again.
 
 ---
 

@@ -27,6 +27,7 @@ from custom_components.ev_smart_charger import time as time_platform
 from custom_components.ev_smart_charger.const import (
     CHARGING_PROFILES,
     CONF_SOC_CAR,
+    CONF_SOC_HOME,
     DEFAULT_CAR_READY_TIME,
     LEGACY_CHARGING_PROFILES,
     PROFILE_MANUAL,
@@ -36,10 +37,14 @@ from custom_components.ev_smart_charger.runtime import EVSCRuntimeData
 
 def _mock_entry(runtime_data: EVSCRuntimeData) -> SimpleNamespace:
     """Create a minimal config-entry-like object for platform setup."""
+    # Include CONF_SOC_HOME so the home-battery-only entities are created
+    # (platforms gate them on has_home_battery(entry.data)). Without it the
+    # battery-only lookups below — e.g. evsc_preserve_home_battery — raise
+    # StopIteration, and the entity counts reflect PV-only mode.
     return SimpleNamespace(
         entry_id="entry_123",
         runtime_data=runtime_data,
-        data={CONF_SOC_CAR: "sensor.cloud_ev_soc"},
+        data={CONF_SOC_CAR: "sensor.cloud_ev_soc", CONF_SOC_HOME: "sensor.home_soc"},
     )
 
 
@@ -74,7 +79,8 @@ async def test_number_platform_setup_and_restore(hass, runtime_data):
 
     await number_platform.async_setup_entry(hass, entry, async_add_entities)
 
-    assert len(entities) == 24
+    # 23 always-created + 11 home-battery-only numbers (see _mock_entry).
+    assert len(entities) == 34
 
     entity = entities[0]
     assert entity.entity_id == "number.ev_smart_charger_entry_123_evsc_check_interval"
@@ -108,7 +114,8 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
 
     await switch_platform.async_setup_entry(hass, entry, async_add_entities)
 
-    assert len(entities) == 19
+    # 19 always-created + 2 home-battery-only switches (use/preserve home battery).
+    assert len(entities) == 21
 
     restored_switch = next(
         entity for entity in entities if entity.entity_id.endswith("evsc_forza_ricarica")
@@ -188,7 +195,8 @@ async def test_time_platform_restore_invalid_restore_and_set_value(hass, runtime
 
     await time_platform.async_setup_entry(hass, entry, async_add_entities)
 
-    assert len(entities) == 2
+    # night_charge_time, car_ready_time, boost_schedule_{start,end}_time.
+    assert len(entities) == 4
 
     restored_time = entities[0]
     default_time = entities[1]
@@ -225,7 +233,8 @@ async def test_sensor_platform_setup_publish_restore_and_log_manager(hass, runti
 
     await sensor_platform.async_setup_entry(hass, entry, async_add_entities)
 
-    assert len(entities) == 7
+    # 8 always-created + 1 home-battery-only sensor (today_home_target).
+    assert len(entities) == 9
 
     diagnostic = next(entity for entity in entities if entity.entity_id.endswith("evsc_diagnostic"))
     priority = next(

@@ -2,7 +2,21 @@
 import pytest
 from unittest.mock import patch, AsyncMock, Mock
 
+from custom_components.ev_smart_charger.charger_controller import OperationResult
+
 pytest_plugins = "pytest_homeassistant_custom_component"
+
+
+def _ok_result(operation, amperage=None):
+    """Build a successful OperationResult, matching the real ChargerController.
+
+    The controller's start/stop/set methods return an OperationResult (with a
+    .success attribute), NOT a bool. Mocks must mirror that or callers like
+    night_smart_charge (`result.success`) raise AttributeError on a bool.
+    """
+    return OperationResult(
+        success=True, operation=operation, reason="mock", amperage=amperage
+    )
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
@@ -21,9 +35,9 @@ def mock_charger_controller():
     """Mock ChargerController."""
     with patch("custom_components.ev_smart_charger.charger_controller.ChargerController") as mock:
         instance = mock.return_value
-        instance.start_charger = AsyncMock(return_value=True)
-        instance.stop_charger = AsyncMock(return_value=True)
-        instance.set_amperage = AsyncMock(return_value=True)
+        instance.start_charger = AsyncMock(return_value=_ok_result("start"))
+        instance.stop_charger = AsyncMock(return_value=_ok_result("stop"))
+        instance.set_amperage = AsyncMock(return_value=_ok_result("set_amperage"))
         instance.is_charging = AsyncMock(return_value=False)
         instance.get_current_amperage = AsyncMock(return_value=0)
         yield instance

@@ -583,7 +583,10 @@ async def test_monitor_battery_stops_terminal_on_persistent_grid_import_when_car
     night_charge._session_state = "active"
     night_charge._last_completion_time = None
     night_charge._last_completion_date = None
-    night_charge._grid_import_trigger_time = datetime.now() - timedelta(seconds=60)
+    # Must be relative to the PATCHED dt_util.now below (2026-03-07 02:00), not
+    # the real clock — should_reduce() computes elapsed against dt_util.now(),
+    # so a wall-clock trigger here yields a huge negative elapsed and never fires.
+    night_charge._grid_import_trigger_time = datetime(2026, 3, 7, 2, 0, 0) - timedelta(seconds=60)
 
     hass.states.async_set("sensor.grid_import", "120")
     hass.states.async_set("number.test_evsc_grid_import_threshold", "50")
@@ -706,7 +709,10 @@ async def test_battery_monitor_stands_down_when_coordinator_ownership_is_lost(ha
     unsub.assert_called_once()
     assert night_charge.is_active() is False
     assert night_charge.get_active_mode() == NIGHT_CHARGE_MODE_IDLE
-    assert night_charge._session_state == "ready"
+    # Control loss routes through _handle_control_loss, which sets
+    # "completed_today" (not "ready") to block same-day re-activation and the
+    # restart loop fixed in v1.5.11.
+    assert night_charge._session_state == "completed_today"
 
 
 # ============================================================================

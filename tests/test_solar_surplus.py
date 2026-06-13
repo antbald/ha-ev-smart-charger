@@ -105,7 +105,7 @@ async def test_grid_import_protection(hass, automation):
     hass.states.async_set("number.grid_delay", "30")
     
     # Initial high import - should start timer
-    with patch("time.time", return_value=1000):
+    with patch("time.monotonic", return_value=1000):
         await automation._handle_grid_import_protection(
             grid_import=100, grid_threshold=50, grid_import_delay=30, current_amps=16
         )
@@ -113,14 +113,14 @@ async def test_grid_import_protection(hass, automation):
         automation.charger_controller.set_amperage.assert_not_called()
     
     # Still high, delay not elapsed
-    with patch("time.time", return_value=1020): # +20s
+    with patch("time.monotonic", return_value=1020): # +20s
         await automation._handle_grid_import_protection(
             grid_import=100, grid_threshold=50, grid_import_delay=30, current_amps=16
         )
         automation.charger_controller.set_amperage.assert_not_called()
         
     # Delay elapsed - should reduce amperage
-    with patch("time.time", return_value=1031): # +31s
+    with patch("time.monotonic", return_value=1031): # +31s
         await automation._handle_grid_import_protection(
             grid_import=100, grid_threshold=50, grid_import_delay=30, current_amps=16
         )
@@ -132,7 +132,7 @@ async def test_grid_import_protection_publishes_debug_diagnostics(hass, automati
     """Grid import protection should publish diagnostic decisions and timing context."""
     automation._update_diagnostic_sensor = AsyncMock()
 
-    with patch("time.time", return_value=1000):
+    with patch("time.monotonic", return_value=1000):
         await automation._handle_grid_import_protection(
             grid_import=400, grid_threshold=250, grid_import_delay=30, current_amps=24
         )
@@ -145,7 +145,7 @@ async def test_grid_import_protection_publishes_debug_diagnostics(hass, automati
     assert first_call.args[1]["current_charging_a"] == 24
     assert first_call.args[1]["use_home_battery_enabled"] is False
 
-    with patch("time.time", return_value=1020):
+    with patch("time.monotonic", return_value=1020):
         await automation._handle_grid_import_protection(
             grid_import=400, grid_threshold=250, grid_import_delay=30, current_amps=24
         )
@@ -156,7 +156,7 @@ async def test_grid_import_protection_publishes_debug_diagnostics(hass, automati
     assert second_call.args[1]["grid_import_elapsed_s"] == 20.0
     assert second_call.args[1]["grid_import_remaining_s"] == 10.0
 
-    with patch("time.time", return_value=1031):
+    with patch("time.monotonic", return_value=1031):
         await automation._handle_grid_import_protection(
             grid_import=400, grid_threshold=250, grid_import_delay=30, current_amps=24
         )
@@ -170,14 +170,14 @@ async def test_grid_import_protection_publishes_debug_diagnostics(hass, automati
 async def test_grid_import_protection_keeps_charger_off_when_already_off(hass, automation):
     """When import is high and charger is OFF, protection must not start charging."""
     # Initial high import - start timer
-    with patch("time.time", return_value=2000):
+    with patch("time.monotonic", return_value=2000):
         await automation._handle_grid_import_protection(
             grid_import=100, grid_threshold=50, grid_import_delay=30, current_amps=0
         )
         assert automation._last_grid_import_high == 2000
 
     # Delay elapsed - charger should remain OFF
-    with patch("time.time", return_value=2031):
+    with patch("time.monotonic", return_value=2031):
         await automation._handle_grid_import_protection(
             grid_import=100, grid_threshold=50, grid_import_delay=30, current_amps=0
         )
@@ -191,8 +191,9 @@ async def test_surplus_increase_stability(hass, automation):
     # Setup
     automation.charger_controller.is_charging.return_value = True
     
-    # Initial increase detection
-    with patch("custom_components.ev_smart_charger.solar_surplus.datetime") as mock_dt:
+    # Initial increase detection. The code reads dt_util.now() (not
+    # datetime.now()), so patch that symbol or the mock is a no-op.
+    with patch("custom_components.ev_smart_charger.solar_surplus.dt_util") as mock_dt:
         mock_dt.now.return_value = datetime(2023, 1, 1, 12, 0, 0)
         
         await automation._handle_surplus_increase(target_amps=16, current_amps=10)
