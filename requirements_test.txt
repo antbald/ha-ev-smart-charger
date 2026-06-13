@@ -5,3 +5,7 @@ pytest
 pytest-homeassistant-custom-component==0.12.49
 pytest-asyncio
 pytest-cov
+# Required to set up the `http` dependency declared in manifest.json during
+# config-flow tests (HA's http component imports aiohttp_cors). Absent from the
+# base test package, so CI fails with "No module named 'aiohttp_cors'" without it.
+aiohttp-cors
