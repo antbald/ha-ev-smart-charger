@@ -1,6 +1,6 @@
 # EV Smart Charger SSOT
 
-This file is the single source of truth for the current architecture as of 2026-06-01 (v2.2.0).
+This file is the single source of truth for the current architecture as of 2026-07-06 (v2.7.3).
 
 If it conflicts with historical notes, release files, or old session summaries, this file wins for maintainer-facing architecture. `README.md` remains the user-facing guide.
 
@@ -52,6 +52,7 @@ The setup sequence is:
    - `BoostCharge`
    - `SmartChargerBlocker`
    - `SolarSurplusAutomation`
+   - `EVChargingLiveActivityMonitor`
    - `LogManager`
 6. Store service references back into `runtime_data`.
 
@@ -132,6 +133,26 @@ Backward compatible: with no power sensor mapped, `read_charging_power` returns
 `None` and every consumer falls back to the status string / switch echo exactly
 as v2.1.x. Constants: `CHARGING_POWER_DRAWING_FLOOR_W = 200`,
 `CHARGING_POWER_GRACE_SECONDS = 15`, `NIGHT_GRID_DRAW_START_GRACE_SECONDS = 90`.
+
+### 4.1.1 EV charging Live Activity monitor (v2.7.3)
+
+`custom_components/ev_smart_charger/live_activity_monitor.py` owns normal
+charging Live Activity / Live Update presence. It is a notification monitor, not
+a charger actuator:
+
+- runs every 60 seconds and once at setup
+- opens/updates the shared `evsc_ev_charging` live notification when
+  `runtime_data.power_model.is_charging(hass)` is true
+- skips entirely while Boost Charge or Night Smart Charge is active, because
+  those flows own their own live updates
+- clears only after two consecutive inactive ticks to avoid flicker during brief
+  sensor or charging dips
+- labels the mode as `Force Charge`, `Solar Surplus`, or fallback `Charging`
+  based on runtime helper/coordinator state
+
+It uses the configured `notify.mobile_app_*` services through
+`MobileNotificationService`, inherits the car-owner presence filter, and does
+not add helpers, config flow fields, or control-plane ownership.
 
 ### 4.2 Night Smart Charge stop conditions (v2.3.0, issue #32)
 

@@ -20,6 +20,7 @@ custom_components/
     boost_charge.py
     automations.py
     solar_surplus.py
+    live_activity_monitor.py
     ev_soc_monitor.py
     log_manager.py
     switch.py
@@ -58,6 +59,7 @@ Makefile
 | `custom_components/ev_smart_charger/automations.py` | Smart Charger Blocker | Can preempt lower-priority charging |
 | `custom_components/ev_smart_charger/night_smart_charge.py` | Overnight charging workflow with battery or grid mode | Owns night-session logic and handoff paths; PV-production handoff stop (v2.3.0, issue #32) in `_should_stop_for_deadline`; grid-availability terminal stop (v2.6.0, issue #36) as grid-monitor Check 0.5 |
 | `custom_components/ev_smart_charger/solar_surplus.py` | Daytime solar-surplus charging and dynamic current control | Owns daytime adaptive loop |
+| `custom_components/ev_smart_charger/live_activity_monitor.py` | Normal charging Live Activity / Live Update monitor | Notification-only; uses `power_model.is_charging()`, skips Boost/Night, clears after two inactive ticks |
 
 ## 4. Supporting services
 
@@ -71,7 +73,7 @@ Makefile
 | `custom_components/ev_smart_charger/utils/time_parsing_service.py` | Parsing helper for time values |
 | `custom_components/ev_smart_charger/utils/logging_helper.py` | Shared logging setup |
 | `custom_components/ev_smart_charger/utils/notification_service.py` | Persistent notifications |
-| `custom_components/ev_smart_charger/utils/mobile_notification_service.py` | Mobile-app notifications with optional car-owner presence gating |
+| `custom_components/ev_smart_charger/utils/mobile_notification_service.py` | Mobile-app notifications and EV charging Live Activity payloads with optional car-owner presence gating |
 
 Removed from active architecture:
 

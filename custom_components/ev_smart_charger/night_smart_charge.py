@@ -1444,6 +1444,12 @@ class NightSmartCharge:
                     amperage=amperage,
                     forecast=pv_forecast
                 )
+                await self._mobile_notifier.send_ev_charging_live_activity(
+                    mode="Night Battery",
+                    amperage=amperage,
+                    target_soc=ev_target,
+                    force=True,
+                )
             except Exception as ex:
                 self.logger.warning(f"Notification logging failed (non-critical): {ex}")
 
@@ -1581,6 +1587,12 @@ class NightSmartCharge:
             return
 
         self.logger.info(f"   {self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - continuing charge")
+        await self._mobile_notifier.send_ev_charging_live_activity(
+            mode="Night Battery",
+            amperage=self._get_night_charge_amperage(),
+            ev_soc=ev_soc,
+            target_soc=ev_target,
+        )
 
         # Check 3: Dynamic amperage management (v1.3.23)
         await self._handle_dynamic_amperage()
@@ -1673,6 +1685,12 @@ class NightSmartCharge:
             return
 
         self.logger.info(f"   {self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - continuing charge")
+        await self._mobile_notifier.send_ev_charging_live_activity(
+            mode="Night Grid",
+            amperage=self._get_night_charge_amperage(),
+            ev_soc=ev_soc,
+            target_soc=ev_target,
+        )
 
         # Check 1.5 (v2.4.0, issue #33): home-battery masking protection.
         # On hybrid 'Battery First' inverters (Deye/Sunsynk/Solis), grid mode
@@ -1880,6 +1898,12 @@ class NightSmartCharge:
                     reason=reason,
                     amperage=amperage,
                     forecast=pv_forecast
+                )
+                await self._mobile_notifier.send_ev_charging_live_activity(
+                    mode="Night Grid",
+                    amperage=amperage,
+                    target_soc=ev_target,
+                    force=True,
                 )
             except Exception as ex:
                 self.logger.warning(f"Notification logging failed (non-critical): {ex}")
@@ -2119,6 +2143,7 @@ class NightSmartCharge:
         self.logger.info(f"{self.logger.SUCCESS} Completing night charge session")
         self.logger.info(f"   Stop reason: {stop_reason}")
         self.logger.info(f"   Terminal completion: {terminal}")
+        await self._mobile_notifier.clear_ev_charging_live_activity()
         await self._emit_diagnostic(
             event="night_charge_completed",
             result="completed" if terminal else "reset",

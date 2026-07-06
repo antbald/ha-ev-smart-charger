@@ -425,6 +425,12 @@ class BoostCharge:
             return
 
         self._soc_read_failures = 0
+        await self._mobile_notifier.send_ev_charging_live_activity(
+            mode="Boost",
+            amperage=target_amps,
+            ev_soc=current_soc,
+            target_soc=target_soc,
+        )
 
         if current_soc >= target_soc:
             await self._complete_boost(

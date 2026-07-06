@@ -24,6 +24,7 @@ class EVSCRuntimeData:
     priority_balancer: Any | None = None
     night_smart_charge: Any | None = None
     boost_charge: Any | None = None
+    live_activity_monitor: Any | None = None
     smart_blocker: Any | None = None
     solar_surplus: Any | None = None
     hybrid_mode: Any | None = None  # Hybrid Inverter Mode (v1.8.0 — issue #20)

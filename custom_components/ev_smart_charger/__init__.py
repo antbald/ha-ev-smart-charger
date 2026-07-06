@@ -46,6 +46,7 @@ from .night_smart_charge import NightSmartCharge
 from .boost_charge import BoostCharge
 from .automations import SmartChargerBlocker
 from .hybrid_inverter_mode import HybridInverterMode
+from .live_activity_monitor import EVChargingLiveActivityMonitor
 from .power_model import ChargingModel
 from .solar_surplus import SolarSurplusAutomation
 from .log_manager import LogManager
@@ -88,6 +89,7 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
 async def _async_cleanup_partial_setup(runtime_data: EVSCRuntimeData) -> None:
     """Clean up partially initialized runtime services after setup failures."""
     cleanup_order = [
+        ("live_activity_monitor", "Live Activity Monitor"),
         ("solar_surplus", "Solar Surplus automation"),
         ("hybrid_mode", "Hybrid Inverter Mode"),
         ("smart_blocker", "Smart Charger Blocker"),
@@ -472,6 +474,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 solar_surplus=solar_surplus,
             )
 
+        # ========== PHASE 7.25: CREATE LIVE ACTIVITY MONITOR ==========
+        _LOGGER.info("📱 Phase 7.25: Creating Live Activity monitor")
+        live_activity_monitor = EVChargingLiveActivityMonitor(
+            hass,
+            entry.entry_id,
+            entry.data,
+            runtime_data,
+        )
+        try:
+            await live_activity_monitor.async_setup()
+            _LOGGER.info("✅ Live Activity monitor setup complete")
+            runtime_data.live_activity_monitor = live_activity_monitor
+        except Exception as e:
+            _LOGGER.error(f"❌ Failed to set up Live Activity monitor: {e}")
+            _LOGGER.exception("Live Activity monitor setup error details:")
+            live_activity_monitor = None
+
         # ========== PHASE 7.5: SETUP FILE LOGGING (v1.3.25) ==========
         _LOGGER.info("📝 Phase 7.5: Setting up file logging manager")
 
@@ -491,6 +510,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             evsc_loggers.append(boost_charge.logger)
         if hybrid_mode:
             evsc_loggers.append(hybrid_mode.logger)
+        if live_activity_monitor:
+            evsc_loggers.append(live_activity_monitor.logger)
         evsc_loggers.append(telemetry_logger)
 
         # Setup log manager with toggle listener
@@ -516,6 +537,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime_data.smart_blocker = smart_blocker
     runtime_data.solar_surplus = solar_surplus
     runtime_data.hybrid_mode = hybrid_mode
+    runtime_data.live_activity_monitor = live_activity_monitor
     runtime_data.log_manager = log_manager
     runtime_data.diagnostic_manager = diagnostic_manager
 
@@ -636,6 +658,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime_data = get_runtime_data(entry)
 
     # Remove automations in reverse order (opposite of setup)
+    live_activity_monitor = runtime_data.live_activity_monitor
+    if live_activity_monitor:
+        _LOGGER.info("🗑️  Removing Live Activity monitor")
+        await live_activity_monitor.async_remove()
+
     solar_surplus = runtime_data.solar_surplus
     if solar_surplus:
         _LOGGER.info("🗑️  Removing Solar Surplus automation")
