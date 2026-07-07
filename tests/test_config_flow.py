@@ -1,6 +1,5 @@
 """Test ev_smart_charger config flow."""
 from unittest.mock import patch
-import pytest
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_NAME
@@ -437,5 +436,5 @@ def test_entity_counts_v230():
         TOTAL_INTEGRATION_ENTITIES_NO_BATTERY,
     )
 
-    assert TOTAL_INTEGRATION_ENTITIES == 69
-    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 55
+    assert TOTAL_INTEGRATION_ENTITIES == 70
+    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 56

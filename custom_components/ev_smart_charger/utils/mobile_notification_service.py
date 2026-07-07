@@ -11,6 +11,7 @@ from ..const import (
     CONF_EV_CHARGER_STATUS,
     DEFAULT_NAME,
     HELPER_CACHED_EV_SOC_SUFFIX,
+    HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX,
     HELPER_TODAY_EV_TARGET_SUFFIX,
 )
 from ..localization import translate_runtime
@@ -327,6 +328,8 @@ class MobileNotificationService:
         """Start or update the iOS Live Activity / Android Live Update."""
         if not self._is_car_owner_home():
             return
+        if not self.is_live_activity_enabled():
+            return
 
         snapshot = self._build_live_activity_snapshot(
             mode=mode,
@@ -490,6 +493,22 @@ class MobileNotificationService:
     def _is_night_charge_enabled(self) -> bool:
         """Check if Night Charge notifications are enabled."""
         return self._is_notification_enabled("evsc_notify_night_charge_enabled")
+
+    def is_live_activity_enabled(self) -> bool:
+        """Return True when EV charging Live Activities are enabled."""
+        entity_id = None
+        if self._runtime_data is not None:
+            entity_id = self._runtime_data.get_entity_id(
+                HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX
+            )
+        if not entity_id:
+            return False
+
+        state = self.hass.states.get(entity_id)
+        if not state:
+            return False
+
+        return state.state == STATE_ON
 
     def _is_notification_enabled(self, suffix: str) -> bool:
         """

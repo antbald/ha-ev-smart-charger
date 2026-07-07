@@ -124,6 +124,7 @@ const DOMAIN_SUFFIXES = {
   notifySmartBlocker: ["switch", "evsc_notify_smart_blocker_enabled"],
   notifyPriorityBalancer: ["switch", "evsc_notify_priority_balancer_enabled"],
   notifyNightCharge: ["switch", "evsc_notify_night_charge_enabled"],
+  liveActivities: ["switch", "evsc_live_activities_enabled"],
 
   // ── Logging (v1.3.25 / v1.4.15)
   traceLogging: ["switch", "evsc_trace_logging_enabled"],
@@ -487,6 +488,14 @@ const SETTINGS_CATALOG = [
           nl: "Melden wanneer Night Smart Charge een sessie start (BATTERY of GRID).",
         },
         hint: { en: "Filtered by owner presence", it: "Filtrate per presenza del proprietario", nl: "Gefilterd op aanwezigheid eigenaar" } },
+      { entityKey: "liveActivities", kind: "toggle",
+        name: { en: "EV Live Activities", it: "Live Activities EV", nl: "EV Live Activities" },
+        desc: {
+          en: "Show EV charging progress on the Companion app Lock Screen / Dynamic Island when supported.",
+          it: "Mostra l'avanzamento della ricarica EV su Lock Screen / Dynamic Island della Companion app quando supportato.",
+          nl: "Toon EV-laadvoortgang op het vergrendelscherm / Dynamic Island van de Companion-app wanneer ondersteund.",
+        },
+        hint: { en: "Default off", it: "Default off", nl: "Standaard uit" } },
     ],
   },
   {

@@ -452,6 +452,9 @@
       "evsc_notify_night_charge_enabled": {
         "name": "Notifica night charge"
       },
+      "evsc_live_activities_enabled": {
+        "name": "Live activities"
+      },
       "evsc_enable_file_logging": {
         "name": "Abilita log su file"
       },

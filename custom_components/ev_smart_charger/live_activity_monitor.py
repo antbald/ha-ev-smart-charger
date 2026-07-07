@@ -48,6 +48,7 @@ class EVChargingLiveActivityMonitor:
         self._timer_unsub = None
         self._inactive_ticks = 0
         self._live_activity_active = False
+        self._last_enabled = False
 
     async def async_setup(self) -> None:
         """Start the coarse polling monitor."""
@@ -71,6 +72,17 @@ class EVChargingLiveActivityMonitor:
 
     async def _async_tick(self, now=None) -> None:
         """Update or clear the Live Activity based on normal charging state."""
+        enabled = self._mobile_notifier.is_live_activity_enabled()
+        if not enabled:
+            if self._last_enabled:
+                await self._mobile_notifier.clear_ev_charging_live_activity()
+            self._inactive_ticks = 0
+            self._live_activity_active = False
+            self._last_enabled = False
+            return
+
+        self._last_enabled = True
+
         if self._is_boost_or_night_active():
             self._inactive_ticks = 0
             self._live_activity_active = False

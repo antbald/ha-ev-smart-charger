@@ -10,6 +10,7 @@ from custom_components.ev_smart_charger.const import (
     CONF_NOTIFY_SERVICES,
     HELPER_CHARGING_PROFILE_SUFFIX,
     HELPER_FORZA_RICARICA_SUFFIX,
+    HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX,
 )
 from custom_components.ev_smart_charger.live_activity_monitor import (
     LIVE_ACTIVITY_MONITOR_INTERVAL_SECONDS,
@@ -33,6 +34,11 @@ def _runtime_data(*, charging: bool = True) -> EVSCRuntimeData:
     runtime_data.boost_charge = Mock(is_active=Mock(return_value=False))
     runtime_data.night_smart_charge = Mock(is_active=Mock(return_value=False))
     runtime_data.coordinator = Mock(get_active_automation_name=Mock(return_value=None))
+    runtime_data.register_entity(
+        HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX,
+        "switch.evsc_live_activities_enabled",
+        object(),
+    )
     return runtime_data
 
 
@@ -45,10 +51,15 @@ def _monitor(hass, runtime_data: EVSCRuntimeData) -> EVChargingLiveActivityMonit
     )
 
 
+def _enable_live_activities(hass) -> None:
+    hass.states.async_set("switch.evsc_live_activities_enabled", STATE_ON)
+
+
 async def test_monitor_starts_normal_live_activity_when_charging(hass) -> None:
     """Normal charging opens the shared EV charging Live Activity."""
     hass.services.async_call = AsyncMock()
     runtime_data = _runtime_data(charging=True)
+    _enable_live_activities(hass)
     monitor = _monitor(hass, runtime_data)
 
     await monitor._async_tick()
@@ -65,6 +76,7 @@ async def test_monitor_skips_when_boost_is_active(hass) -> None:
     hass.services.async_call = AsyncMock()
     runtime_data = _runtime_data(charging=True)
     runtime_data.boost_charge.is_active.return_value = True
+    _enable_live_activities(hass)
     monitor = _monitor(hass, runtime_data)
 
     await monitor._async_tick()
@@ -77,6 +89,7 @@ async def test_monitor_skips_when_night_charge_is_active(hass) -> None:
     hass.services.async_call = AsyncMock()
     runtime_data = _runtime_data(charging=True)
     runtime_data.night_smart_charge.is_active.return_value = True
+    _enable_live_activities(hass)
     monitor = _monitor(hass, runtime_data)
 
     await monitor._async_tick()
@@ -88,6 +101,7 @@ async def test_monitor_clears_after_two_inactive_ticks(hass) -> None:
     """A brief not-charging dip does not immediately close the Live Activity."""
     hass.services.async_call = AsyncMock()
     runtime_data = _runtime_data(charging=True)
+    _enable_live_activities(hass)
     monitor = _monitor(hass, runtime_data)
 
     await monitor._async_tick()
@@ -107,6 +121,7 @@ async def test_monitor_mode_label_force_charge(hass) -> None:
     """Force Charge label wins when the override helper is ON."""
     hass.services.async_call = AsyncMock()
     runtime_data = _runtime_data(charging=True)
+    _enable_live_activities(hass)
     runtime_data.register_entity(
         HELPER_FORZA_RICARICA_SUFFIX,
         "switch.evsc_forza_ricarica",
@@ -125,6 +140,7 @@ async def test_monitor_mode_label_solar_surplus_from_coordinator(hass) -> None:
     """Solar Surplus label follows the active coordinator owner."""
     hass.services.async_call = AsyncMock()
     runtime_data = _runtime_data(charging=True)
+    _enable_live_activities(hass)
     runtime_data.coordinator.get_active_automation_name.return_value = "Solar Surplus"
     monitor = _monitor(hass, runtime_data)
 
@@ -138,6 +154,7 @@ async def test_monitor_mode_label_solar_surplus_from_profile(hass) -> None:
     """Solar Surplus label also follows the charging profile helper."""
     hass.services.async_call = AsyncMock()
     runtime_data = _runtime_data(charging=True)
+    _enable_live_activities(hass)
     runtime_data.register_entity(
         HELPER_CHARGING_PROFILE_SUFFIX,
         "select.evsc_charging_profile",
@@ -156,6 +173,7 @@ async def test_monitor_mode_label_fallback_charging(hass) -> None:
     """Fallback label is Charging when no specific normal-charge context applies."""
     hass.services.async_call = AsyncMock()
     runtime_data = _runtime_data(charging=True)
+    _enable_live_activities(hass)
     runtime_data.register_entity(
         HELPER_FORZA_RICARICA_SUFFIX,
         "switch.evsc_forza_ricarica",
@@ -168,6 +186,34 @@ async def test_monitor_mode_label_fallback_charging(hass) -> None:
 
     payload = hass.services.async_call.await_args.args[2]
     assert payload["message"].startswith("Charging ·")
+
+
+async def test_monitor_is_off_by_default(hass) -> None:
+    """Normal charging Live Activity monitor is inert while the helper is OFF."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data(charging=True)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+
+    hass.services.async_call.assert_not_awaited()
+
+
+async def test_monitor_clears_once_when_live_activities_are_disabled(hass) -> None:
+    """Turning the helper OFF clears any previously monitor-owned activity."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data(charging=True)
+    _enable_live_activities(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    hass.states.async_set("switch.evsc_live_activities_enabled", STATE_OFF)
+    await monitor._async_tick()
+    await monitor._async_tick()
+
+    assert hass.services.async_call.call_count == 2
+    payload = hass.services.async_call.await_args.args[2]
+    assert payload["message"] == "clear_notification"
 
 
 async def test_monitor_async_remove_cancels_timer(hass) -> None:

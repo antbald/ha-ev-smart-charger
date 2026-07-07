@@ -16,6 +16,7 @@ from .const import (
     DEFAULT_CAR_READY_WEEKEND,
     DEFAULT_HYBRID_INVERTER_MODE,
     HELPER_HYBRID_INVERTER_MODE_SUFFIX,
+    HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX,
     HELPER_PRESERVE_HOME_BATTERY_SUFFIX,
     HELPER_TRACE_LOGGING_ENABLED_SUFFIX,
     HELPER_USE_HOME_BATTERY_SUFFIX,
@@ -64,6 +65,7 @@ async def async_setup_entry(
         ("evsc_notify_smart_blocker_enabled", "Notify Smart Blocker", "mdi:bell-outline", True),
         ("evsc_notify_priority_balancer_enabled", "Notify Priority Balancer", "mdi:bell-outline", True),
         ("evsc_notify_night_charge_enabled", "Notify Night Charge", "mdi:bell-outline", True),
+        (HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX, "Live Activities", "mdi:progress-bolt", False),
         # Logging switches
         ("evsc_enable_file_logging", "Enable File Logging", "mdi:file-document-outline", False),
         (HELPER_TRACE_LOGGING_ENABLED_SUFFIX, "Trace Logging", "mdi:timeline-text-outline", False),

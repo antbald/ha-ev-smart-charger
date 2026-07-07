@@ -114,8 +114,8 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
 
     await switch_platform.async_setup_entry(hass, entry, async_add_entities)
 
-    # 19 always-created + 2 home-battery-only switches (use/preserve home battery).
-    assert len(entities) == 21
+    # 20 always-created + 2 home-battery-only switches (use/preserve home battery).
+    assert len(entities) == 22
 
     restored_switch = next(
         entity for entity in entities if entity.entity_id.endswith("evsc_forza_ricarica")
@@ -128,6 +128,9 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
     trace_switch = next(
         entity for entity in entities if entity.entity_id.endswith("evsc_trace_logging_enabled")
     )
+    live_activities_switch = next(
+        entity for entity in entities if entity.entity_id.endswith("evsc_live_activities_enabled")
+    )
     preserve_switch = next(
         entity for entity in entities if entity.entity_id.endswith("evsc_preserve_home_battery")
     )
@@ -138,6 +141,7 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
         State(restored_switch.entity_id, "on"),
     )
     await _attach_entity(default_on_switch, hass, None)
+    await _attach_entity(live_activities_switch, hass, None)
     await _attach_entity(preserve_switch, hass, None)
 
     assert restored_switch.unique_id == "ev_smart_charger_entry_123_evsc_forza_ricarica"
@@ -145,6 +149,8 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
     assert restored_switch.translation_key == "evsc_forza_ricarica"
     assert restored_switch.is_on is True
     assert default_on_switch.is_on is True
+    assert live_activities_switch.translation_key == "evsc_live_activities_enabled"
+    assert live_activities_switch.is_on is False
     assert preserve_switch.translation_key == "evsc_preserve_home_battery"
     assert preserve_switch.entity_category is EntityCategory.CONFIG
     assert preserve_switch.is_on is False

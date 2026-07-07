@@ -56,7 +56,7 @@ Most projects target one charger brand or assume a single-phase home. EV Smart C
 
 > **🆕 New in v2.6.0** — mass bug-fix & improvement release (issues #36–#42). Highlights: an optional **`grid_available` binary sensor** ([issue #36](https://github.com/antbald/ha-ev-smart-charger/issues/36)) stops Night Smart Charge grid mode during a **grid outage** so it doesn't drain the home battery on hybrid Battery First / UPS inverters (fail-safe: an unavailable sensor never triggers a false stop); a **customizable nighttime window** ([issue #42](https://github.com/antbald/ha-ev-smart-charger/issues/42)) via two opt-in offset numbers (start before sunset / end after sunrise); and a big **INFO log-noise reduction** ([issue #40](https://github.com/antbald/ha-ev-smart-charger/issues/40)) — idle ticks no longer flood the HA log. Also: valid day icons (#37), faster Generic-charger ramp-up (#38), a consistent Hybrid full-battery threshold (#39), and a cleaner telemetry log (#41). **All backward compatible** — the two features are opt-in.
 
-> **📱 New in v2.7.3** — EV charging **Live Activities / Live Updates** for the Home Assistant Companion app. When mobile notify services are configured, the integration keeps a single `evsc_ev_charging` activity updated for Boost Charge, Night Smart Charge, Solar Surplus, Force Charge, and normal charging detected by the shared `charging_power` / charger-status SSOT. Updates are throttled to protect the iOS push budget and the activity closes only after charging has stopped for two monitor ticks.
+> **📱 New in v2.7.3+** — EV charging **Live Activities / Live Updates** for the Home Assistant Companion app. When enabled from **Dashboard → Settings → Notifications**, the integration keeps a single `evsc_ev_charging` activity updated for Boost Charge, Night Smart Charge, Solar Surplus, Force Charge, and normal charging detected by the shared `charging_power` / charger-status SSOT. Updates are throttled to protect the iOS push budget and the activity closes only after charging has stopped for two monitor ticks. **Default: OFF**.
 
 ---
 
@@ -445,7 +445,7 @@ Used by Night Smart Charge to decide between home battery and grid charging. If 
 
 The `person` entity enables presence-based filtering: notifications are only sent when the car owner is home. If the entity is unavailable, notifications are sent anyway as a fail-safe.
 
-The same mobile notify services are used for EV charging Live Activities / Live Updates on supported Companion App versions. No extra helper is required.
+The same mobile notify services can be used for EV charging Live Activities / Live Updates on supported Companion App versions. They are OFF by default and can be enabled later from the generated dashboard.
 
 ### Step 6 — External Connectors
 
@@ -1169,7 +1169,9 @@ If the `person` entity is unavailable, notifications are always sent (fail-safe 
 
 ### EV Charging Live Activities / Live Updates
 
-On Home Assistant Core 2026.7+ with a supported Companion App, EV Smart Charger sends a single live notification tagged `evsc_ev_charging`.
+On Home Assistant Core 2026.7+ with a supported Companion App, EV Smart Charger can send a single live notification tagged `evsc_ev_charging`.
+
+Enable it with `switch.evsc_live_activities_enabled` or from **Dashboard → Settings → Notifications → EV Live Activities**. The default is **OFF**, so upgrades never start Live Activities without an explicit opt-in.
 
 It starts or updates automatically when the EV is drawing current, including:
 
@@ -1190,6 +1192,7 @@ Updates are intentionally coarse: the integration reuses meaningful state change
 | `evsc_notify_smart_blocker_enabled` | ON | Notifications when Smart Charger Blocker stops the charger |
 | `evsc_notify_priority_balancer_enabled` | ON | Notifications when Priority Balancer state changes |
 | `evsc_notify_night_charge_enabled` | ON | Notifications when Night Smart Charge starts or completes |
+| `evsc_live_activities_enabled` | OFF | EV charging Live Activities / Live Updates |
 
 ---
 

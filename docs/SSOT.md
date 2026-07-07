@@ -1,6 +1,6 @@
 # EV Smart Charger SSOT
 
-This file is the single source of truth for the current architecture as of 2026-07-06 (v2.7.3).
+This file is the single source of truth for the current architecture as of 2026-07-07 (v2.7.4).
 
 If it conflicts with historical notes, release files, or old session summaries, this file wins for maintainer-facing architecture. `README.md` remains the user-facing guide.
 
@@ -152,7 +152,12 @@ a charger actuator:
 
 It uses the configured `notify.mobile_app_*` services through
 `MobileNotificationService`, inherits the car-owner presence filter, and does
-not add helpers, config flow fields, or control-plane ownership.
+not add config flow fields or control-plane ownership.
+
+The feature is gated by the helper switch `evsc_live_activities_enabled`, which
+is default OFF. When the helper is OFF or unavailable, no live-update payload is
+sent. Turning it OFF after it was enabled causes the monitor to send a single
+`clear_notification` for `evsc_ev_charging`.
 
 ### 4.2 Night Smart Charge stop conditions (v2.3.0, issue #32)
 

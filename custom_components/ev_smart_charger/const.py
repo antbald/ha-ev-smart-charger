@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.7.3"
+VERSION = "2.7.4"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -189,6 +189,7 @@ HELPER_PRESERVE_HOME_BATTERY_SUFFIX = "evsc_preserve_home_battery"
 HELPER_NOTIFY_SMART_BLOCKER_SUFFIX = "evsc_notify_smart_blocker_enabled"
 HELPER_NOTIFY_PRIORITY_BALANCER_SUFFIX = "evsc_notify_priority_balancer_enabled"
 HELPER_NOTIFY_NIGHT_CHARGE_SUFFIX = "evsc_notify_night_charge_enabled"
+HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX = "evsc_live_activities_enabled"
 
 # Persistent notification IDs (fixed → updated in place, never stacked)
 # v2.5.0 (issue #35): surfaced when Priority Balancer is disabled while home
@@ -422,21 +423,23 @@ HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 # number (evsc_max_battery_discharge_for_ev) → 66. v2.3.0 (issue #32) adds 1
 # always-created number (evsc_night_pv_handoff_threshold) → 67. v2.6.0 (issue #42)
 # adds 2 always-created numbers (nighttime sunset/sunrise offsets) → 69.
+# v2.7.4 adds 1 always-created switch (live activities enabled) → 70.
 # COUPLING (issue #22): the disabled-helper tolerance in
 # __init__._async_wait_for_helper_registration assumes this equals the number
 # of entities actually created when nothing is disabled. If it drifts above
 # reality (cf. v1.6.20), a single user-disabled entity turns the tolerant
 # startup path back into a hard ConfigEntryNotReady. Keep this in sync.
-TOTAL_INTEGRATION_ENTITIES = 69
+TOTAL_INTEGRATION_ENTITIES = 70
 # Verified count (v2.3.0): 53 entities when running in PV-only mode.
 # Unchanged in v2.1.0: the discharge number is battery-only (skipped in PV-only mode).
 # v2.3.0 (issue #32): evsc_night_pv_handoff_threshold is NOT battery-only → +1 → 53.
 # v2.6.0 (issue #42): 2 nighttime offset numbers are NOT battery-only → +2 → 55.
+# v2.7.4: live activities enabled switch is NOT battery-only → +1 → 56.
 # Skipped helpers (13): 2 switches (use_home_battery, preserve_home_battery),
 # 3 numbers (home_battery_min_soc, battery_support_amperage, battery_support_sunset_buffer),
 # 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).
 # Hybrid Mode entities are still created in PV-only mode but stay IDLE (requires soc_home).
-TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 55
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 56
 
 
 def has_home_battery(config: dict) -> bool:

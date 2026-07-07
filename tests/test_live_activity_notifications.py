@@ -7,6 +7,7 @@ from custom_components.ev_smart_charger.const import (
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
     HELPER_CACHED_EV_SOC_SUFFIX,
+    HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX,
     HELPER_TODAY_EV_TARGET_SUFFIX,
 )
 from custom_components.ev_smart_charger.runtime import EVSCRuntimeData
@@ -34,8 +35,17 @@ def _runtime_data() -> EVSCRuntimeData:
         "sensor.evsc_today_ev_target",
         object(),
     )
+    runtime_data.register_entity(
+        HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX,
+        "switch.evsc_live_activities_enabled",
+        object(),
+    )
     runtime_data.power_model = Mock(read_charging_power=Mock(return_value=7300.0))
     return runtime_data
+
+
+def _enable_live_activities(hass) -> None:
+    hass.states.async_set("switch.evsc_live_activities_enabled", "on")
 
 
 async def test_ev_charging_live_activity_payload_uses_current_snapshot(hass) -> None:
@@ -45,6 +55,7 @@ async def test_ev_charging_live_activity_payload_uses_current_snapshot(hass) -> 
     hass.states.async_set("sensor.evsc_today_ev_target", "80")
     hass.states.async_set("number.wallbox_current", "16")
     hass.states.async_set("sensor.wallbox_status", "charger_charging")
+    _enable_live_activities(hass)
 
     service = MobileNotificationService(
         hass,
@@ -96,6 +107,7 @@ async def test_ev_charging_live_activity_skips_unchanged_signature(hass) -> None
     hass.states.async_set("sensor.evsc_today_ev_target", "80")
     hass.states.async_set("number.wallbox_current", "16")
     hass.states.async_set("sensor.wallbox_status", "charger_charging")
+    _enable_live_activities(hass)
     service = MobileNotificationService(
         hass,
         notify_services=["mobile_app_test_phone"],
@@ -107,3 +119,18 @@ async def test_ev_charging_live_activity_skips_unchanged_signature(hass) -> None
     await service.send_ev_charging_live_activity(mode="Boost")
 
     assert hass.services.async_call.call_count == 1
+
+
+async def test_ev_charging_live_activity_is_off_by_default(hass) -> None:
+    """Live Activity payloads are suppressed unless the helper switch is ON."""
+    hass.services.async_call = AsyncMock()
+    service = MobileNotificationService(
+        hass,
+        notify_services=["mobile_app_test_phone"],
+        entry_id="entry_123",
+        runtime_data=_runtime_data(),
+    )
+
+    await service.send_ev_charging_live_activity(mode="Boost", force=True)
+
+    hass.services.async_call.assert_not_awaited()

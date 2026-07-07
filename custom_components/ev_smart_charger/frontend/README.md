@@ -114,7 +114,7 @@ pv_forecast_entity: sensor.pv_forecast_tomorrow
 | **Solar Surplus** | check interval, grid import threshold/delay, surplus drop delay, solar max amperage, use home battery, home battery min SOC, battery support amperage, battery support sunset buffer |
 | **Hybrid Inverter Mode** (v1.8.0) | `evsc_hybrid_inverter_mode`, `evsc_hybrid_battery_full_threshold`, `evsc_hybrid_probe_duration`, `evsc_hybrid_max_import_duration`, `evsc_hybrid_max_failed_probes` |
 | **Safety / Protection** | `evsc_priority_balancer_enabled`, `evsc_smart_charger_blocker_enabled` |
-| **Notifications** | `evsc_notify_smart_blocker_enabled`, `evsc_notify_priority_balancer_enabled`, `evsc_notify_night_charge_enabled` |
+| **Notifications** | `evsc_notify_smart_blocker_enabled`, `evsc_notify_priority_balancer_enabled`, `evsc_notify_night_charge_enabled`, `evsc_live_activities_enabled` (default OFF) |
 | **Logging** | `evsc_trace_logging_enabled`, `evsc_enable_file_logging`, displays current `evsc_log_file_path` |
 | **Diagnostics panel** | `evsc_diagnostic`, `evsc_solar_surplus_diagnostic`, `evsc_hybrid_inverter_diagnostic`, `evsc_cached_ev_soc` |
 
