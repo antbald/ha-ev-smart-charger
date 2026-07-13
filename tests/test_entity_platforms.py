@@ -80,7 +80,7 @@ async def test_number_platform_setup_and_restore(hass, runtime_data):
     await number_platform.async_setup_entry(hass, entry, async_add_entities)
 
     # 23 always-created + 11 home-battery-only numbers (see _mock_entry).
-    assert len(entities) == 34
+    assert len(entities) == 35  # v2.8.0: +1 spike response delay
 
     entity = entities[0]
     assert entity.entity_id == "number.ev_smart_charger_entry_123_evsc_check_interval"

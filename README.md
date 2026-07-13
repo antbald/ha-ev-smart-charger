@@ -551,6 +551,7 @@ When a day's flag is **ON** and the EV target is not yet reached at sunrise, Nig
 | `evsc_grid_import_threshold` | `50` | `0–1000` | W | Grid import above this level triggers amperage reduction. |
 | `evsc_grid_import_delay` | `30` | `0–120` | s | How long grid import must persist before acting. |
 | `evsc_surplus_drop_delay` | `30` | `0–120` | s | How long surplus must be insufficient before stopping the charger. |
+| `evsc_spike_response_delay` | `10` | `0–60` | s | Consumption-spike fast response (v2.8.0): with stable PV, after this many seconds of grid import the charger steps down in one operation to the level that zeroes the import. `0` disables (legacy slow ramp). |
 | `evsc_solar_max_amperage` | `32` | `6–32` | A | Hard ceiling on Solar Surplus amperage. Lower this if your wallbox rejects currents above a certain value (e.g. set to `16` for wallboxes limited to 16 A). |
 | `evsc_home_battery_min_soc` | `20` | `0–100` | % | Home battery must be above this SOC before battery support activates. |
 | `evsc_battery_support_amperage` | `16` | `6–32` | A | Amperage used when the home battery supplements solar charging. |
@@ -664,6 +665,19 @@ Solar Surplus runs every `evsc_check_interval` minutes during **daytime hours on
 - A dead-band timer: if surplus stays ≥ 5.5 A (`~1265 W`) for 120 consecutive seconds while the charger is off, charging starts at 6 A (opportunistic dead-band start)
 - Charger stops only if surplus drops below 5.5 A for `evsc_surplus_drop_delay` seconds
 - Amperage increases require 60 s of stable surplus; decreases require only `evsc_surplus_drop_delay`
+
+**Consumption-spike fast response (v2.8.0):**
+
+The periodic grid-import protection is tuned for clouds (one level down per ~2-minute cycle). A household demand spike — washing machine, dishwasher, induction hob — while the EV charges on surplus would leak 0.5–1 kWh/day into the grid before the slow ramp caught up. The fast response fixes exactly this case:
+
+- An **event-driven listener** on the grid-import sensor(s) sees the spike within seconds (no waiting for the next periodic tick)
+- The spike is classified as **consumption-caused** only when PV production is stable vs the last per-tick baseline (within `max(300 W, 15%)`); a production drop (cloud) always keeps the legacy conservative path
+- After `evsc_spike_response_delay` seconds of sustained import (default **10 s**, range 0–60, **0 = disabled/legacy**), the charger steps down in **one operation** to the amp level that zeroes the measured import (plus a 100 W safety margin). If even the 6 A floor would still import, the charger stops.
+- Ramp-**up** stays on the legacy slow path (60 s stability window, one level per tick) — asymmetric fast-down / slow-up prevents oscillation
+- The fast path only acts on a Solar-Surplus-owned charging session: Night Charge, Boost, Forza Ricarica, manual charging and Hybrid Mode probing are never touched
+- At most one fast action every 30 s (aligned with the charger-controller rate limit)
+
+Result: a 2 kW hob spike at 16 A goes from ~8 minutes of grid import to ~15–20 s.
 
 The diagram below shows how the surplus (in amps) maps to charging decisions. Thresholds are fixed; only the dead-band start delay is configurable via `SURPLUS_DEADBAND_START_DELAY`.
 

@@ -236,6 +236,28 @@ Driven by an optional user-mapped `grid_available` binary_sensor read through
 - **Scope**: only Night Smart Charge grid mode. Solar Surplus and Hybrid Mode
   key off PV surplus and need no change. Unmapped → byte-for-byte legacy.
 
+### 4.3 Consumption-spike fast response (v2.8.0)
+
+Solar Surplus reacts to **household demand spikes** (washing machine, hob)
+with an event-driven fast path, distinct from the cloud-tuned periodic
+grid-import protection:
+
+- **Listener** on every mapped grid-import sensor (L1+L2/L3). First
+  over-threshold event arms a debounce; the verification fires exactly
+  `evsc_spike_response_delay` seconds later via `async_call_later`
+  (default 10 s, `0` = disabled → legacy byte-for-byte).
+- **Cause attribution**: fast path fires only when PV production is stable vs
+  the per-tick baseline (`>= baseline − max(300 W, 15%)`). A production drop
+  (cloud) always defers to the legacy conservative path.
+- **One-shot step-down** to the highest amp level ≤
+  `current − (import + 100 W)/effective_voltage`; floor still importing →
+  stop. Every action re-verifies live state: Solar Surplus ownership
+  (`_has_control()`), Hybrid Mode IDLE, charger charging, import still above
+  `evsc_grid_import_threshold`, production still stable.
+- **Ramp-up unchanged** (60 s stability, one level per tick); after a fast
+  action `_surplus_stable_since` and `_last_grid_import_high` are cleared.
+  Max one action per `SPIKE_MIN_ACTION_INTERVAL` (30 s).
+
 ## 5. Ownership and arbitration
 
 `custom_components/ev_smart_charger/automation_coordinator.py` is the canonical ownership plane for any automation that may start, stop, or adjust the charger.

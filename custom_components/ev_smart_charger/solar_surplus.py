@@ -5,7 +5,11 @@ import time
 from datetime import timedelta, datetime
 
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_time_interval,
+    async_track_state_change_event,
+)
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -14,6 +18,8 @@ from .const import (
     CONF_FV_PRODUCTION,
     CONF_HOME_CONSUMPTION,
     CONF_GRID_IMPORT,
+    CONF_GRID_IMPORT_L2,
+    CONF_GRID_IMPORT_L3,
     CONF_SOC_HOME,
     PRIORITY_EV,
     PRIORITY_HOME,
@@ -28,6 +34,12 @@ from .const import (
     HELPER_SOLAR_MAX_AMPERAGE_SUFFIX,
     HELPER_NIGHTTIME_SUNSET_OFFSET_SUFFIX,
     HELPER_NIGHTTIME_SUNRISE_OFFSET_SUFFIX,
+    HELPER_SPIKE_RESPONSE_DELAY_SUFFIX,
+    DEFAULT_SPIKE_RESPONSE_DELAY,
+    SPIKE_PRODUCTION_STABILITY_TOLERANCE_W,
+    SPIKE_PRODUCTION_STABILITY_TOLERANCE_RATIO,
+    SPIKE_MIN_ACTION_INTERVAL,
+    SPIKE_STEP_DOWN_MARGIN_W,
     DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
     DEFAULT_SOLAR_MAX_AMPERAGE,
     SURPLUS_START_THRESHOLD,
@@ -136,6 +148,14 @@ class SolarSurplusAutomation:
 
         # SOC listener for real-time battery monitoring
         self._soc_listener_unsub = None
+
+        # v2.8.0 — consumption-spike fast response (event-driven grid listener)
+        self._spike_response_delay_entity = None
+        self._grid_listener_unsub = None       # grid-import state-change listener
+        self._spike_high_since = None          # monotonic ts of first over-threshold event
+        self._spike_check_unsub = None         # async_call_later cancel handle
+        self._spike_baseline_production = None # last per-tick production reading (W)
+        self._last_spike_action = None         # monotonic ts of last fast step-down
 
         # State tracking
         self._last_grid_import_high = None  # Timestamp when grid import exceeded threshold
@@ -381,6 +401,10 @@ class SolarSurplusAutomation:
         self._nighttime_sunrise_offset_entity = self._find_entity_by_suffix(
             HELPER_NIGHTTIME_SUNRISE_OFFSET_SUFFIX
         )
+        # v2.8.0: consumption-spike fast response debounce
+        self._spike_response_delay_entity = self._find_entity_by_suffix(
+            HELPER_SPIKE_RESPONSE_DELAY_SUFFIX
+        )
         # v1.7.0: skip battery helper discovery in PV-only mode
         if self._has_home_battery:
             self._use_home_battery_entity = self._find_entity_by_suffix("evsc_use_home_battery")
@@ -442,6 +466,31 @@ class SolarSurplusAutomation:
         else:
             # v1.7.0: PV-only mode — no home battery configured, nothing to monitor
             self.logger.info("PV-only mode: real-time home battery monitoring disabled (no battery configured)")
+
+        # v2.8.0: event-driven grid-import listener for consumption-spike fast
+        # response. Registered on every mapped grid sensor (L1 + optional L2/L3
+        # in three-phase) so a demand spike is seen within seconds instead of
+        # at the next periodic tick. The handler itself is a no-op unless a
+        # Solar-Surplus-owned charging session is active AND the spike delay
+        # helper is > 0 (0 = legacy behaviour, byte-for-byte).
+        grid_sensors = [
+            sensor
+            for sensor in (
+                self.config.get(CONF_GRID_IMPORT),
+                self.config.get(CONF_GRID_IMPORT_L2),
+                self.config.get(CONF_GRID_IMPORT_L3),
+            )
+            if sensor
+        ]
+        if grid_sensors:
+            self._grid_listener_unsub = async_track_state_change_event(
+                self.hass,
+                grid_sensors,
+                self._async_grid_import_changed,
+            )
+            self.logger.info(
+                f"Consumption-spike listener registered on {', '.join(grid_sensors)}"
+            )
 
         self.logger.success("Solar Surplus automation initialized")
         await self._start_timer()
@@ -522,6 +571,191 @@ class SolarSurplusAutomation:
                 self.logger.debug(
                     f"{self.logger.BATTERY} Skipping immediate check due to rate limit "
                     f"({current_time - self._last_check_time:.1f}s since last check)"
+                )
+
+    # ─────────────────────────────────────────────────────────────
+    # v2.8.0 — Consumption-spike fast response
+    #
+    # Problem: the periodic grid-import protection is tuned for clouds
+    # (60s tick + 30s debounce + ONE level per cycle ≈ 2 min per level),
+    # so a household demand spike (washing machine, induction hob, ...)
+    # while the EV charges on surplus leaks 0.5–1 kWh/day into the grid.
+    #
+    # Fast path: an event-driven listener on the grid-import sensor(s)
+    # detects the spike within seconds; when PV production is STABLE vs
+    # the last per-tick baseline (i.e. the deficit comes from consumption,
+    # not a cloud) and the import persists for `evsc_spike_response_delay`
+    # seconds, the charger steps down in ONE operation to the amp level
+    # that zeroes the measured import. Ramp-up stays on the legacy slow
+    # path (60s stability window, one level per tick) — asymmetric
+    # fast-down / slow-up. Production drops always take the legacy path.
+    # ─────────────────────────────────────────────────────────────
+
+    def _get_spike_response_delay(self) -> float:
+        """Return the configured spike debounce in seconds (0 = disabled)."""
+        return get_float(
+            self.hass, self._spike_response_delay_entity, DEFAULT_SPIKE_RESPONSE_DELAY
+        )
+
+    def _reset_spike_tracking(self) -> None:
+        """Clear the spike debounce timer and any scheduled verification."""
+        self._spike_high_since = None
+        if self._spike_check_unsub:
+            self._spike_check_unsub()
+            self._spike_check_unsub = None
+
+    def _is_production_stable(self, production: float) -> bool:
+        """Return True when PV production has not dropped vs the tick baseline.
+
+        Stable production while grid import rises means the deficit comes from
+        home consumption — the case where an aggressive step-down is safe. A
+        material production drop (cloud) returns False and the legacy
+        conservative protection keeps handling the event.
+        """
+        baseline = self._spike_baseline_production
+        if baseline is None:
+            return False  # no baseline yet → stay on the legacy path
+        tolerance = max(
+            SPIKE_PRODUCTION_STABILITY_TOLERANCE_W,
+            SPIKE_PRODUCTION_STABILITY_TOLERANCE_RATIO * baseline,
+        )
+        return production >= baseline - tolerance
+
+    async def _spike_conditions_met(self) -> tuple[bool, float, float]:
+        """Re-verify every fast-path precondition against live state.
+
+        Returns (ok, grid_import, grid_threshold). Called both on listener
+        events and on the delayed verification, so a condition that lapsed
+        mid-debounce (session lost, import recovered, cloud arrived) always
+        stands the fast path down.
+        """
+        grid_import = self._power_model.read_grid_import(self.hass)
+        grid_threshold = get_float(self.hass, self._grid_import_threshold_entity)
+
+        if self._get_spike_response_delay() <= 0:
+            return False, grid_import, grid_threshold
+        # Only act on a session Solar Surplus currently owns; every other
+        # owner (Night Charge, Boost, Forza Ricarica, manual) is out of scope.
+        if not self._has_control():
+            return False, grid_import, grid_threshold
+        # Hybrid Mode PROBING/RIDING_EDGE deliberately rides the import edge —
+        # never undercut its probe with a fast step-down.
+        if self._hybrid_mode is not None and self._hybrid_mode.is_active():
+            return False, grid_import, grid_threshold
+        if not await self.charger_controller.is_charging():
+            return False, grid_import, grid_threshold
+        if grid_import <= grid_threshold:
+            return False, grid_import, grid_threshold
+        production = self._power_model.read_production(self.hass)
+        if not self._is_production_stable(production):
+            return False, grid_import, grid_threshold
+        return True, grid_import, grid_threshold
+
+    @callback
+    async def _async_grid_import_changed(self, event) -> None:
+        """Event-driven grid-import listener (consumption-spike fast path)."""
+        new_state = event.data.get("new_state")
+        if not new_state or new_state.state in ("unknown", "unavailable"):
+            return
+
+        ok, grid_import, grid_threshold = await self._spike_conditions_met()
+        if not ok:
+            if self._spike_high_since is not None:
+                self.logger.debug(
+                    "Spike tracking reset (conditions no longer met, "
+                    f"import={grid_import:.0f}W threshold={grid_threshold:.0f}W)"
+                )
+            self._reset_spike_tracking()
+            return
+
+        if self._spike_high_since is not None:
+            return  # debounce already armed; the scheduled check will decide
+
+        delay = self._get_spike_response_delay()
+        self._spike_high_since = time.monotonic()
+        self.logger.info(
+            f"{self.logger.ALERT} Consumption spike detected: grid import "
+            f"{grid_import:.0f}W > {grid_threshold:.0f}W with stable PV - "
+            f"fast step-down in {delay:.0f}s unless it recovers"
+        )
+        self._spike_check_unsub = async_call_later(
+            self.hass, delay, self._async_spike_delayed_check
+        )
+
+    async def _async_spike_delayed_check(self, _now=None) -> None:
+        """Fire `spike_response_delay` seconds after the first spike event."""
+        self._spike_check_unsub = None
+        if self._spike_high_since is None:
+            return
+        await self._execute_spike_step_down()
+
+    async def _execute_spike_step_down(self) -> None:
+        """One-shot step-down to the amp level that zeroes the measured import."""
+        now = time.monotonic()
+        if (
+            self._last_spike_action is not None
+            and (now - self._last_spike_action) < SPIKE_MIN_ACTION_INTERVAL
+        ):
+            self._reset_spike_tracking()
+            return
+
+        ok, grid_import, grid_threshold = await self._spike_conditions_met()
+        self._reset_spike_tracking()
+        if not ok:
+            self.logger.debug("Spike step-down aborted (conditions recovered)")
+            return
+
+        current_amps = await self.charger_controller.get_current_amperage() or 0
+        if current_amps <= 0:
+            return
+
+        # Level that zeroes the import: new draw = current draw - import (plus
+        # a small margin so the landing level doesn't leave a residual trickle).
+        import_amps = (grid_import + SPIKE_STEP_DOWN_MARGIN_W) / self._effective_voltage
+        max_allowed = current_amps - import_amps
+        candidates = [level for level in self._amp_levels if level <= max_allowed]
+        target = candidates[-1] if candidates else 0
+        if target >= current_amps:
+            # Import smaller than one level step — fall back to a single step.
+            target = AmperageCalculator.get_next_level_down(current_amps, self._amp_levels)
+
+        self._last_spike_action = now
+        # Require a fresh stability window before any ramp back up, and clear
+        # the periodic protection timer so it can't double-fire on a stale ts.
+        self._surplus_stable_since = None
+        self._last_grid_import_high = None
+
+        await self._update_diagnostic_sensor(
+            "SPIKE_STEP_DOWN",
+            {
+                "last_check": dt_util.now().isoformat(),
+                "decision": "consumption_spike_step_down",
+                "reason": "Grid import from home-consumption spike (stable PV)",
+                "grid_import_w": grid_import,
+                "grid_threshold_w": grid_threshold,
+                "current_charging_a": current_amps,
+                "target_charging_a": target,
+            },
+        )
+
+        if target > 0:
+            self.logger.warning(
+                f"{self.logger.ACTION} Consumption spike fast response: "
+                f"{current_amps}A -> {target}A in one step "
+                f"(import {grid_import:.0f}W, margin {SPIKE_STEP_DOWN_MARGIN_W}W)"
+            )
+            if await self._ensure_control("Consumption spike fast response"):
+                await self.charger_controller.set_amperage(
+                    target, "Consumption spike fast response"
+                )
+        else:
+            self.logger.warning(
+                f"{self.logger.ACTION} Consumption spike fast response: import "
+                f"{grid_import:.0f}W exceeds minimum-level draw - stopping charger"
+            )
+            if await self._ensure_control("Consumption spike fast response"):
+                await self.charger_controller.stop_charger(
+                    "Consumption spike fast response - minimum level still imports"
                 )
 
     @callback
@@ -835,6 +1069,11 @@ class SolarSurplusAutomation:
         grid_import = self._power_model.read_grid_import(self.hass)
         surplus_watts = fv_production - home_consumption
         surplus_amps = surplus_watts / self._effective_voltage
+        # v2.8.0: refresh the production baseline used by the consumption-spike
+        # classifier. Sampled once per tick: during a genuine production drop
+        # (cloud) the live reading falls below this baseline and the fast path
+        # stands down in favour of the legacy conservative protection.
+        self._spike_baseline_production = fv_production
         # issue #40: the full sensor readout is logged once, conditionally, after
         # target_amps is finalized (see "issue #40 readout" block below).
 
@@ -1920,5 +2159,11 @@ class SolarSurplusAutomation:
         if self._soc_listener_unsub:
             self._soc_listener_unsub()
             self._soc_listener_unsub = None
+
+        # v2.8.0: consumption-spike fast response cleanup
+        if self._grid_listener_unsub:
+            self._grid_listener_unsub()
+            self._grid_listener_unsub = None
+        self._reset_spike_tracking()
 
         self.logger.info("Solar Surplus automation removed")

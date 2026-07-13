@@ -496,6 +496,9 @@
       "evsc_surplus_drop_delay": {
         "name": "Surplus drop delay"
       },
+      "evsc_spike_response_delay": {
+        "name": "Consumption spike response delay"
+      },
       "evsc_home_battery_min_soc": {
         "name": "Home battery min SOC"
       },

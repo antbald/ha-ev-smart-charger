@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.7.4"
+VERSION = "2.8.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -214,6 +214,17 @@ HELPER_SOLAR_MAX_AMPERAGE_SUFFIX = "evsc_solar_max_amperage"
 # Battery-only helper (meaningless without a home battery).
 HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX = "evsc_max_battery_discharge_for_ev"
 
+# v2.8.0 — consumption-spike fast response. Debounce (seconds) for the
+# event-driven grid-import listener that reacts to HOME-CONSUMPTION spikes
+# (washing machine, induction hob, ...) while the EV is charging on Solar
+# Surplus. When PV production is stable and grid import stays above the
+# grid-import threshold for this many seconds, the charger steps down in ONE
+# operation to the amp level that zeroes the measured import — instead of the
+# legacy one-level-per-cycle ramp (~2 min per level). 0 = disabled (legacy
+# behaviour, byte-for-byte). Production drops (clouds) always keep the legacy
+# conservative path.
+HELPER_SPIKE_RESPONSE_DELAY_SUFFIX = "evsc_spike_response_delay"
+
 # Numbers - Nighttime window (v2.6.0, issue #42). Customise the "nighttime"
 # period that gates Solar Surplus (the "SKIPPED: Nighttime" decision). Both
 # default to 0 = astronomical sunset/sunrise (legacy behaviour). Positive values
@@ -299,6 +310,24 @@ DEFAULT_CHECK_INTERVAL = 1  # minutes
 DEFAULT_GRID_IMPORT_THRESHOLD = 50  # watts
 DEFAULT_GRID_IMPORT_DELAY = 30  # seconds
 DEFAULT_SURPLUS_DROP_DELAY = 30  # seconds
+# v2.8.0 — consumption-spike fast response debounce (seconds). 0 = disabled.
+DEFAULT_SPIKE_RESPONSE_DELAY = 10  # seconds
+
+# ========== CONSUMPTION-SPIKE FAST RESPONSE (v2.8.0) ==========
+# A grid-import event is classified as a HOME-CONSUMPTION spike (fast path)
+# only when PV production has NOT dropped materially vs the last healthy
+# baseline: production >= baseline - max(ABS_W, RATIO * baseline). Otherwise
+# the drop is (also) production-caused (cloud) and the legacy conservative
+# grid-import protection handles it.
+SPIKE_PRODUCTION_STABILITY_TOLERANCE_W = 300  # watts (absolute floor)
+SPIKE_PRODUCTION_STABILITY_TOLERANCE_RATIO = 0.15  # fraction of baseline
+# Minimum seconds between two fast step-down actions (aligned with the
+# ChargerController rate limit so the fast path never queues behind itself).
+SPIKE_MIN_ACTION_INTERVAL = 30  # seconds
+# Safety margin (W) added on top of the measured import when computing the
+# one-shot target level, so the landing level actually zeroes the import
+# instead of leaving a residual trickle just under the threshold.
+SPIKE_STEP_DOWN_MARGIN_W = 100  # watts
 
 # ========== SURPLUS HYSTERESIS SETTINGS ==========
 SURPLUS_START_THRESHOLD = 6.5  # amps - minimum surplus to START charging (with margin)
@@ -424,22 +453,24 @@ HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 # always-created number (evsc_night_pv_handoff_threshold) → 67. v2.6.0 (issue #42)
 # adds 2 always-created numbers (nighttime sunset/sunrise offsets) → 69.
 # v2.7.4 adds 1 always-created switch (live activities enabled) → 70.
+# v2.8.0 adds 1 always-created number (spike response delay) → 71.
 # COUPLING (issue #22): the disabled-helper tolerance in
 # __init__._async_wait_for_helper_registration assumes this equals the number
 # of entities actually created when nothing is disabled. If it drifts above
 # reality (cf. v1.6.20), a single user-disabled entity turns the tolerant
 # startup path back into a hard ConfigEntryNotReady. Keep this in sync.
-TOTAL_INTEGRATION_ENTITIES = 70
+TOTAL_INTEGRATION_ENTITIES = 71
 # Verified count (v2.3.0): 53 entities when running in PV-only mode.
 # Unchanged in v2.1.0: the discharge number is battery-only (skipped in PV-only mode).
 # v2.3.0 (issue #32): evsc_night_pv_handoff_threshold is NOT battery-only → +1 → 53.
 # v2.6.0 (issue #42): 2 nighttime offset numbers are NOT battery-only → +2 → 55.
 # v2.7.4: live activities enabled switch is NOT battery-only → +1 → 56.
+# v2.8.0: spike response delay number is NOT battery-only → +1 → 57.
 # Skipped helpers (13): 2 switches (use_home_battery, preserve_home_battery),
 # 3 numbers (home_battery_min_soc, battery_support_amperage, battery_support_sunset_buffer),
 # 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).
 # Hybrid Mode entities are still created in PV-only mode but stay IDLE (requires soc_home).
-TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 56
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 57
 
 
 def has_home_battery(config: dict) -> bool:

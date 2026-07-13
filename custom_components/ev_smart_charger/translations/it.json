@@ -496,6 +496,9 @@
       "evsc_surplus_drop_delay": {
         "name": "Ritardo calo surplus"
       },
+      "evsc_spike_response_delay": {
+        "name": "Ritardo risposta picchi di consumo"
+      },
       "evsc_home_battery_min_soc": {
         "name": "SOC minimo batteria domestica"
       },

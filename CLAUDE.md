@@ -757,6 +757,77 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.8.0 (2026-07-13)
+**FEATURE: Consumption-spike fast response — zero grid import on household demand spikes**
+
+**Problem**: the periodic grid-import protection is tuned for clouds: detection
+only at the periodic tick (0–60 s), a 30 s debounce quantized on ticks
+(~60 s real), ONE amp level down per cycle with the timer reset after each
+step, plus the 30 s controller rate limit. A household demand spike (washing
+machine, dishwasher, induction hob) while the EV charges on Solar Surplus took
+~8 minutes to walk 16A→6A against a 2 kW deficit → **0.5–1 kWh/day leaked into
+the grid** on a normal day with appliance usage.
+
+**Solution — event-driven fast path with cause attribution**
+([solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py)):
+- **Grid-import listener** (`async_track_state_change_event` on every mapped
+  grid sensor, L1+L2+L3 in three-phase) sees the spike within seconds. On the
+  first over-threshold event it arms a debounce and schedules the verification
+  via `async_call_later` at exactly `evsc_spike_response_delay` seconds — no
+  tick quantization.
+- **Classifier**: fast path fires ONLY when PV production is stable vs the
+  per-tick baseline (`production >= baseline − max(300 W, 15%)`,
+  `_spike_baseline_production` refreshed each periodic tick). A production
+  drop (cloud) always stands the fast path down and leaves the legacy
+  conservative protection in charge — the asymmetry the user asked for:
+  aggressive on consumption spikes, conservative on clouds.
+- **One-shot step-down**: instead of one level per cycle, the target is
+  computed directly from the measured import —
+  `max_allowed = current_amps − (import + 100 W margin)/effective_voltage`,
+  highest amp level ≤ that. One single Tuya stop/set/start sequence instead of
+  3–4 full cycles. If even the 6 A floor still imports → stop the charger
+  (same semantics as the legacy min-level stop). Import smaller than one level
+  → single-level fallback via `AmperageCalculator.get_next_level_down`.
+- **Every fast action re-verifies live state** (`_spike_conditions_met`) both
+  at listener time and at the delayed check: Solar Surplus must own the session
+  (`_has_control()` — Night Charge/Boost/Forza/manual are out of scope), Hybrid
+  Mode must be IDLE (never undercut a PROBING/RIDING_EDGE probe), the charger
+  must be charging, the import must still exceed `evsc_grid_import_threshold`,
+  and production must still be stable. Import recovering mid-debounce cancels
+  the scheduled check.
+- **Ramp-up untouched**: after the step-down, `_surplus_stable_since` and
+  `_last_grid_import_high` are cleared, so recovery re-earns the legacy 60 s
+  stability window and climbs one level per tick (fast-down / slow-up, no
+  oscillation). Max one fast action per `SPIKE_MIN_ACTION_INTERVAL` (30 s,
+  aligned with the controller rate limit).
+
+**New helper**: `number.evsc_spike_response_delay` (s, 0–60, **default 10 =
+active by default** — deliberate deviation from the opt-in convention,
+confirmed with the maintainer: the feature is purely protective and only
+reduces grid import; `0` disables → legacy behaviour byte-for-byte). Entity
+counts 70→**71**, 56→**57**.
+
+**Result**: a 2 kW hob spike at 16 A goes from ~8 min of grid import
+(~0.13 kWh/event) to ~15–20 s.
+
+**Files**: `solar_surplus.py` (listener, classifier, `_execute_spike_step_down`,
+baseline tracking, cleanup), `const.py` (helper suffix, `DEFAULT_SPIKE_RESPONSE_DELAY`,
+`SPIKE_*` constants, counts, VERSION), `number.py` (+1 always-created number),
+`strings.json` + `translations/{en,it,nl}.json` (entity name),
+`frontend/ev-smart-charger-dashboard.js` (suffix map + Solar settings stepper
+EN/IT/NL), `README.md`, `manifest.json`; tests: NEW
+`tests/test_v280_spike_response.py` (12 tests: classifier, gates, debounce,
+one-shot landing level, floor stop, cloud abort, rate limit, single-level
+fallback), `test_config_flow.py` + `test_entity_platforms.py` (counts 71/57/35).
+`VERSION = "2.8.0"`. Full suite green: **259 passed / 0 failed**.
+
+**Upgrade priority**: 🟢 STRONGLY RECOMMENDED for anyone charging on Solar
+Surplus with a hybrid/zero-export meter and normal household appliance usage —
+this directly recovers the 0.5–1 kWh/day lost to demand-spike latency. Set
+`evsc_spike_response_delay` to `0` to restore the v2.7.x behaviour exactly.
+
+---
+
 ### v2.7.2 (2026-06-13)
 **Solar Surplus: clear the stale surplus-drop debounce on recovery (issue #52)**
 

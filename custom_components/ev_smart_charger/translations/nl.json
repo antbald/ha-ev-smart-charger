@@ -496,6 +496,9 @@
       "evsc_surplus_drop_delay": {
         "name": "Vertraging surplusdaling"
       },
+      "evsc_spike_response_delay": {
+        "name": "Reactievertraging verbruikspieken"
+      },
       "evsc_home_battery_min_soc": {
         "name": "Min. SOC thuisbatterij"
       },

@@ -436,5 +436,6 @@ def test_entity_counts_v230():
         TOTAL_INTEGRATION_ENTITIES_NO_BATTERY,
     )
 
-    assert TOTAL_INTEGRATION_ENTITIES == 70
-    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 56
+    # v2.8.0 adds 1 always-created number (spike response delay) → 71 / 57.
+    assert TOTAL_INTEGRATION_ENTITIES == 71
+    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 57

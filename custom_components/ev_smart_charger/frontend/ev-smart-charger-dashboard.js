@@ -101,6 +101,7 @@ const DOMAIN_SUFFIXES = {
   gridImportThreshold: ["number", "evsc_grid_import_threshold"],
   gridImportDelay: ["number", "evsc_grid_import_delay"],
   surplusDropDelay: ["number", "evsc_surplus_drop_delay"],
+  spikeResponseDelay: ["number", "evsc_spike_response_delay"],
   solarMaxAmperage: ["number", "evsc_solar_max_amperage"],
   useHomeBattery: ["switch", "evsc_use_home_battery"],
   homeBatteryMinSoc: ["number", "evsc_home_battery_min_soc"],
@@ -190,6 +191,14 @@ const SETTINGS_CATALOG = [
           nl: "Tolerantiesecondes voordat de stroom wordt verlaagd. Filtert korte pieken (koelkast, oven, magnetron).",
         },
         hint: { en: "Default 30 s", it: "Default 30 s", nl: "Standaard 30 s" } },
+      { entityKey: "spikeResponseDelay", kind: "stepper",
+        name: { en: "Spike Response Delay", it: "Ritardo risposta picchi", nl: "Reactievertraging pieken" },
+        desc: {
+          en: "Fast response to home-consumption spikes (washing machine, hob) while charging: with stable PV, after this many seconds of grid import the wallbox steps down in ONE move to zero the import. 0 disables (legacy slow ramp).",
+          it: "Risposta rapida ai picchi di consumo domestico (lavatrice, piano cottura) durante la ricarica: con PV stabile, dopo questi secondi di prelievo rete il wallbox scende in UN colpo al livello che azzera l'import. 0 disattiva (rampa lenta legacy).",
+          nl: "Snelle reactie op verbruikspieken (wasmachine, kookplaat) tijdens het laden: bij stabiele PV verlaagt de wallbox na dit aantal seconden netinvoer in EEN stap naar het niveau dat de invoer op nul brengt. 0 schakelt uit (trage legacy-afbouw).",
+        },
+        hint: { en: "Default 10 s · 0 = off", it: "Default 10 s · 0 = off", nl: "Standaard 10 s · 0 = uit" } },
       { entityKey: "surplusDropDelay", kind: "stepper",
         name: { en: "Surplus Drop Delay", it: "Ritardo calo surplus", nl: "Vertraging overschotdaling" },
         desc: {
