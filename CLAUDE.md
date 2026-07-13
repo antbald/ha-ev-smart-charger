@@ -757,6 +757,46 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.8.1 (2026-07-13)
+**FIX: Touch scroll stuck on dashboard cards — definitive fix (backdrop-filter removed on touch devices)**
+
+**Problem**: on mobile, vertical swipes landing on a card / the `.evsc-stack`
+failed to scroll the view — the user had to swipe on the empty
+`.dashboard-shell` padding to scroll (perceived as a "shell vs stack scroll
+conflict"). Same symptom v2.2.1 targeted; its mitigations
+(`touch-action: pan-y` + `translateZ(0)`) did not fully cure it on real
+iOS/WebKit devices, exactly the residual risk its changelog documented.
+
+**Root cause**: there is no nested scroll container in the bundle (single
+scroller = HA's view). The gesture is swallowed by the iOS/WebKit bug where
+an element carrying `-webkit-backdrop-filter` inside an outer scroll
+container can capture the vertical pan instead of letting it bubble.
+
+**Fix** (frontend-only, token-level, in
+[ev-smart-charger-dashboard.js](custom_components/ev_smart_charger/frontend/ev-smart-charger-dashboard.js)):
+under `@media (hover: none) and (pointer: coarse)` the two blur tokens are
+overridden to `none` (`--evsc-blur`, `--evsc-blur-light`) — every glass
+surface consumes them, so one rule removes every `backdrop-filter` on touch
+devices — and the surfaces become near-opaque to compensate
+(`--evsc-surface` 0.62→0.92, `--evsc-surface-strong` →0.97, plus the dark
+variants). Desktop (fine pointer) keeps the Liquid Glass look byte-for-byte.
+
+**Verification**: preview harness (`.preview/`) — bundle loads clean, both
+media rules present in the CSSOM (valid syntax), simulated touch tokens at
+375 px render correctly in light and dark, desktop computed style restored
+to `saturate(180%) blur(40px)` untouched. Definitive confirmation is on a
+real touch device (desktop preview cannot reproduce the WebKit bug).
+
+**Files**: `frontend/ev-smart-charger-dashboard.js` (CSS only), `const.py`,
+`manifest.json`. `VERSION = "2.8.1"`. No schema / entity / config-flow
+change, entity counts unchanged (71 / 57). The `?v=`+content-hash
+cache-buster delivers the new bundle on the next dashboard reload.
+
+**Upgrade priority**: 🟢 STRONGLY RECOMMENDED for anyone using the dashboard
+on a phone or tablet.
+
+---
+
 ### v2.8.0 (2026-07-13)
 **FEATURE: Consumption-spike fast response — zero grid import on household demand spikes**
 

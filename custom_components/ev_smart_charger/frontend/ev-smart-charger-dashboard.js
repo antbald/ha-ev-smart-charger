@@ -3231,6 +3231,34 @@ class EvSmartChargerDashboard extends HTMLElement {
           }
         }
 
+        /* v2.8.1: definitive touch-scroll fix. The v2.2.1 mitigations
+           (touch-action: pan-y + translateZ(0)) did not fully cure the
+           iOS/WebKit gesture-capture bug: an element carrying
+           -webkit-backdrop-filter inside an outer scroll container (HA's
+           view) can still swallow the vertical pan, so swipes landing on
+           a card/stack fail to scroll while swipes on empty shell padding
+           work — the reported "shell vs stack scroll conflict". The only
+           reliable cure from inside the shadow root is removing the
+           backdrop-filter on touch devices entirely. All glass surfaces
+           consume the two blur tokens, so a token-level override kills
+           every filter at once; the surfaces get near-opaque backgrounds
+           to compensate for the lost frosted-glass legibility. Desktop
+           (fine pointer) keeps the full Liquid Glass look unchanged. */
+        @media (hover: none) and (pointer: coarse) {
+          :host {
+            --evsc-blur: none;
+            --evsc-blur-light: none;
+            --evsc-surface: rgba(255, 255, 255, 0.92);
+            --evsc-surface-strong: rgba(255, 255, 255, 0.97);
+          }
+        }
+        @media (hover: none) and (pointer: coarse) and (prefers-color-scheme: dark) {
+          :host {
+            --evsc-surface: rgba(28, 28, 30, 0.92);
+            --evsc-surface-strong: rgba(44, 44, 46, 0.97);
+          }
+        }
+
         /* v1.10.4: explicit box-sizing reset for all descendants, including
            pseudo-elements. Shadow DOM does NOT inherit box-sizing from the
            light DOM, so this MUST be re-declared inside the shadow root. */
