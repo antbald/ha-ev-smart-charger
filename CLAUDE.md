@@ -757,6 +757,58 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.8.2 (2026-07-13)
+**FIX: Mobile "shell vs stack" scroll conflict — REAL root cause found and fixed (nested scroll container from `overflow-x: hidden`)**
+
+**Problem**: v2.8.1's backdrop-filter removal did NOT fix the mobile scroll
+conflict — the diagnosis was wrong. The true root cause was found by
+inspecting the user's LIVE Home Assistant instance (in-app browser on
+`https://…/ev-smart-charger/main`), measuring the actual computed styles
+and scroll metrics rather than theorizing:
+
+1. Per CSS spec, `overflow-x: hidden` with `overflow-y: visible` is an
+   illegal combination — the used `overflow-y` silently becomes **`auto`**.
+   Both `:host` and `.dashboard-shell` declared `overflow-x: hidden`, so
+   both were implicit vertical scroll containers.
+2. `.aurora-b` (decorative blob, `position: absolute; bottom: -8%`) extends
+   ~236 px past the shell's bottom edge. Measured live:
+   `.dashboard-shell` had `scrollHeight 3127 > clientHeight 2891` —
+   a REAL, functioning nested scroller with 236 px of internal scroll,
+   competing with HA's page scroller. Exactly the reported symptom:
+   swipes landing on the stack scrolled (or got eaten by) the shell's
+   inner scroller, and one had to swipe elsewhere to move the page.
+
+**Fix** (frontend-only, verified live on the user's instance by injecting
+the patch and confirming `scrollTop` becomes unmovable on all three boxes
+while the document scroller keeps working):
+- `:host` and `.dashboard-shell`: `overflow-x: hidden` → **`overflow-x:
+  clip`** (with the `hidden` line kept before it as a pre-2022-engine
+  fallback). `clip` clips the axis WITHOUT creating a scroll container,
+  so the used `overflow-y` stays `visible`.
+- `ha-card`: `overflow: hidden` → **`overflow: clip`** (same visual
+  clipping; `hidden` boxes still scroll programmatically and, once the
+  shell stopped absorbing the aurora overflow, `ha-card` became the next
+  scrollable box — clip kills all scrollability).
+- **Reverted the v2.8.1 coarse-pointer blur removal**: empirically not the
+  cause (didn't fix the symptom), and it cost the Liquid Glass look on
+  mobile. Touch devices get the full glass design back. The v2.2.1
+  `touch-action: pan-y` + `translateZ(0)` mitigations remain in place.
+
+**Verification**: live on the user's HA (patch injected into the running
+page: host/shell computed `overflow-y: visible`, `ha-card` `clip`, all
+three `scrollTop`s pinned at 0, page scroller intact, visuals identical)
++ preview harness (bundle loads clean, same computed results, glass
+restored). Definitive confirmation on the user's phone after upgrade.
+
+**Files**: `frontend/ev-smart-charger-dashboard.js` (CSS only), `const.py`,
+`manifest.json`. `VERSION = "2.8.2"`. No schema / entity / config-flow
+change, entity counts unchanged (71 / 57).
+
+**Upgrade priority**: 🟢 STRONGLY RECOMMENDED for anyone using the dashboard
+on a phone or tablet — supersedes v2.8.1 (whose change is reverted here).
+
+---
+
 ### v2.8.1 (2026-07-13)
 **FIX: Touch scroll stuck on dashboard cards — definitive fix (backdrop-filter removed on touch devices)**
 

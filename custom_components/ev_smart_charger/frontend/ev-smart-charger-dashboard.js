@@ -3161,7 +3161,15 @@ class EvSmartChargerDashboard extends HTMLElement {
           width: 100%;
           max-width: 100%;
           min-width: 0;
+          /* v2.8.2: hidden → clip. Per CSS spec, overflow-x: hidden with
+             overflow-y: visible is illegal, so the used overflow-y silently
+             becomes AUTO — turning the host into a nested vertical scroll
+             container inside HA's page scroller. overflow-x: clip is the
+             one value that clips the axis WITHOUT creating a scroll
+             container (overflow-y stays visible). The hidden line remains
+             as a fallback for pre-2022 engines that don't know clip. */
           overflow-x: hidden;
+          overflow-x: clip;
           box-sizing: border-box;
           --evsc-font: -apple-system, "SF Pro Display", "SF Pro Text",
             BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
@@ -3228,34 +3236,6 @@ class EvSmartChargerDashboard extends HTMLElement {
               0 12px 32px rgba(0, 0, 0, 0.5);
             --evsc-shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.5),
               0 16px 48px rgba(0, 0, 0, 0.6);
-          }
-        }
-
-        /* v2.8.1: definitive touch-scroll fix. The v2.2.1 mitigations
-           (touch-action: pan-y + translateZ(0)) did not fully cure the
-           iOS/WebKit gesture-capture bug: an element carrying
-           -webkit-backdrop-filter inside an outer scroll container (HA's
-           view) can still swallow the vertical pan, so swipes landing on
-           a card/stack fail to scroll while swipes on empty shell padding
-           work — the reported "shell vs stack scroll conflict". The only
-           reliable cure from inside the shadow root is removing the
-           backdrop-filter on touch devices entirely. All glass surfaces
-           consume the two blur tokens, so a token-level override kills
-           every filter at once; the surfaces get near-opaque backgrounds
-           to compensate for the lost frosted-glass legibility. Desktop
-           (fine pointer) keeps the full Liquid Glass look unchanged. */
-        @media (hover: none) and (pointer: coarse) {
-          :host {
-            --evsc-blur: none;
-            --evsc-blur-light: none;
-            --evsc-surface: rgba(255, 255, 255, 0.92);
-            --evsc-surface-strong: rgba(255, 255, 255, 0.97);
-          }
-        }
-        @media (hover: none) and (pointer: coarse) and (prefers-color-scheme: dark) {
-          :host {
-            --evsc-surface: rgba(28, 28, 30, 0.92);
-            --evsc-surface-strong: rgba(44, 44, 46, 0.97);
           }
         }
 
@@ -3351,7 +3331,11 @@ class EvSmartChargerDashboard extends HTMLElement {
           width: 100%;
           max-width: 100%;
           min-width: 0;
+          /* v2.8.2: hidden → clip (same visual clipping, but clip cannot
+             become a scroll box — overflow: hidden boxes still scroll
+             programmatically and can capture touch pans on WebKit). */
           overflow: hidden;
+          overflow: clip;
           border: 0 !important;
           border-radius: 0;
           background:
@@ -4754,11 +4738,20 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
 
         /* Belt-and-braces overflow guard. The :host already declares
-           overflow-x: hidden in the reset block above; .dashboard-shell
+           overflow-x: clip in the reset block above; .dashboard-shell
            also gets it here so any pathological child (e.g. a long
-           friendly_name with no spaces) is clipped, not scrolled. */
+           friendly_name with no spaces) is clipped, not scrolled.
+           v2.8.2: hidden → clip. THIS rule was the root cause of the
+           mobile "shell vs stack scroll conflict": overflow-x: hidden
+           forced the used overflow-y to AUTO, and .aurora-b (absolute,
+           bottom: -8%) extends ~236 px past the shell's bottom edge, so
+           the shell became a REAL nested vertical scroller (scrollHeight
+           > clientHeight) competing with HA's page scroll on touch.
+           clip clips the x axis without creating a scroll container;
+           the hidden line stays as a fallback for pre-2022 engines. */
         .dashboard-shell {
           overflow-x: hidden;
+          overflow-x: clip;
         }
 
         /* Weekly Planner card */
