@@ -18,9 +18,6 @@ from .const import (
     CONF_EV_CHARGER_CURRENT,
     CONF_BATTERY_CAPACITY,
     CONF_ENERGY_FORECAST_TARGET,
-    CHARGER_STATUS_CHARGING,
-    CHARGER_STATUS_END,
-    CHARGER_STATUS_FREE,
     CHARGER_STATUS_WAIT,
     CHARGING_POWER_DRAWING_FLOOR_W,
     CHARGING_POWER_GRACE_SECONDS,
@@ -59,7 +56,11 @@ from .const import (
     has_home_battery,
 )
 from .localization import translate_runtime
-from .power_model import ChargingModel
+from .power_model import (
+    ChargingModel,
+    is_charge_complete_status,
+    is_disconnected_status,
+)
 from .runtime import EVSCRuntimeData
 from .charger_controller import CurrentControlAdapter
 from .utils.logging_helper import EVSCLogger
@@ -665,7 +666,13 @@ class NightSmartCharge:
         # power-based monitor stop if the car is not actually charging.
         if self._charger_status:
             charger_status = state_helper.get_state(self.hass, self._charger_status)
-            if not charger_status or charger_status in ("unknown", "unavailable", CHARGER_STATUS_FREE):
+            # v2.9.1: brand-vocabulary aware — 'available' (OCPP) etc. mean
+            # disconnected just like Tuya's 'charger_free'.
+            if (
+                not charger_status
+                or charger_status in ("unknown", "unavailable")
+                or is_disconnected_status(charger_status)
+            ):
                 self.logger.info(f"Handover rejected - charger not ready (status: {charger_status})")
                 return False
 
@@ -777,8 +784,12 @@ class NightSmartCharge:
         if not new_state or not old_state:
             return
 
-        # Detect car just plugged in (from free to any other state)
-        if old_state.state == CHARGER_STATUS_FREE and new_state.state != CHARGER_STATUS_FREE:
+        # Detect car just plugged in (from a disconnected status to any other).
+        # v2.9.1: brand-vocabulary aware — the old exact 'charger_free'
+        # comparison never fired on wallboxes reporting e.g. 'available'.
+        if is_disconnected_status(old_state.state) and not is_disconnected_status(
+            new_state.state
+        ):
             self.logger.info(f"{self.logger.EV} Car plugged in (status: {new_state.state})")
 
             # Check if we're in active window and enabled
@@ -1194,7 +1205,15 @@ class NightSmartCharge:
                 self.logger.info(f"   Charger status: {charger_status}")
 
                 # v1.3.22: Check for invalid/unavailable states
-                if not charger_status or charger_status in ["unavailable", "unknown", CHARGER_STATUS_FREE]:
+                # v2.9.1: brand-vocabulary aware disconnect detection — an
+                # OCPP-style 'available' (= no EV plugged) previously passed
+                # this gate (only 'charger_free' was rejected) and a session
+                # started with no car connected.
+                if (
+                    not charger_status
+                    or charger_status in ["unavailable", "unknown"]
+                    or is_disconnected_status(charger_status)
+                ):
                     if charger_status in ["unavailable", "unknown"]:
                         self.logger.warning(f"{self.logger.ALERT} Charger status sensor {charger_status} - cannot determine connection")
                         reason = f"sensor {charger_status}"
@@ -1885,11 +1904,9 @@ class NightSmartCharge:
             if (
                 not charger_status
                 or charger_status in ("unknown", "unavailable")
-                or charger_status in (
-                    CHARGER_STATUS_FREE,
-                    CHARGER_STATUS_END,
-                    CHARGER_STATUS_WAIT,
-                )
+                or charger_status == CHARGER_STATUS_WAIT
+                or is_disconnected_status(charger_status)
+                or is_charge_complete_status(charger_status)
             ):
                 self.logger.warning(f"Charger no longer charging (status: {charger_status}) - ending grid mode")
                 await self._complete_night_charge(STOP_REASON_CHARGER_NOT_CHARGING, terminal=True)
@@ -1903,8 +1920,12 @@ class NightSmartCharge:
             # explicit end-of-life statuses stop it; anything else (brand
             # strings, None, unknown/unavailable, 'charger_wait' transitional
             # decrease) falls through to the measured-power draw check below,
-            # which is the authoritative signal on this path.
-            if charger_status in (CHARGER_STATUS_FREE, CHARGER_STATUS_END):
+            # which is the authoritative signal on this path. v2.9.1: the
+            # explicit statuses are matched through the brand-vocabulary
+            # classifiers ('available' ≙ free, 'charged' ≙ end, …).
+            if is_disconnected_status(charger_status) or is_charge_complete_status(
+                charger_status
+            ):
                 self.logger.warning(f"Charger no longer charging (status: {charger_status}) - ending grid mode")
                 self._grid_drawing_low_since = None
                 await self._complete_night_charge(STOP_REASON_CHARGER_NOT_CHARGING, terminal=True)

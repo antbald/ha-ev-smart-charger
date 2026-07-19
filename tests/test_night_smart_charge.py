@@ -1331,3 +1331,108 @@ async def test_intent_ignores_availability_churn(hass, night_charge):
     )
 
     assert night_charge._session_state == "completed_today"
+
+
+# ============================================================================
+# v2.9.1 — brand-vocabulary status classifiers (OCPP 'available', 'charged', …)
+# ============================================================================
+
+from custom_components.ev_smart_charger.power_model import (
+    is_charge_complete_status,
+    is_disconnected_status,
+)
+
+
+def test_disconnected_status_classifier():
+    """Tolerant, case-insensitive; unknown strings default to connected."""
+    assert is_disconnected_status("charger_free") is True
+    assert is_disconnected_status("available") is True  # OCPP: not occupied
+    assert is_disconnected_status("Available") is True
+    assert is_disconnected_status(" unplugged ") is True
+    assert is_disconnected_status("charging") is False
+    assert is_disconnected_status("charged") is False
+    assert is_disconnected_status("SuspendedEV") is False  # OCPP: plugged
+    assert is_disconnected_status(None) is False
+    assert is_disconnected_status("") is False
+
+
+def test_charge_complete_status_classifier():
+    assert is_charge_complete_status("charger_end") is True
+    assert is_charge_complete_status("charged") is True
+    assert is_charge_complete_status("Finishing") is True  # OCPP wrap-up
+    assert is_charge_complete_status("charging") is False
+    assert is_charge_complete_status("available") is False
+    assert is_charge_complete_status(None) is False
+
+
+async def test_grid_monitor_lifecycle_stop_on_brand_disconnected(hass, night_charge):
+    """'available' (OCPP = unplugged) mid-session → immediate lifecycle stop,
+    even with a noisy >floor power reading."""
+    await _prime_grid_monitor(
+        hass,
+        night_charge,
+        status="available",
+        measured=CHARGING_POWER_DRAWING_FLOOR_W + 500,
+    )
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_awaited_once()
+
+
+async def test_grid_monitor_lifecycle_stop_on_brand_charged(hass, night_charge):
+    """'charged' (brand synonym of charger_end) → immediate lifecycle stop."""
+    await _prime_grid_monitor(
+        hass,
+        night_charge,
+        status="charged",
+        measured=CHARGING_POWER_DRAWING_FLOOR_W + 500,
+    )
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_awaited_once()
+
+
+async def test_grid_monitor_legacy_brand_disconnected_stops(hass, night_charge):
+    """Legacy path (no power sensor): brand 'available' → lifecycle stop."""
+    await _prime_grid_monitor(hass, night_charge, status="available", measured=None)
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_awaited_once()
+
+
+async def test_late_arrival_fires_on_brand_disconnected_transition(hass, night_charge):
+    """Plug-in detection must fire on 'available' → 'charging', not only on the
+    Tuya 'charger_free' transition (the 2026-07-19 wallbox vocabulary)."""
+    night_charge._boost_charge = None
+    night_charge._is_in_active_window = AsyncMock(return_value=True)
+    night_charge.is_enabled = MagicMock(return_value=True)
+    night_charge._evaluate_and_charge = AsyncMock()
+
+    event = MagicMock()
+    event.data = {
+        "old_state": MagicMock(state="available"),
+        "new_state": MagicMock(state="charging"),
+    }
+    await night_charge._async_charger_status_changed(event)
+
+    night_charge._evaluate_and_charge.assert_awaited_once()
+
+
+async def test_late_arrival_ignores_connected_to_connected_transition(
+    hass, night_charge
+):
+    """'charging' → 'charged' is not a plug-in event."""
+    night_charge._boost_charge = None
+    night_charge._evaluate_and_charge = AsyncMock()
+
+    event = MagicMock()
+    event.data = {
+        "old_state": MagicMock(state="charging"),
+        "new_state": MagicMock(state="charged"),
+    }
+    await night_charge._async_charger_status_changed(event)
+
+    night_charge._evaluate_and_charge.assert_not_awaited()

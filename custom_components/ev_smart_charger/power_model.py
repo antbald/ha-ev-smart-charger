@@ -53,6 +53,77 @@ _UNAVAILABLE_STATES = (None, "unknown", "unavailable")
 # report a brand-specific charging string (e.g. "Charging") still register.
 _IDLE_OR_DONE_STATUSES = (CHARGER_STATUS_FREE, CHARGER_STATUS_END, CHARGER_STATUS_WAIT)
 
+# ---------------------------------------------------------------------------
+# v2.9.1 — brand-vocabulary status classifiers (SSOT)
+#
+# Non-Tuya wallboxes report brand-specific status strings. Two lifecycle
+# questions keep coming up across components and were previously answered with
+# exact Tuya-string comparisons (the root cause of the 2026-07-19 incident,
+# where OCPP-style 'available' — which means NO EV connected — passed a
+# "connected" gate that only rejected 'charger_free'):
+#
+#   1. "Is the cable disconnected?"  -> is_disconnected_status()
+#   2. "Has the charge completed?"   -> is_charge_complete_status()
+#
+# Both are deliberately CONSERVATIVE allowlists of unambiguous synonyms
+# (case-insensitive): an unknown brand string classifies as "connected / not
+# complete", which is the safe failure mode — a wrong 'disconnected' verdict
+# would block night charging entirely, while a wrong 'connected' verdict at
+# worst runs a session with no draw (caught by the measured-power checks).
+# OCPP reference: 'Available' = connector not occupied; 'Finishing' = session
+# ended.
+# ---------------------------------------------------------------------------
+_DISCONNECTED_STATUSES = frozenset(
+    {
+        CHARGER_STATUS_FREE,  # Tuya
+        "available",  # OCPP: connector not occupied
+        "disconnected",
+        "unplugged",
+        "not_connected",
+        "not connected",
+        "no_car",
+        "no car",
+        "no_vehicle",
+        "car_not_connected",
+    }
+)
+
+_CHARGE_COMPLETE_STATUSES = frozenset(
+    {
+        CHARGER_STATUS_END,  # Tuya
+        "charged",
+        "complete",
+        "completed",
+        "finished",
+        "finishing",  # OCPP: session wrap-up
+        "full",
+        "charge_complete",
+        "charging_complete",
+    }
+)
+
+
+def is_disconnected_status(status: str | None) -> bool:
+    """True when the textual charger status unambiguously means 'no EV plugged'.
+
+    Tolerant of brand vocabularies (case/whitespace-insensitive). Unknown
+    strings return False (treated as connected — the safe default).
+    """
+    if not status:
+        return False
+    return str(status).strip().lower() in _DISCONNECTED_STATUSES
+
+
+def is_charge_complete_status(status: str | None) -> bool:
+    """True when the textual charger status unambiguously means 'charge done'.
+
+    Tolerant of brand vocabularies (case/whitespace-insensitive). Unknown
+    strings return False.
+    """
+    if not status:
+        return False
+    return str(status).strip().lower() in _CHARGE_COMPLETE_STATUSES
+
 # Per-quantity config keys, ordered L1, L2, L3. L1 reuses the existing single-phase
 # key so single-phase installs read exactly the same entity as before.
 _PRODUCTION_KEYS = (CONF_FV_PRODUCTION, CONF_FV_PRODUCTION_L2, CONF_FV_PRODUCTION_L3)
@@ -252,18 +323,22 @@ class ChargingModel:
         status = get_state(hass, self._charger_status_entity)
         if status in _UNAVAILABLE_STATES or status in _IDLE_OR_DONE_STATUSES:
             return False
+        # v2.9.1: brand synonyms (e.g. OCPP 'available', 'charged') are just as
+        # explicitly not-drawing as the Tuya statuses above.
+        if is_disconnected_status(status) or is_charge_complete_status(status):
+            return False
         return True
 
     def is_plugged_in(self, hass: HomeAssistant) -> bool:
         """Lifecycle, NOT draw: is a cable plugged in?
 
         Read from the textual status (measured 0 W cannot tell "paused" from
-        "unplugged"). Status present and not FREE/unknown/unavailable. Offered for
-        completeness; existing plug gates already read the status string directly
-        and are intentionally NOT refactored to this in v2.2.
+        "unplugged"). Status present and not disconnected/unknown/unavailable.
+        v2.9.1: uses the tolerant is_disconnected_status classifier so brand
+        vocabularies (OCPP 'available', …) answer correctly.
         """
         state = get_state(hass, self._charger_status_entity)
-        return state not in (*_UNAVAILABLE_STATES, CHARGER_STATUS_FREE)
+        return state not in _UNAVAILABLE_STATES and not is_disconnected_status(state)
 
     # ----- conversion -----
     def watts_to_amps(self, watts: float) -> float:

@@ -757,6 +757,53 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.9.1 (2026-07-19)
+**FIX: Brand-vocabulary status classifiers — 'available' no longer passes as "connected", 'charged' recognized as charge-complete**
+
+Closes the residual identified while root-causing the v2.9.0 incident: the same
+non-Tuya wallbox that reports `charging` also reports OCPP-style **`available`**
+(= no EV connected) and **`charged`** (= session done). Three call sites still
+compared against exact Tuya strings:
+1. The night-charge **connect gates** (evaluation + handover) rejected only
+   `charger_free` → `available` passed as "connected" and a session started
+   **with no car plugged** (observed at 00:00 in the 2026-07-19 log).
+2. **Late-arrival detection** compared `old_state == charger_free` exactly →
+   never fired on an `available` → `charging` plug-in transition.
+3. The v2.9.0 grid-monitor lifecycle blocklist matched only literal
+   `charger_free`/`charger_end`.
+
+**Fix — two centralized classifiers in [power_model.py](custom_components/ev_smart_charger/power_model.py)**
+(module-level, case/whitespace-insensitive, conservative allowlists of
+unambiguous synonyms; unknown strings default to "connected / not complete" —
+the safe failure mode, so no unknown vocabulary can ever lose night charging):
+- `is_disconnected_status()` — `charger_free`, OCPP `available`,
+  `disconnected`, `unplugged`, `not_connected`, `no_car`, … (deliberately NO
+  `idle`: ambiguous across brands).
+- `is_charge_complete_status()` — `charger_end`, `charged`, `complete(d)`,
+  `finished`, OCPP `finishing`, `full`, …
+
+Applied in `night_smart_charge.py` (both connect gates, late-arrival
+transition, both grid-monitor lifecycle paths — legacy path keeps its
+`charger_wait` + unavailable fail-safe) and in `power_model.is_charging`
+(status fallback) / `is_plugged_in`. Solar Surplus / Smart Blocker / Hybrid
+Mode `charger_free` gates intentionally untouched (skip-optimizations; wider
+blast radius for no observed defect). Tuya installs byte-for-byte unchanged
+(the Tuya strings are members of the classifier sets).
+
+**Files**: `power_model.py`, `night_smart_charge.py`, `const.py` +
+`manifest.json` (VERSION), `README.md`, this file; tests:
+`tests/test_night_smart_charge.py` (+7: classifier units incl. OCPP
+`SuspendedEV`-stays-connected, brand disconnected/charged lifecycle stops on
+both grid paths, late-arrival fires on `available`→`charging` and not on
+`charging`→`charged`). `VERSION = "2.9.1"`. Full suite green: **278 passed /
+0 failed**.
+
+**Upgrade priority**: 🟢 RECOMMENDED for non-Tuya wallboxes (companion to
+v2.9.0 — prevents phantom no-car sessions and makes plug-in late-arrival
+detection work). ⚪ NO-OP for Tuya vocabularies.
+
+---
+
 ### v2.9.0 (2026-07-19)
 **FIX: Night Smart Charge — brand-status false stop in grid mode + "completed_today" ignores user intent changes**
 
