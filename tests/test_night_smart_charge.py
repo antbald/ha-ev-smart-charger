@@ -1132,3 +1132,202 @@ async def test_disabled_switch_does_not_mutate_session_state(hass, night_charge)
 
     night_charge._is_in_active_window.assert_not_called()
     assert night_charge._session_state == "ready"
+
+
+# ============================================================================
+# v2.9.0 — grid-monitor lifecycle check: tolerant blocklist (non-Tuya wallboxes)
+# ============================================================================
+
+
+async def test_grid_monitor_brand_charging_status_is_not_a_lifecycle_stop(
+    hass, night_charge
+):
+    """A brand-specific status like 'charging' (non-Tuya vocabulary) with real
+    measured draw must NOT end the session. Regression for the 2026-07-19
+    incident: the old (CHARGING, WAIT) allowlist terminally killed a grid
+    session 15 s after the battery→grid fallback because the wallbox reported
+    'charging' instead of 'charger_charging'."""
+    await _prime_grid_monitor(
+        hass,
+        night_charge,
+        status="charging",
+        measured=CHARGING_POWER_DRAWING_FLOOR_W + 4000,
+    )
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_not_awaited()
+    assert night_charge._grid_drawing_low_since is None
+
+
+async def test_grid_monitor_brand_status_still_protected_by_blind_spot(
+    hass, night_charge
+):
+    """With a brand status string, protection moves to the measured-power
+    blind-spot check: sustained 0 W (outside the startup grace) still stops."""
+    await _prime_grid_monitor(hass, night_charge, status="charging", measured=0.0)
+    night_charge._grid_session_start = dt_util.now() - timedelta(seconds=300)
+    night_charge._grid_drawing_low_since = dt_util.now() - timedelta(seconds=30)
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_awaited_once()
+
+
+async def test_grid_monitor_lifecycle_stop_on_end_status(hass, night_charge):
+    """'charger_end' is an explicit lifecycle stop even with noisy power."""
+    await _prime_grid_monitor(
+        hass,
+        night_charge,
+        status="charger_end",
+        measured=CHARGING_POWER_DRAWING_FLOOR_W + 500,
+    )
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_awaited_once()
+
+
+async def test_grid_monitor_legacy_brand_charging_keeps_running(hass, night_charge):
+    """No power sensor + brand status 'charging' → session keeps running
+    (the old `!= charger_charging` check would have killed it)."""
+    await _prime_grid_monitor(hass, night_charge, status="charging", measured=None)
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_not_awaited()
+
+
+async def test_grid_monitor_legacy_unavailable_status_stops(hass, night_charge):
+    """No power sensor + unavailable status → fail-safe stop is preserved
+    (status is the only signal on the legacy path)."""
+    await _prime_grid_monitor(hass, night_charge, status="unavailable", measured=None)
+
+    await night_charge._async_monitor_grid_charge(None)
+
+    night_charge._complete_night_charge.assert_awaited_once()
+
+
+# ============================================================================
+# v2.9.0 — re-arm completed session on user intent change (target / car_ready)
+# ============================================================================
+
+
+def _today_keys():
+    now = dt_util.now()
+    idx = now.weekday()
+    name = [
+        "monday", "tuesday", "wednesday", "thursday",
+        "friday", "saturday", "sunday",
+    ][idx]
+    return idx, name
+
+
+def _intent_event(entity_id, old, new):
+    event = MagicMock()
+    event.data = {
+        "entity_id": entity_id,
+        "old_state": MagicMock(state=old),
+        "new_state": MagicMock(state=new),
+    }
+    return event
+
+
+def _prime_completed_session(night_charge, *, ev_soc=62.0, ev_target=80):
+    idx, name = _today_keys()
+    night_charge._session_state = "completed_today"
+    night_charge._last_completion_time = dt_util.now()
+    night_charge._last_completion_date = dt_util.now().date()
+    night_charge.is_active = MagicMock(return_value=False)
+    night_charge.priority_balancer.get_ev_current_soc = AsyncMock(return_value=ev_soc)
+    night_charge.priority_balancer.get_ev_target_for_today = MagicMock(
+        return_value=ev_target
+    )
+    night_charge.priority_balancer._ev_min_soc_entities = {
+        name: "number.ev_target_today"
+    }
+    return idx, name
+
+
+async def test_intent_rearm_on_target_raise(hass, night_charge):
+    """Raising TODAY's target above the current SOC after a terminal stop must
+    re-arm the state machine (completed_today → ready, cooldown cleared)."""
+    _prime_completed_session(night_charge, ev_soc=62.0, ev_target=80)
+
+    await night_charge._async_user_intent_changed(
+        _intent_event("number.ev_target_today", "50", "80")
+    )
+
+    assert night_charge._session_state == "ready"
+    assert night_charge._last_completion_time is None
+    assert night_charge._last_completion_date is None
+
+
+async def test_intent_no_rearm_when_target_already_met(hass, night_charge):
+    """Target change with EV SOC already at/above the new target → no re-arm."""
+    _prime_completed_session(night_charge, ev_soc=85.0, ev_target=80)
+
+    await night_charge._async_user_intent_changed(
+        _intent_event("number.ev_target_today", "50", "80")
+    )
+
+    assert night_charge._session_state == "completed_today"
+    assert night_charge._last_completion_time is not None
+
+
+async def test_intent_rearm_on_car_ready_on(hass, night_charge):
+    """Turning TODAY's car_ready ON with the EV below target → re-arm."""
+    idx, _ = _prime_completed_session(night_charge, ev_soc=62.0, ev_target=80)
+    car_ready_entity = night_charge._car_ready_entities[idx]
+
+    await night_charge._async_user_intent_changed(
+        _intent_event(car_ready_entity, "off", "on")
+    )
+
+    assert night_charge._session_state == "ready"
+
+
+async def test_intent_no_rearm_on_car_ready_off(hass, night_charge):
+    """Turning car_ready OFF lowers urgency — never resurrects a session."""
+    idx, _ = _prime_completed_session(night_charge, ev_soc=62.0, ev_target=80)
+    car_ready_entity = night_charge._car_ready_entities[idx]
+
+    await night_charge._async_user_intent_changed(
+        _intent_event(car_ready_entity, "on", "off")
+    )
+
+    assert night_charge._session_state == "completed_today"
+
+
+async def test_intent_ignores_other_days_entities(hass, night_charge):
+    """A change on ANOTHER day's target must not resurrect today's session."""
+    _prime_completed_session(night_charge, ev_soc=62.0, ev_target=80)
+
+    await night_charge._async_user_intent_changed(
+        _intent_event("number.ev_target_tomorrow", "50", "90")
+    )
+
+    assert night_charge._session_state == "completed_today"
+
+
+async def test_intent_noop_while_session_active(hass, night_charge):
+    """An active session already live-reads targets — no state mutation."""
+    _prime_completed_session(night_charge, ev_soc=62.0, ev_target=80)
+    night_charge._session_state = "active"
+
+    await night_charge._async_user_intent_changed(
+        _intent_event("number.ev_target_today", "50", "80")
+    )
+
+    assert night_charge._session_state == "active"
+
+
+async def test_intent_ignores_availability_churn(hass, night_charge):
+    """unknown/unavailable transitions (restore churn) are not user intent."""
+    _prime_completed_session(night_charge, ev_soc=62.0, ev_target=80)
+
+    await night_charge._async_user_intent_changed(
+        _intent_event("number.ev_target_today", "unavailable", "80")
+    )
+
+    assert night_charge._session_state == "completed_today"

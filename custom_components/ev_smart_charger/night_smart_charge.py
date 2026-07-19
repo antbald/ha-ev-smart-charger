@@ -19,6 +19,7 @@ from .const import (
     CONF_BATTERY_CAPACITY,
     CONF_ENERGY_FORECAST_TARGET,
     CHARGER_STATUS_CHARGING,
+    CHARGER_STATUS_END,
     CHARGER_STATUS_FREE,
     CHARGER_STATUS_WAIT,
     CHARGING_POWER_DRAWING_FLOOR_W,
@@ -158,6 +159,7 @@ class NightSmartCharge:
         self._charger_status_unsub = None
         self._battery_monitor_unsub = None
         self._grid_monitor_unsub = None  # Grid charge monitoring timer (v1.3.17)
+        self._intent_unsub = None  # User-intent (target/car_ready) listener (v2.9.0)
         # v2.2.0: debounce clock for the power-based grid-stop. Holds the time the
         # measured charging power first fell below the floor; a terminal stop only
         # fires once it has stayed low for CHARGING_POWER_GRACE_SECONDS (so the
@@ -502,6 +504,25 @@ class NightSmartCharge:
                 "No charger status sensor mapped - late arrival detection disabled"
             )
 
+        # v2.9.0: listen for user-intent changes (today's EV SOC target numbers
+        # and car_ready switches). A terminal stop latches the session state to
+        # "completed_today" for the rest of the day; without this listener a
+        # target raised (or car_ready enabled) AFTER that stop was silently
+        # ignored until the next day. See _async_user_intent_changed.
+        intent_entities = [e for e in self._car_ready_entities.values() if e]
+        ev_target_map = getattr(self.priority_balancer, "_ev_min_soc_entities", None)
+        if isinstance(ev_target_map, dict):
+            intent_entities.extend(e for e in ev_target_map.values() if e)
+        if intent_entities:
+            self._intent_unsub = async_track_state_change_event(
+                self.hass,
+                intent_entities,
+                self._async_user_intent_changed,
+            )
+            self.logger.info(
+                f"User-intent re-arm listener active on {len(intent_entities)} entities"
+            )
+
         self.logger.success("Night Smart Charge setup completed successfully")
         self.logger.info("Periodic check interval: 1 minute")
         self.logger.info("Late arrival detection: Enabled")
@@ -525,6 +546,8 @@ class NightSmartCharge:
             self._battery_monitor_unsub()
         if self._grid_monitor_unsub:
             self._grid_monitor_unsub()
+        if self._intent_unsub:
+            self._intent_unsub()
 
         self.logger.success("Night Smart Charge removed")
 
@@ -765,6 +788,82 @@ class NightSmartCharge:
             elif await self._is_in_active_window(now) and self.is_enabled():
                 self.logger.info("Late arrival detected - running immediate check")
                 await self._evaluate_and_charge()
+
+    async def _async_user_intent_changed(self, event) -> None:
+        """Re-arm a completed session when the user changes today's intent (v2.9.0).
+
+        Every session stop is terminal: it latches ``_session_state =
+        "completed_today"`` (plus the 1-hour cooldown) for the rest of the day.
+        That latch is correct against restart loops, but it is blind to the
+        user: raising TODAY's EV SOC target or enabling TODAY's car_ready flag
+        AFTER a stop was silently ignored until the next day — the EV sat below
+        the new target all night.
+
+        This listener fires on the 7 daily EV-target numbers and the 7
+        car_ready switches. When the changed entity belongs to TODAY, the
+        session is completed, and the EV is below the (new) target, the state
+        machine resets to "ready" and the completion latch (including the
+        cooldown timestamp) is cleared — a deliberate user edit outranks the
+        anti-loop cooldown. The next periodic tick (≤1 min) then re-evaluates
+        and restarts the session if the night window is still open; outside the
+        window the reset is harmless (the window check stays False and the
+        midnight rollover re-arms anyway).
+        """
+        if self._session_state != "completed_today" or self.is_active():
+            return
+
+        new_state: State = event.data.get("new_state")
+        old_state: State = event.data.get("old_state")
+        if not new_state or not old_state:
+            return  # entity registered/removed, not a user change
+        if new_state.state in ("unknown", "unavailable") or old_state.state in (
+            "unknown",
+            "unavailable",
+        ):
+            return  # restore/availability churn, not a user change
+        if new_state.state == old_state.state:
+            return
+
+        # Only TODAY's entities express intent for the current session day.
+        now = dt_util.now()
+        today_idx = now.weekday()
+        today_name = [
+            "monday", "tuesday", "wednesday", "thursday",
+            "friday", "saturday", "sunday",
+        ][today_idx]
+        ev_targets = getattr(self.priority_balancer, "_ev_min_soc_entities", None)
+        if not isinstance(ev_targets, dict):
+            ev_targets = {}
+        is_today_target = event.data.get("entity_id") == ev_targets.get(today_name)
+        is_today_car_ready = (
+            event.data.get("entity_id") == self._car_ready_entities.get(today_idx)
+        )
+        if not (is_today_target or is_today_car_ready):
+            return
+        # car_ready turning OFF lowers urgency — never resurrect a session for it.
+        if is_today_car_ready and new_state.state != "on":
+            return
+
+        # Charging must actually be needed again under the new settings.
+        ev_soc = await self.priority_balancer.get_ev_current_soc()
+        ev_target = self.priority_balancer.get_ev_target_for_today()
+        if ev_soc >= ev_target:
+            return
+
+        self.logger.separator()
+        self.logger.info(
+            f"{self.logger.DECISION} User intent changed after session completion: "
+            f"{event.data.get('entity_id')} -> {new_state.state} "
+            f"(EV {ev_soc}% < target {ev_target}%)"
+        )
+        self.logger.info(
+            "🔄 Re-arming session state machine (completed_today -> ready, "
+            "cooldown cleared) - next periodic check will re-evaluate"
+        )
+        self.logger.separator()
+        self._session_state = "ready"
+        self._last_completion_time = None
+        self._last_completion_date = None
 
     # ========== ACTIVE WINDOW DETECTION ==========
 
@@ -1769,24 +1868,43 @@ class NightSmartCharge:
         measured = power_model.read_charging_power(self.hass) if power_model else None
 
         if measured is None:
-            # Legacy path: status is the only signal (unchanged from v2.1.x).
-            # Clear the low-draw debounce clock so a stale timestamp from before a
-            # power-sensor outage can't fire a premature stop the instant the
-            # sensor recovers (the debounce restarts fresh on recovery).
+            # Legacy path: status is the only signal. Clear the low-draw debounce
+            # clock so a stale timestamp from before a power-sensor outage can't
+            # fire a premature stop the instant the sensor recovers (the debounce
+            # restarts fresh on recovery).
+            #
+            # v2.9.0: TOLERANT BLOCKLIST instead of the old `!= charger_charging`
+            # allowlist. Non-Tuya wallboxes report brand-specific charging
+            # strings (e.g. "charging", "Charging") that the allowlist judged as
+            # "not charging", terminally killing the session 15 s after start.
+            # Stop only on an EXPLICIT not-charging value: the Tuya lifecycle
+            # statuses (free/end/wait — wait kept for v2.1.x parity: with no
+            # power sensor there is no other signal that charging resumed) or an
+            # unavailable sensor (fail-safe: status is the only signal here).
             self._grid_drawing_low_since = None
-            if charger_status != CHARGER_STATUS_CHARGING:
+            if (
+                not charger_status
+                or charger_status in ("unknown", "unavailable")
+                or charger_status in (
+                    CHARGER_STATUS_FREE,
+                    CHARGER_STATUS_END,
+                    CHARGER_STATUS_WAIT,
+                )
+            ):
                 self.logger.warning(f"Charger no longer charging (status: {charger_status}) - ending grid mode")
                 await self._complete_night_charge(STOP_REASON_CHARGER_NOT_CHARGING, terminal=True)
                 return
         else:
-            # (a) Lifecycle stop on an explicit not-charging status. None status
-            # (no sensor) is not a lifecycle signal — fall through to the draw
-            # check. 'charger_wait' is the controller's transitional decrease, so
-            # it is not a lifecycle stop here.
-            if charger_status is not None and charger_status not in (
-                CHARGER_STATUS_CHARGING,
-                CHARGER_STATUS_WAIT,
-            ):
+            # (a) Lifecycle stop on an explicit not-charging status.
+            #
+            # v2.9.0: TOLERANT BLOCKLIST (matching power_model.is_charging and
+            # the frontend) instead of the old (CHARGING, WAIT) allowlist — a
+            # brand string like "charging" must never end the session. Only the
+            # explicit end-of-life statuses stop it; anything else (brand
+            # strings, None, unknown/unavailable, 'charger_wait' transitional
+            # decrease) falls through to the measured-power draw check below,
+            # which is the authoritative signal on this path.
+            if charger_status in (CHARGER_STATUS_FREE, CHARGER_STATUS_END):
                 self.logger.warning(f"Charger no longer charging (status: {charger_status}) - ending grid mode")
                 self._grid_drawing_low_since = None
                 await self._complete_night_charge(STOP_REASON_CHARGER_NOT_CHARGING, terminal=True)

@@ -757,6 +757,68 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.9.0 (2026-07-19)
+**FIX: Night Smart Charge — brand-status false stop in grid mode + "completed_today" ignores user intent changes**
+
+Root-caused from a maintainer's live incident log (2026-07-19, non-Tuya wallbox
+reporting `charging`/`available` status strings): the battery→grid fallback at
+04:09 was terminally killed **15 seconds after starting** with
+`charger_not_charging`, latching `completed_today` and leaving the EV at 62%
+instead of the 80% target set at ~02:00. Two independent bugs fixed in
+[night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py):
+
+**Bug A — grid-monitor lifecycle check was a Tuya allowlist (the killer).**
+Check 2 of `_async_monitor_grid_charge` ended the session whenever the status
+string was not in `(charger_charging, charger_wait)` — but non-Tuya wallboxes
+report brand vocabulary (`charging`, `Charging`, …), so a status that literally
+means "charging" terminated the session on the first monitor tick. v2.2.0 had
+already introduced the tolerant-blocklist principle everywhere else
+(`power_model.is_charging`, frontend `_isDrawingNow`); this call site was the
+last allowlist standing (the battery monitor has no such check — which is why
+the battery session survived 4 hours and the grid session 15 seconds). Fix:
+- **Measured-power path**: lifecycle stop ONLY on explicit `charger_free` /
+  `charger_end`. Everything else (brand strings, `charger_wait`, None,
+  unknown/unavailable) falls through to the measured-power blind-spot check,
+  which is the authoritative signal on that path.
+- **Legacy path (no power sensor)**: tolerant blocklist `charger_free` /
+  `charger_end` / `charger_wait` (wait kept for v2.1.x parity), plus a
+  preserved fail-safe stop on an unavailable/unknown/missing status (status is
+  the only signal there).
+
+**Bug B — terminal stops latched `completed_today` against stale user intent.**
+Every stop is `terminal=True` → `_session_state = "completed_today"` blocks
+re-activation for the rest of the day, and there was **no listener** on the
+daily EV-target numbers or car_ready switches, so raising today's target (or
+enabling today's car_ready) after any stop was silently ignored until the next
+day. Fix: new `_async_user_intent_changed` listener
+(`async_track_state_change_event` over the 7 `evsc_ev_min_soc_*` numbers + 7
+`evsc_car_ready_*` switches, registered in `async_setup`). When the changed
+entity belongs to **today**, the session is `completed_today`, and the EV SOC
+is below the (new) target, the state machine re-arms (`ready`, completion latch
++ 1-hour-cooldown timestamp cleared — a deliberate user edit outranks the
+anti-loop cooldown) and the next periodic tick re-evaluates. Guards: no-op
+while a session is active (targets are already live-read), car_ready turning
+OFF never resurrects a session, other-day entities and unknown/unavailable
+restore churn are ignored, and outside the night window the reset is harmless
+(the window check stays False; midnight rollover re-arms anyway). Defensive
+`isinstance(dict)` on `priority_balancer._ev_min_soc_entities` keeps mocked
+balancers (tests) safe.
+
+**Files**: `night_smart_charge.py` (Check 2 blocklist, intent listener +
+callback, `_intent_unsub` lifecycle), `const.py` + `manifest.json` (VERSION),
+`README.md`, this file; tests: `tests/test_night_smart_charge.py` (+12: 5
+lifecycle-blocklist incl. the brand-string regression and the preserved
+fail-safe/blind-spot stops, 7 intent-re-arm covering re-arm, already-met,
+car_ready ON/OFF, other-day, active-session and availability-churn guards).
+`VERSION = "2.9.0"`. Full suite green: **271 passed / 0 failed**.
+
+**Upgrade priority**: 🔴 STRONGLY RECOMMENDED for every non-Tuya wallbox using
+Night Smart Charge (grid mode was effectively broken — any grid session died in
+~15 s), 🟢 RECOMMENDED for everyone else (the intent re-arm makes late-evening
+target/car_ready changes take effect the same night).
+
+---
+
 ### v2.8.2 (2026-07-13)
 **FIX: Mobile "shell vs stack" scroll conflict — REAL root cause found and fixed (nested scroll container from `overflow-x: hidden`)**
 

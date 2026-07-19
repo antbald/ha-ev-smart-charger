@@ -58,6 +58,8 @@ Most projects target one charger brand or assume a single-phase home. EV Smart C
 
 > **📱 New in v2.7.3+** — EV charging **Live Activities / Live Updates** for the Home Assistant Companion app. When enabled from **Dashboard → Settings → Notifications**, the integration keeps a single `evsc_ev_charging` activity updated for Boost Charge, Night Smart Charge, Solar Surplus, Force Charge, and normal charging detected by the shared `charging_power` / charger-status SSOT. Updates are throttled to protect the iOS push budget and the activity closes only after charging has stopped for two monitor ticks. **Default: OFF**.
 
+> **🛠️ New in v2.9.0** — two Night Smart Charge reliability fixes. **(1)** The grid-mode monitor no longer terminates a session because your wallbox reports a brand-specific status string: the old check accepted only the Tuya vocabulary (`charger_charging` / `charger_wait`), so a wallbox reporting e.g. `charging` had its grid session killed ~15 s after the battery→grid fallback — leaving the EV under target for the rest of the night. The check is now the same tolerant blocklist used everywhere since v2.2.0 (only the explicit `charger_free` / `charger_end` lifecycle statuses stop the session; the measured-power blind-spot check keeps protecting against a genuinely idle charger). **(2)** Changing **today's** EV SOC target or turning on **today's** *car ready* switch after a session already ended now **re-arms Night Smart Charge**: the "completed today" latch (and its 1-hour cooldown) is cleared and the session restarts within a minute if the night window is still open. Previously those changes were silently ignored until the next day. **STRONGLY RECOMMENDED for non-Tuya wallboxes.**
+
 ---
 
 ## 📸 Preview
