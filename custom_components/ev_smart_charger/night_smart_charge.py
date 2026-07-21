@@ -917,8 +917,36 @@ class NightSmartCharge:
 
         # === STEP 2: Hysteresis - stay active once activated ===
         if self._session_state == "active":
-            self.logger.debug("Already active - maintaining state (hysteresis)")
-            return True
+            # v2.9.2: an ARMED window with NO running session must not survive
+            # past its own stop conditions. Before this guard, a window armed
+            # at 00:01 with no EV connected stayed "active" all day via
+            # hysteresis; a morning plug-in (2026-07-21 incident, 08:13) then
+            # launched a battery session in broad daylight that the periodic
+            # check killed 3 seconds later — latching completed_today + the
+            # 1-hour cooldown, which also froze Solar Surplus with full sun
+            # available. Disarming back to "ready" (NOT completed_today: no
+            # session ever ran, there is nothing to anti-loop against) lets
+            # STEP 3 re-evaluate the real window, which is False past the stop
+            # condition, so the plug-in is handled by Solar Surplus instead.
+            # A genuinely RUNNING session keeps the legacy hysteresis — its
+            # stop conditions are enforced by the monitors / periodic check.
+            if not self.is_active():
+                should_stop, stop_reason = await self._should_stop_for_deadline(now)
+                if should_stop:
+                    self.logger.info(
+                        "🔄 Armed window expired with no session started "
+                        f"({stop_reason}) - disarming without completion latch"
+                    )
+                    self._session_state = "ready"
+                    # Fall through to STEP 3: recompute the real window.
+                else:
+                    self.logger.debug(
+                        "Already active - maintaining state (hysteresis)"
+                    )
+                    return True
+            else:
+                self.logger.debug("Already active - maintaining state (hysteresis)")
+                return True
 
         # === STEP 3: Time range validation with grace period ===
         if not self._night_charge_time_entity:

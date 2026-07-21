@@ -703,3 +703,36 @@ async def test_sensor_error_counter_resets_on_recovery(hass, automation):
     await automation._async_periodic_check(ignore_rate_limit=True)
 
     assert automation._sensor_error_consecutive == 0
+
+
+async def test_periodic_check_skips_on_brand_disconnected_status(hass, automation):
+    """v2.9.2: OCPP 'available' (= no EV connected) must skip the tick like
+    'charger_free'. Regression for 2026-07-21: the exact-match gate let
+    'available' pass as connected, producing a 125-tick battery-support
+    start loop (05:38-07:46) against an empty plug."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", "available")
+
+    automation.priority_balancer.is_enabled.return_value = True
+    automation._has_control = MagicMock(return_value=False)
+
+    await automation._async_periodic_check()
+
+    automation.charger_controller.start_charger.assert_not_called()
+    automation.charger_controller.set_amperage.assert_not_called()
+
+
+async def test_periodic_check_still_skips_on_charger_free(hass, automation):
+    """Tuya vocabulary unchanged: 'charger_free' still skips the tick."""
+    hass.states.async_set("switch.force", "off")
+    hass.states.async_set("select.profile", "solar_surplus")
+    hass.states.async_set("sensor.charger_status", CHARGER_STATUS_FREE)
+
+    automation.priority_balancer.is_enabled.return_value = True
+    automation._has_control = MagicMock(return_value=False)
+
+    await automation._async_periodic_check()
+
+    automation.charger_controller.start_charger.assert_not_called()
+    automation.charger_controller.set_amperage.assert_not_called()

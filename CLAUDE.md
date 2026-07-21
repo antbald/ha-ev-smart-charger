@@ -757,6 +757,63 @@ async def _set_amperage(self, target_amperage: int):
 
 ## Version History
 
+### v2.9.2 (2026-07-21)
+**FIX: Armed night window without a session survives past sunrise → phantom daylight session + 1h freeze; Solar Surplus 'available' start loop**
+
+Root-caused from a maintainer's live incident log (2026-07-21, non-Tuya wallbox,
+OCPP vocabulary). Chain of events: the night window armed `_session_state =
+"active"` at 00:01 with **no EV connected**; the v2.9.1 connect gate correctly
+rejected `available` every tick, but the hysteresis in `_is_in_active_window`
+kept the state armed all night and past sunrise (03:37). When the car was
+plugged in at **08:13**, the connect gate passed, the armed state bypassed any
+window re-check, and a **battery session started in broad daylight** (with a
+start notification). Three seconds later the periodic check detected "past stop
+condition", stopped it terminally → `completed_today` + **1-hour cooldown** —
+which also blocked Solar Surplus ("respecting cooldown period") with full sun
+and ~12 A of surplus available. Net effect: notification of charge start, then
+nothing for an hour.
+
+**Fix A — armed-window disarm ([night_smart_charge.py](custom_components/ev_smart_charger/night_smart_charge.py), STEP 2 of `_is_in_active_window`).**
+When the state is `"active"` but **no session is running** (`is_active()` is
+False), the check now consults `_should_stop_for_deadline()`: if the window's
+own stop condition (sunrise on car_ready=OFF, deadline/target on car_ready=ON,
+PV handoff when enabled) has passed, the state disarms back to `"ready"` —
+deliberately **without** the `completed_today` latch and **without** the
+cooldown, because no session ever ran and there is nothing to anti-loop
+against. Control then falls through to the normal STEP 3 window computation
+(False past the stop condition), so a morning plug-in is handled by Solar
+Surplus. A genuinely running session keeps the legacy hysteresis byte-for-byte
+(its stop conditions are enforced by the monitors / periodic check, which run
+first). On car_ready=ON days the armed state intentionally survives past
+sunrise until the deadline — that is the "car ready by deadline" semantics.
+
+**Fix B — Solar Surplus disconnect gate ([solar_surplus.py](custom_components/ev_smart_charger/solar_surplus.py), Section 7).**
+The same incident log showed a **125-tick loop** (05:38–07:46) of "Starting
+charger with 20A" battery support against an **empty plug**: the plug gate
+compared the status against the literal `charger_free` only, so `available`
+passed as "connected". This was the call site deliberately left untouched in
+v2.9.1 ("no observed defect") — the defect is now observed. The gate uses the
+centralized `is_disconnected_status()` classifier; unknown strings still
+default to "connected" (safe failure mode), Tuya installs unchanged.
+
+**Files**: `night_smart_charge.py` (STEP 2 guard), `solar_surplus.py` (gate +
+import), `const.py` + `manifest.json` (VERSION), `README.md`, this file;
+tests: `tests/test_night_smart_charge.py` (+4: disarm past stop condition
+with no latch/cooldown, hysteresis kept before stop, running session never
+disarms via window check, end-to-end late-arrival-past-sunrise starts no
+phantom session), `tests/test_solar_surplus.py` (+2: `available` skips the
+tick, `charger_free` regression). `VERSION = "2.9.2"`. Full suite green:
+**284 passed / 0 failed**.
+
+**Upgrade priority**: 🔴 STRONGLY RECOMMENDED for non-Tuya wallboxes using
+Night Smart Charge (completes the v2.9.0/v2.9.1 series — without it a morning
+plug-in can freeze all charging for an hour). ⚪ Low impact for Tuya installs
+(the phantom-session path required a brand `available` status, but the
+armed-window disarm also protects Tuya setups where the car is plugged in
+after sunrise).
+
+---
+
 ### v2.9.1 (2026-07-19)
 **FIX: Brand-vocabulary status classifiers — 'available' no longer passes as "connected", 'charged' recognized as charge-complete**
 

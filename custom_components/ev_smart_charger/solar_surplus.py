@@ -13,7 +13,6 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CHARGER_STATUS_FREE,
     CONF_EV_CHARGER_STATUS,
     CONF_FV_PRODUCTION,
     CONF_HOME_CONSUMPTION,
@@ -51,7 +50,7 @@ from .const import (
     has_home_battery,
 )
 from .localization import translate_runtime
-from .power_model import ChargingModel
+from .power_model import ChargingModel, is_disconnected_status
 from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
 from .utils.notification_service import NotificationService
@@ -920,7 +919,14 @@ class SolarSurplusAutomation:
                 self.logger.warning("Charger status unavailable")
                 return
 
-            if charger_status == CHARGER_STATUS_FREE:
+            # v2.9.2: brand-vocabulary aware (companion to v2.9.1). The exact
+            # CHARGER_STATUS_FREE comparison let OCPP 'available' (= no EV
+            # connected) pass as "connected": on 2026-07-21 Solar Surplus ran a
+            # 125-tick battery-support start loop (05:38-07:46) against an
+            # empty plug. is_disconnected_status() covers 'charger_free' plus
+            # the unambiguous disconnected synonyms; unknown strings still
+            # default to "connected" (safe failure mode, unchanged).
+            if is_disconnected_status(charger_status):
                 if self._hybrid_mode is not None:
                     await self._hybrid_mode.async_force_exit("Charger disconnected")
                 if self._has_control():

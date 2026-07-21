@@ -1436,3 +1436,104 @@ async def test_late_arrival_ignores_connected_to_connected_transition(
     await night_charge._async_charger_status_changed(event)
 
     night_charge._evaluate_and_charge.assert_not_awaited()
+
+
+# ============================================================================
+# v2.9.2: Armed-window-without-session disarm (2026-07-21 incident)
+# ============================================================================
+
+async def test_armed_window_without_session_disarms_past_stop_condition(
+    hass, night_charge
+):
+    """v2.9.2: a window armed with NO running session must disarm once its
+    stop condition (sunrise/deadline) has passed — back to 'ready', with NO
+    completed_today latch and NO cooldown. Regression for the 2026-07-21
+    incident: state stayed 'active' via hysteresis all night with no EV
+    connected, so the 08:13 plug-in launched a daylight battery session."""
+    now = dt_util.now()
+    night_charge._session_state = "active"
+    assert night_charge.is_active() is False  # no session running
+    night_charge._should_stop_for_deadline = AsyncMock(
+        return_value=(True, "Sunrise reached (car not needed urgently)")
+    )
+    # Past-window geometry: scheduled 7h ago, sunrise 4h ago.
+    night_charge._get_scheduled_time_for_today = MagicMock(
+        return_value=now - timedelta(hours=7)
+    )
+    night_charge._astral_service.get_next_sunrise_after = MagicMock(
+        return_value=now - timedelta(hours=4)
+    )
+
+    result = await night_charge._is_in_active_window(now)
+
+    assert result is False
+    assert night_charge._session_state == "ready"
+    assert night_charge._last_completion_date is None  # no completion latch
+    assert night_charge._last_completion_time is None  # no cooldown armed
+
+
+async def test_armed_window_without_session_keeps_hysteresis_before_stop(
+    hass, night_charge
+):
+    """Before the stop condition, the armed window keeps legacy hysteresis."""
+    now = dt_util.now()
+    night_charge._session_state = "active"
+    night_charge._should_stop_for_deadline = AsyncMock(return_value=(False, ""))
+
+    result = await night_charge._is_in_active_window(now)
+
+    assert result is True
+    assert night_charge._session_state == "active"
+
+
+async def test_armed_window_with_running_session_keeps_hysteresis(
+    hass, night_charge
+):
+    """A genuinely RUNNING session never disarms via the window check — its
+    stop conditions are enforced by the monitors / periodic check."""
+    now = dt_util.now()
+    night_charge._session_state = "active"
+    night_charge._night_charge_active = True
+    night_charge._active_mode = NIGHT_CHARGE_MODE_BATTERY
+    night_charge._should_stop_for_deadline = AsyncMock(
+        return_value=(True, "Sunrise reached")
+    )
+
+    result = await night_charge._is_in_active_window(now)
+
+    assert result is True
+    assert night_charge._session_state == "active"
+    night_charge._should_stop_for_deadline.assert_not_awaited()
+
+
+async def test_late_arrival_past_sunrise_does_not_start_phantom_session(
+    hass, night_charge
+):
+    """v2.9.2 end-to-end regression for 2026-07-21: plug-in at 08:13 with the
+    window still armed from 00:01 must NOT start a session (no notification,
+    no completed_today, no cooldown) — Solar Surplus handles the morning."""
+    now = dt_util.now()
+    night_charge._boost_charge = None
+    night_charge._session_state = "active"  # armed since 00:01, no session
+    night_charge._should_stop_for_deadline = AsyncMock(
+        return_value=(True, "Sunrise reached (car not needed urgently)")
+    )
+    night_charge._get_scheduled_time_for_today = MagicMock(
+        return_value=now - timedelta(hours=7)
+    )
+    night_charge._astral_service.get_next_sunrise_after = MagicMock(
+        return_value=now - timedelta(hours=4)
+    )
+    night_charge._evaluate_and_charge = AsyncMock()
+
+    event = MagicMock()
+    event.data = {
+        "old_state": MagicMock(state="available"),
+        "new_state": MagicMock(state="charging"),
+    }
+    await night_charge._async_charger_status_changed(event)
+
+    night_charge._evaluate_and_charge.assert_not_awaited()
+    night_charge.charger_controller.start_charger.assert_not_called()
+    assert night_charge._session_state == "ready"
+    assert night_charge._last_completion_date is None
