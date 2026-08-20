@@ -19,6 +19,7 @@ custom_components/
     night_smart_charge.py
     boost_charge.py
     automations.py
+    manual_stop.py
     solar_surplus.py
     live_activity_monitor.py
     ev_soc_monitor.py
@@ -57,6 +58,7 @@ Makefile
 | `custom_components/ev_smart_charger/priority_balancer.py` | EV vs home battery decision logic | Decision-only, not a charger actuator |
 | `custom_components/ev_smart_charger/boost_charge.py` | Fixed-current override with SOC auto-stop; supports manual trigger and daily scheduled window | High-priority automation |
 | `custom_components/ev_smart_charger/automations.py` | Smart Charger Blocker | Can preempt lower-priority charging |
+| `custom_components/ev_smart_charger/manual_stop.py` | Manual "Stop Charging" override (v2.10.0, issue #55) | Owns the behavioural half of `evsc_stop_charging`: immediate stop on toggle-on, 1-minute hold against externally-started charging, re-assert at setup. v2.10.2: two-way interlock with `evsc_forza_ricarica` — turning either ON turns the other OFF. The coordinator-side veto lives in `automation_coordinator._is_manual_stop_active` |
 | `custom_components/ev_smart_charger/night_smart_charge.py` | Overnight charging workflow with battery or grid mode | Owns night-session logic and handoff paths; PV-production handoff stop (v2.3.0, issue #32) in `_should_stop_for_deadline`; grid-availability terminal stop (v2.6.0, issue #36) as grid-monitor Check 0.5 |
 | `custom_components/ev_smart_charger/solar_surplus.py` | Daytime solar-surplus charging and dynamic current control | Owns daytime adaptive loop |
 | `custom_components/ev_smart_charger/live_activity_monitor.py` | Normal charging Live Activity / Live Update monitor | Notification-only; gated by `evsc_live_activities_enabled` (default OFF), uses `power_model.is_charging()`, skips Boost/Night, clears after two inactive ticks |

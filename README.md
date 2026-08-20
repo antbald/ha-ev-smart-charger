@@ -201,6 +201,7 @@ The wizard asks for your wallbox switch, current entity, status entity, SOC sens
   - [Night Smart Charge](#night-smart-charge)
   - [Boost Charge](#boost-charge)
   - [Smart Charger Blocker](#smart-charger-blocker)
+  - [Manual overrides — Force Charge & Stop Charging](#manual-overrides--force-charge--stop-charging)
   - [Hybrid Inverter Mode](#hybrid-inverter-mode-zero-export-systems)
   - [Cached EV SOC](#cached-ev-soc)
 - [Auto-generated Dashboard](#auto-generated-dashboard)
@@ -915,6 +916,35 @@ Smart Charger Blocker listens for `charger_charging` status events and stops the
 When the blocker stops the charger, it sends a push notification (if `evsc_notify_smart_blocker_enabled` is ON and the car owner is home) and enforces a 30-minute re-check window to prevent log spam.
 
 **Key entities:** `evsc_smart_charger_blocker_enabled`, `evsc_forza_ricarica`, `evsc_notify_smart_blocker_enabled`
+
+---
+
+### Manual overrides — Force Charge & Stop Charging
+
+Two switches sit above every automation. They are exact opposites, and they can never be ON at the same time.
+
+| Switch | Effect while ON |
+|---|---|
+| `evsc_forza_ricarica` — **Force Charge** | The charger is kept running. Every automation `turn_off` request is denied by the coordinator. |
+| `evsc_stop_charging` — **Stop Charging** | The charger is stopped immediately and held stopped. Every automation `turn_on` request is denied. |
+
+**Stop Charging outranks Force Charge.** The coordinator evaluates it first, deliberately: an explicit stop must win over a force-charge toggle the user may have forgotten about.
+
+**How the stop is held.** Three layers, so the effect is immediate *and* durable:
+
+1. Flipping the switch ON calls `ChargerController.stop_charger()` within the same second — you don't wait for the next automation tick.
+2. While it stays ON, the coordinator denies every automation `turn_on`.
+3. A 1-minute re-assert catches charging that started **outside** the integration — a wallbox that auto-resumes, or a manual flip of your raw charger switch.
+
+A restart of Home Assistant with the switch already ON re-asserts the hold at setup.
+
+**Turning it OFF** simply resumes normal arbitration. Nothing is force-started, and your charging profile is never touched — there is nothing to restore afterwards.
+
+**Mutual exclusion (v2.10.2).** Turning either switch ON automatically turns the other OFF, so the dashboard can never show two contradictory overrides. If both are found ON at startup (a state restored from before this behaviour existed), Stop Charging wins — matching the coordinator's precedence.
+
+**On the dashboard:** Stop Charging renders as a red hero banner with the highest precedence, plus a red toggle directly above Force Charging. Red rather than the usual green, because on this dashboard green means *charging*.
+
+**Key entities:** `evsc_stop_charging`, `evsc_forza_ricarica`
 
 ---
 

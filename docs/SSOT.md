@@ -51,6 +51,7 @@ The setup sequence is:
    - `NightSmartCharge`
    - `BoostCharge`
    - `SmartChargerBlocker`
+   - `ManualStopControl`
    - `SolarSurplusAutomation`
    - `EVChargingLiveActivityMonitor`
    - `LogManager`
@@ -264,7 +265,24 @@ grid-import protection:
 
 The enforced model is:
 
-- `Forza Ricarica` remains the top manual override.
+- `Forza Ricarica` remains the top *force-on* manual override.
+- **Manual stop (v2.10.0, issue #55).** `evsc_stop_charging` is the mirror image
+  of `Forza Ricarica` and sits **above** it. `AutomationCoordinator._is_manual_stop_active()`
+  is evaluated before the Forza Ricarica branch in `request_charger_action`:
+  while it is ON, every `turn_on` is denied and every `turn_off` is allowed.
+  `ManualStopControl` (`manual_stop.py`) owns the behavioural half — an
+  immediate stop on the ON transition, a `MANUAL_STOP_RECHECK_INTERVAL_SECONDS`
+  hold that re-stops charging started *outside* the integration, and a
+  re-assert at setup when the switch is restored ON.
+- **Override interlock (v2.10.2).** `evsc_stop_charging` and `evsc_forza_ricarica`
+  are semantic opposites and may never be ON simultaneously. `ManualStopControl`
+  enforces a two-way interlock: turning either ON turns the other OFF
+  (`switch.turn_off`, `blocking=True`), and a both-ON state restored from before
+  the interlock existed resolves in favour of the manual stop at setup, matching
+  the coordinator precedence above. Only ON transitions act, so the interlock
+  cannot loop; `_turn_off_other()` is a no-op when the target is already OFF.
+  Each action emits a `manual_stop_interlock` diagnostic event. The coordinator
+  ordering is retained as a safety net for the in-flight window.
 - `BoostCharge`, `SmartChargerBlocker`, `NightSmartCharge`, and `SolarSurplusAutomation` acquire coordinator ownership before controlling the charger.
 - Only the current owner may keep adjusting amperage inside an active session.
 - A higher-priority automation may preempt a lower-priority owner.
@@ -335,6 +353,7 @@ Core runtime modules:
 - `night_smart_charge.py`
 - `boost_charge.py`
 - `automations.py`
+- `manual_stop.py`
 - `solar_surplus.py`
 - `ev_soc_monitor.py`
 - `log_manager.py`
