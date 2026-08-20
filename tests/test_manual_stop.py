@@ -212,3 +212,104 @@ async def test_setup_is_noop_when_switch_off(hass, manual_stop):
 
     manual_stop.charger_controller.stop_charger.assert_not_called()
     await manual_stop.async_remove()
+
+
+# ── v2.10.2: Stop Charging / Forza Ricarica interlock ─────────────
+
+
+@pytest.fixture
+def switch_calls(hass):
+    """Record switch.turn_off service calls."""
+    calls = []
+
+    async def _handler(call):
+        calls.append(call.data.get("entity_id"))
+        entity_id = call.data.get("entity_id")
+        if isinstance(entity_id, str):
+            hass.states.async_set(entity_id, "off")
+
+    hass.services.async_register("switch", "turn_off", _handler)
+    return calls
+
+
+async def test_engaging_manual_stop_turns_off_force_charge(
+    hass, manual_stop, switch_calls
+):
+    """The two overrides are opposites — engaging one must clear the other."""
+    hass.states.async_set(STOP_ENTITY, "off")
+    hass.states.async_set(FORZA_ENTITY, "on")
+    manual_stop._switch_entity = STOP_ENTITY
+    manual_stop._forza_entity = FORZA_ENTITY
+
+    await manual_stop._async_switch_changed(_toggle_event(hass, "off", "on"))
+
+    assert FORZA_ENTITY in switch_calls
+    assert hass.states.get(FORZA_ENTITY).state == "off"
+    manual_stop.charger_controller.stop_charger.assert_awaited_once()
+
+
+async def test_engaging_force_charge_turns_off_manual_stop(
+    hass, manual_stop, switch_calls
+):
+    """The other half of the interlock."""
+    hass.states.async_set(STOP_ENTITY, "on")
+    hass.states.async_set(FORZA_ENTITY, "off")
+    manual_stop._switch_entity = STOP_ENTITY
+    manual_stop._forza_entity = FORZA_ENTITY
+
+    hass.states.async_set(FORZA_ENTITY, "on")
+    await manual_stop._async_forza_changed(
+        Event(
+            "state_changed",
+            {
+                "entity_id": FORZA_ENTITY,
+                "old_state": hass.states.get(FORZA_ENTITY).__class__(
+                    FORZA_ENTITY, "off"
+                ),
+                "new_state": hass.states.get(FORZA_ENTITY),
+            },
+        )
+    )
+
+    assert STOP_ENTITY in switch_calls
+    assert hass.states.get(STOP_ENTITY).state == "off"
+
+
+async def test_force_charge_no_op_when_manual_stop_already_off(
+    hass, manual_stop, switch_calls
+):
+    """No spurious service calls when there is nothing to clear."""
+    hass.states.async_set(STOP_ENTITY, "off")
+    hass.states.async_set(FORZA_ENTITY, "off")
+    manual_stop._switch_entity = STOP_ENTITY
+    manual_stop._forza_entity = FORZA_ENTITY
+
+    hass.states.async_set(FORZA_ENTITY, "on")
+    await manual_stop._async_forza_changed(
+        Event(
+            "state_changed",
+            {
+                "entity_id": FORZA_ENTITY,
+                "old_state": hass.states.get(FORZA_ENTITY).__class__(
+                    FORZA_ENTITY, "off"
+                ),
+                "new_state": hass.states.get(FORZA_ENTITY),
+            },
+        )
+    )
+
+    assert switch_calls == []
+
+
+async def test_setup_resolves_both_switches_on(hass, manual_stop, switch_calls):
+    """Both restored ON (pre-interlock state): manual stop wins."""
+    hass.states.async_set(STOP_ENTITY, "on")
+    hass.states.async_set(FORZA_ENTITY, "on")
+
+    await manual_stop.async_setup()
+
+    assert FORZA_ENTITY in switch_calls
+    assert hass.states.get(FORZA_ENTITY).state == "off"
+    assert hass.states.get(STOP_ENTITY).state == "on"
+    manual_stop.charger_controller.stop_charger.assert_awaited_once()
+    await manual_stop.async_remove()

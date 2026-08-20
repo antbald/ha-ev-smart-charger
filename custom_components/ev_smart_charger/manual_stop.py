@@ -15,7 +15,10 @@ This component owns the behavioural half of ``switch.evsc_stop_charging``:
   ``AutomationCoordinator._is_manual_stop_active``;
 * **release** — flipping the switch OFF releases coordinator ownership and lets
   normal arbitration resume. Nothing is re-started on purpose: the user's own
-  automations take over on their next tick.
+  automations take over on their next tick;
+* **interlock (v2.10.2)** — Stop Charging and Forza Ricarica are opposites and
+  can never be ON at the same time. Turning either ON automatically turns the
+  other OFF, so the dashboard can never show two contradictory overrides.
 """
 from __future__ import annotations
 
@@ -29,6 +32,7 @@ from homeassistant.helpers.event import (
 )
 
 from .const import (
+    HELPER_FORZA_RICARICA_SUFFIX,
     HELPER_STOP_CHARGING_SUFFIX,
     MANUAL_STOP_RECHECK_INTERVAL_SECONDS,
     PRIORITY_OVERRIDE,
@@ -62,7 +66,9 @@ class ManualStopControl:
         self.logger = EVSCLogger("MANUAL STOP")
 
         self._switch_entity: str | None = None
+        self._forza_entity: str | None = None
         self._switch_unsub = None
+        self._forza_unsub = None
         self._timer_unsub = None
         self._holding = False
 
@@ -119,9 +125,20 @@ class ManualStopControl:
             )
             return
 
+        self._forza_entity = self._find_entity_by_suffix(HELPER_FORZA_RICARICA_SUFFIX)
+        if not self._forza_entity:
+            self.logger.warning(
+                f"Helper entity not found: {HELPER_FORZA_RICARICA_SUFFIX} - "
+                "the Stop Charging / Force Charging interlock is disabled."
+            )
+
         self._switch_unsub = async_track_state_change_event(
             self.hass, self._switch_entity, self._async_switch_changed
         )
+        if self._forza_entity:
+            self._forza_unsub = async_track_state_change_event(
+                self.hass, self._forza_entity, self._async_forza_changed
+            )
         self._timer_unsub = async_track_time_interval(
             self.hass,
             self._async_periodic_hold_check,
@@ -132,6 +149,12 @@ class ManualStopControl:
         # state-change listener above only fires on future transitions.
         if self.is_active():
             self.logger.warning("Manual stop restored as ACTIVE - enforcing hold")
+            # Both switches could be restored ON from before the interlock
+            # existed (or from a hand-edited state). Manual stop wins, matching
+            # the coordinator's precedence.
+            await self._turn_off_other(
+                self._forza_entity, "Manual stop active at startup"
+            )
             await self._enforce_stop("Manual stop active at startup")
 
         self.logger.success("Setup completed")
@@ -143,6 +166,9 @@ class ManualStopControl:
         if self._switch_unsub:
             self._switch_unsub()
             self._switch_unsub = None
+        if self._forza_unsub:
+            self._forza_unsub()
+            self._forza_unsub = None
         if self._timer_unsub:
             self._timer_unsub()
             self._timer_unsub = None
@@ -166,6 +192,10 @@ class ManualStopControl:
         if is_on:
             self.logger.separator()
             self.logger.warning("Manual stop ENGAGED by user")
+            # Interlock: the two overrides are opposites, never both ON.
+            await self._turn_off_other(
+                self._forza_entity, "Manual stop engaged"
+            )
             await self._enforce_stop("Manual stop requested by user")
             self.logger.separator()
         else:
@@ -177,6 +207,57 @@ class ManualStopControl:
                 reason_code="manual_stop_released",
                 reason_detail="Manual stop switch turned OFF",
             )
+
+    @callback
+    async def _async_forza_changed(self, event) -> None:
+        """Turn the manual stop OFF when Forza Ricarica is engaged.
+
+        The other half of the interlock. The coordinator would still let the
+        manual stop win (it is evaluated first), which is precisely why the two
+        must never be ON together: a user who engages Force Charging expects it
+        to charge, not to be silently vetoed by a switch they forgot about.
+        """
+        new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
+        if new_state is None:
+            return
+
+        is_on = new_state.state == STATE_ON
+        was_on = bool(old_state and old_state.state == STATE_ON)
+        if not is_on or was_on:
+            return
+
+        if not self.is_active():
+            return
+
+        self.logger.warning(
+            "Force Charging engaged - releasing the manual stop (interlock)"
+        )
+        await self._turn_off_other(self._switch_entity, "Force Charging engaged")
+
+    async def _turn_off_other(self, entity_id: str | None, reason: str) -> None:
+        """Turn off the opposite override switch, if it is currently ON."""
+        if not entity_id:
+            return
+        state = self.hass.states.get(entity_id)
+        if not state or state.state != STATE_ON:
+            return
+
+        self.logger.action(f"Interlock: turning off {entity_id}", reason)
+        await self.hass.services.async_call(
+            "switch",
+            "turn_off",
+            {"entity_id": entity_id},
+            blocking=True,
+        )
+        await self._emit_diagnostic(
+            event="manual_stop_interlock",
+            result="switched_off",
+            reason_code="override_interlock",
+            reason_detail=f"{entity_id} turned off: {reason}",
+            raw_values={"entity_id": entity_id},
+            severity="warning",
+        )
 
     @callback
     async def _async_periodic_hold_check(self, now) -> None:

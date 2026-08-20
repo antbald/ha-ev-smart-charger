@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.10.1
+**Current Version:** 2.10.2
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -756,6 +756,49 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.10.2 (2026-08-20)
+**Stop Charging and Forza Ricarica are now mutually exclusive**
+
+The two overrides are semantic opposites (force ON vs stop and hold), so having
+both ON at once is never a meaningful state. Until now nothing prevented it: the
+coordinator simply let the manual stop win (its branch is evaluated first), so a
+user who engaged Force Charging while an old Stop Charging toggle was still ON
+got no charging and no explanation — the exact foot-gun issue #55 set out to
+remove, only inverted.
+
+`ManualStopControl` ([manual_stop.py](custom_components/ev_smart_charger/manual_stop.py))
+now owns a two-way interlock — it already listens to the stop switch, so it is
+the natural place for it:
+- a new listener on `evsc_forza_ricarica`; when it goes **OFF → ON** while the
+  manual stop is active, the manual stop is turned OFF (`switch.turn_off`,
+  `blocking=True`);
+- the existing stop-switch **OFF → ON** branch turns Forza Ricarica OFF *before*
+  stopping the charger;
+- `async_setup` resolves a both-ON state restored from before this release (or
+  hand-edited): **manual stop wins**, matching the coordinator's precedence.
+
+Only ON transitions act, so the interlock cannot loop: turning the other switch
+OFF fires that switch's own OFF branch, which merely releases coordinator
+ownership. `_turn_off_other()` is a no-op when the target is already OFF, so no
+spurious service calls are dispatched, and each interlock action emits a
+`manual_stop_interlock` diagnostic event. The coordinator veto ordering (manual
+stop evaluated before Forza Ricarica) is unchanged and now acts purely as a
+safety net for the window where a state change is still in flight.
+
+**Files**: `manual_stop.py` (forza listener, `_turn_off_other`, startup
+resolution, `_forza_unsub` lifecycle), `const.py` + `manifest.json` (VERSION),
+`README.md`, this file; tests: `tests/test_manual_stop.py` (+4: engaging stop
+clears force charge, engaging force charge clears stop, no service call when
+there is nothing to clear, both-ON at startup resolves to manual stop).
+`VERSION = "2.10.2"`. No schema / entity / config-flow change, entity counts
+unchanged (72 / 58). Full suite green: **302 passed / 0 failed**.
+
+**Upgrade priority**: 🟢 RECOMMENDED for anyone on v2.10.0/v2.10.1 — removes a
+contradictory UI state that silently produces "nothing charges and I don't know
+why".
+
+---
 
 ### v2.10.1 (2026-08-20)
 **UI: the Stop Charging toggle is red when ON (frontend-only)**
