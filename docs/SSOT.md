@@ -283,6 +283,16 @@ The enforced model is:
   cannot loop; `_turn_off_other()` is a no-op when the target is already OFF.
   Each action emits a `manual_stop_interlock` diagnostic event. The coordinator
   ordering is retained as a safety net for the in-flight window.
+- **Force Charge auto-disarm (v2.11.0, opt-in).** With
+  `evsc_force_charge_auto_disarm` ON, `ManualStopControl` turns
+  `evsc_forza_ricarica` OFF on the plug-out **edge** of `CONF_EV_CHARGER_STATUS`
+  (`is_disconnected_status()` false → true), emitting a
+  `force_charge_auto_disarm` diagnostic event. Edge-only, so turning Force
+  Charge ON with the cable already out is never cancelled; unknown /
+  unavailable statuses classify as *connected*, so a sensor glitch cannot
+  silently disarm a Force Charge the user relies on. Inert when no status
+  sensor is mapped (measured power alone cannot distinguish "paused" from
+  "unplugged" — see §4.1).
 - `BoostCharge`, `SmartChargerBlocker`, `NightSmartCharge`, and `SolarSurplusAutomation` acquire coordinator ownership before controlling the charger.
 - Only the current owner may keep adjusting amperage inside an active session.
 - A higher-priority automation may preempt a lower-priority owner.

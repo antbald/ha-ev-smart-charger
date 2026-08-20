@@ -313,3 +313,114 @@ async def test_setup_resolves_both_switches_on(hass, manual_stop, switch_calls):
     assert hass.states.get(STOP_ENTITY).state == "on"
     manual_stop.charger_controller.stop_charger.assert_awaited_once()
     await manual_stop.async_remove()
+
+
+# ── v2.11.0: Force Charge auto-disarm on unplug ───────────────────
+
+AUTO_DISARM_ENTITY = "switch.ev_smart_charger_test_evsc_force_charge_auto_disarm"
+STATUS_ENTITY = "sensor.charger_status"
+
+
+def _status_event(hass, old, new):
+    """Build a state_changed-like event for the charger status sensor."""
+    hass.states.async_set(STATUS_ENTITY, new)
+    return Event(
+        "state_changed",
+        {
+            "entity_id": STATUS_ENTITY,
+            "old_state": hass.states.get(STATUS_ENTITY).__class__(STATUS_ENTITY, old),
+            "new_state": hass.states.get(STATUS_ENTITY),
+        },
+    )
+
+
+@pytest.fixture
+def auto_disarm(hass, manual_stop):
+    """Manual stop wired for the auto-disarm path."""
+    manual_stop._switch_entity = STOP_ENTITY
+    manual_stop._forza_entity = FORZA_ENTITY
+    manual_stop._auto_disarm_entity = AUTO_DISARM_ENTITY
+    manual_stop._charger_status_entity = STATUS_ENTITY
+    hass.states.async_set(STOP_ENTITY, "off")
+    hass.states.async_set(FORZA_ENTITY, "on")
+    hass.states.async_set(AUTO_DISARM_ENTITY, "on")
+    return manual_stop
+
+
+async def test_unplug_disarms_force_charge(hass, auto_disarm, switch_calls):
+    """Unplugging the EV turns Force Charge off when the setting is ON."""
+    await auto_disarm._async_charger_status_changed(
+        _status_event(hass, "charger_charging", "charger_free")
+    )
+
+    assert FORZA_ENTITY in switch_calls
+    assert hass.states.get(FORZA_ENTITY).state == "off"
+
+
+async def test_unplug_disarms_on_brand_status(hass, auto_disarm, switch_calls):
+    """OCPP-style `available` is a disconnect too (v2.9.1 classifier)."""
+    await auto_disarm._async_charger_status_changed(
+        _status_event(hass, "Charging", "Available")
+    )
+
+    assert FORZA_ENTITY in switch_calls
+
+
+async def test_unplug_no_op_when_setting_off(hass, auto_disarm, switch_calls):
+    """Opt-in: with the setting OFF, Force Charge survives the unplug."""
+    hass.states.async_set(AUTO_DISARM_ENTITY, "off")
+
+    await auto_disarm._async_charger_status_changed(
+        _status_event(hass, "charger_charging", "charger_free")
+    )
+
+    assert switch_calls == []
+    assert hass.states.get(FORZA_ENTITY).state == "on"
+
+
+async def test_unavailable_status_does_not_disarm(hass, auto_disarm, switch_calls):
+    """A sensor glitch must never cancel a Force Charge the user relies on."""
+    await auto_disarm._async_charger_status_changed(
+        _status_event(hass, "charger_charging", "unavailable")
+    )
+
+    assert switch_calls == []
+    assert hass.states.get(FORZA_ENTITY).state == "on"
+
+
+async def test_disarm_acts_on_the_unplug_edge_only(hass, auto_disarm, switch_calls):
+    """Already-disconnected → still disconnected is not an unplug event.
+
+    Otherwise turning Force Charge ON with the cable out (to prepare a later
+    session) would be cancelled by the next status refresh.
+    """
+    await auto_disarm._async_charger_status_changed(
+        _status_event(hass, "charger_free", "available")
+    )
+
+    assert switch_calls == []
+    assert hass.states.get(FORZA_ENTITY).state == "on"
+
+
+async def test_disarm_no_op_when_force_charge_already_off(
+    hass, auto_disarm, switch_calls
+):
+    """Nothing to disarm → no service call."""
+    hass.states.async_set(FORZA_ENTITY, "off")
+
+    await auto_disarm._async_charger_status_changed(
+        _status_event(hass, "charger_charging", "charger_free")
+    )
+
+    assert switch_calls == []
+
+
+async def test_setup_skips_status_listener_without_status_sensor(hass, manual_stop):
+    """No status sensor mapped → the setting stays inert, setup still succeeds."""
+    hass.states.async_set(STOP_ENTITY, "off")
+    manual_stop.config = {}
+
+    await manual_stop.async_setup()
+
+    assert manual_stop._status_unsub is None
+    await manual_stop.async_remove()

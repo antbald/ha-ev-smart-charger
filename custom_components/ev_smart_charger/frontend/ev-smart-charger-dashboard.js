@@ -77,6 +77,8 @@ const DOMAIN_SUFFIXES = {
   forceCharge: ["switch", "evsc_forza_ricarica"],
   // v2.10.0 (issue #55): manual "stop and hold" — mirror of Force Charge.
   manualStop: ["switch", "evsc_stop_charging"],
+  // v2.11.0: opt-in — unplugging the EV disarms Force Charge.
+  forceChargeAutoDisarm: ["switch", "evsc_force_charge_auto_disarm"],
   chargingProfile: ["select", "evsc_charging_profile"],
 
   // ── Boost Charge (manual + scheduled)
@@ -456,6 +458,22 @@ const SETTINGS_CATALOG = [
           nl: "Bemiddelt EV vs thuisbatterij met de dagelijkse SOC-doelen. Wanneer UIT zijn die doelen en de batterijbescherming inactief.",
         },
         hint: { en: "Default off — enable to protect the home battery", it: "Default off — abilita per proteggere la batteria di casa", nl: "Standaard uit — schakel in om de thuisbatterij te beschermen" } },
+      { entityKey: "forceChargeAutoDisarm", kind: "toggle",
+        name: {
+          en: "Auto-disarm Force Charge",
+          it: "Auto-disarmo Forza ricarica",
+          nl: "Laad forceren automatisch uitschakelen",
+        },
+        desc: {
+          en: "Turn Force Charge off automatically when you unplug the EV, so the next session starts from the normal automation state instead of a forgotten override.",
+          it: "Spegne automaticamente Forza ricarica quando stacchi l'auto, così la ricarica successiva riparte dallo stato normale delle automazioni e non da un override dimenticato.",
+          nl: "Schakelt Laad forceren automatisch uit wanneer je de EV loskoppelt, zodat de volgende sessie start vanuit de normale automatiseringsstatus in plaats van een vergeten override.",
+        },
+        hint: {
+          en: "Default off · Requires the charger status sensor",
+          it: "Default off · Richiede il sensore di stato del wallbox",
+          nl: "Standaard uit · Vereist de laadstatus-sensor",
+        } },
       { entityKey: "smartBlocker", kind: "toggle",
         name: { en: "Smart Charger Blocker", it: "Smart Charger Blocker", nl: "Smart Charger Blocker" },
         desc: {

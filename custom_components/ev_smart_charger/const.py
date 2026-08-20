@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.10.2"
+VERSION = "2.11.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -182,6 +182,10 @@ HELPER_FORZA_RICARICA_SUFFIX = "evsc_forza_ricarica"
 # Forza Ricarica. When ON the charger is stopped immediately and no automation
 # may turn it back on. Evaluated BEFORE Forza Ricarica in the coordinator.
 HELPER_STOP_CHARGING_SUFFIX = "evsc_stop_charging"
+# v2.11.0: opt-in housekeeping for Force Charge — when ON, unplugging the EV
+# automatically turns `evsc_forza_ricarica` OFF, so the next plug-in starts from
+# the normal automation state instead of a forgotten override.
+HELPER_FORCE_CHARGE_AUTO_DISARM_SUFFIX = "evsc_force_charge_auto_disarm"
 HELPER_BOOST_CHARGE_ENABLED_SUFFIX = "evsc_boost_charge_enabled"
 HELPER_SMART_BLOCKER_ENABLED_SUFFIX = "evsc_smart_charger_blocker_enabled"
 HELPER_USE_HOME_BATTERY_SUFFIX = "evsc_use_home_battery"
@@ -465,12 +469,13 @@ HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 # v2.7.4 adds 1 always-created switch (live activities enabled) → 70.
 # v2.8.0 adds 1 always-created number (spike response delay) → 71.
 # v2.10.0 (issue #55) adds 1 always-created switch (evsc_stop_charging) → 72.
+# v2.11.0 adds 1 always-created switch (evsc_force_charge_auto_disarm) → 73.
 # COUPLING (issue #22): the disabled-helper tolerance in
 # __init__._async_wait_for_helper_registration assumes this equals the number
 # of entities actually created when nothing is disabled. If it drifts above
 # reality (cf. v1.6.20), a single user-disabled entity turns the tolerant
 # startup path back into a hard ConfigEntryNotReady. Keep this in sync.
-TOTAL_INTEGRATION_ENTITIES = 72
+TOTAL_INTEGRATION_ENTITIES = 73
 # Verified count (v2.3.0): 53 entities when running in PV-only mode.
 # Unchanged in v2.1.0: the discharge number is battery-only (skipped in PV-only mode).
 # v2.3.0 (issue #32): evsc_night_pv_handoff_threshold is NOT battery-only → +1 → 53.
@@ -478,11 +483,12 @@ TOTAL_INTEGRATION_ENTITIES = 72
 # v2.7.4: live activities enabled switch is NOT battery-only → +1 → 56.
 # v2.8.0: spike response delay number is NOT battery-only → +1 → 57.
 # v2.10.0 (issue #55): the manual stop switch is NOT battery-only → +1 → 58.
+# v2.11.0: the force-charge auto-disarm switch is NOT battery-only → +1 → 59.
 # Skipped helpers (13): 2 switches (use_home_battery, preserve_home_battery),
 # 3 numbers (home_battery_min_soc, battery_support_amperage, battery_support_sunset_buffer),
 # 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).
 # Hybrid Mode entities are still created in PV-only mode but stay IDLE (requires soc_home).
-TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 58
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 59
 
 
 def has_home_battery(config: dict) -> bool:

@@ -422,6 +422,9 @@
   },
   "entity": {
     "switch": {
+      "evsc_force_charge_auto_disarm": {
+        "name": "Auto-disarmo forza ricarica"
+      },
       "evsc_stop_charging": {
         "name": "Blocca ricarica"
       },

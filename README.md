@@ -58,6 +58,8 @@ Most projects target one charger brand or assume a single-phase home. EV Smart C
 
 > **📱 New in v2.7.3+** — EV charging **Live Activities / Live Updates** for the Home Assistant Companion app. When enabled from **Dashboard → Settings → Notifications**, the integration keeps a single `evsc_ev_charging` activity updated for Boost Charge, Night Smart Charge, Solar Surplus, Force Charge, and normal charging detected by the shared `charging_power` / charger-status SSOT. Updates are throttled to protect the iOS push budget and the activity closes only after charging has stopped for two monitor ticks. **Default: OFF**.
 
+> **🔌 New in v2.11.0** — **auto-disarm Force Charge on unplug** (opt-in). Force Charge means "charge now, whatever the automations think" — an intent that ends with that session, except the switch stays ON. Enable `evsc_force_charge_auto_disarm` (Dashboard → Settings → 🛡 Safety) and unplugging the EV turns Force Charge OFF automatically, so the next plug-in starts from the normal automation state instead of a forgotten override. Acts on the unplug **edge** only, and an `unknown`/`unavailable` status never counts as a disconnect — a sensor glitch must not cancel a Force Charge you are relying on. **Default OFF**; requires the charger status sensor.
+
 > **⛔ New in v2.10.0** — a **manual "Stop Charging" control** ([issue #55](https://github.com/antbald/ha-ev-smart-charger/issues/55)) and a **critical Smart Charger Blocker fix** ([issue #54](https://github.com/antbald/ha-ev-smart-charger/issues/54)). The new `switch.evsc_stop_charging` is the mirror image of Force Charge: turning it ON stops the charger within the same second and holds it stopped — every automation `turn_on` is denied by the coordinator (manual stop deliberately outranks Force Charge), and a 1-minute hold re-stops charging that restarts outside the integration (wallbox auto-resume). Turning it OFF simply resumes normal arbitration. Stop Charging and Force Charge are **mutually exclusive** — engaging either one automatically turns the other OFF (v2.10.2). Surfaced on the dashboard as a red hero banner + red toggle next to Force Charging. The blocker fix: its own periodic re-check mistook a **legitimate in-progress block** for stale coordinator ownership and released it on the very next 1-minute tick (~30–60 s), silently defeating the 30-minute enforcement window in every release since v1.5.8. **STRONGLY RECOMMENDED for anyone relying on the Smart Charger Blocker for overnight protection.**
 
 > **🌅 New in v2.9.2** — **armed-night-window disarm + Solar Surplus disconnect gate**. Two fixes from a live incident (2026-07-21): (1) a Night Smart Charge window armed at its scheduled time with **no EV connected** stayed "active" all day via hysteresis — a morning plug-in then launched a phantom daylight battery session that was killed 3 seconds later, latching `completed_today` + the 1-hour cooldown and **freezing Solar Surplus with full sun available**. The armed-but-idle window now disarms cleanly (back to `ready`, no completion latch, no cooldown) once its own stop condition — sunrise, deadline, or PV handoff — has passed, so a morning plug-in is handled by Solar Surplus as it should be. A genuinely running session keeps the legacy hysteresis untouched. (2) Solar Surplus's plug gate now uses the v2.9.1 `is_disconnected_status()` classifier, so OCPP `available` (= no EV connected) skips the tick like `charger_free` instead of driving an endless battery-support start loop against an empty plug.
@@ -511,6 +513,7 @@ All helper entities persist their state across Home Assistant restarts via `Rest
 
 | Suffix | Default | Description |
 |---|:---:|---|
+| `evsc_force_charge_auto_disarm` | OFF | **Auto-disarm Force Charge** — when ON, unplugging the EV turns `evsc_forza_ricarica` OFF automatically, so the next plug-in starts from the normal automation state instead of a forgotten override. Requires the charger status sensor. |
 | `evsc_stop_charging` | OFF | **Stop Charging** — manual stop & hold. When ON the charger is stopped immediately and no automation may start it again until you turn it OFF. Mutually exclusive with `evsc_forza_ricarica`: turning either ON automatically turns the other OFF. |
 | `evsc_forza_ricarica` | OFF | **Force Charge** — global override. When ON, bypasses all automation decisions and keeps the charger running. |
 | `evsc_boost_charge_enabled` | OFF | Enables a manual Boost Charge session immediately. Auto-clears when the SOC target is reached. |
@@ -944,7 +947,18 @@ A restart of Home Assistant with the switch already ON re-asserts the hold at se
 
 **On the dashboard:** Stop Charging renders as a red hero banner with the highest precedence, plus a red toggle directly above Force Charging. Red rather than the usual green, because on this dashboard green means *charging*.
 
-**Key entities:** `evsc_stop_charging`, `evsc_forza_ricarica`
+#### Auto-disarm Force Charge (v2.11.0, opt-in)
+
+Force Charge expresses an intent — *"charge now, whatever the automations think"* — that normally ends with that session. But the switch stays ON, so the classic trap is: you force a charge somewhere, drive home, plug in, and the system silently resumes from the override instead of from Solar Surplus, Night Charge or whatever should have taken over.
+
+Turn **`evsc_force_charge_auto_disarm`** ON (Dashboard → **Settings → 🛡 Safety**) and unplugging the EV switches Force Charge OFF for you.
+
+- It acts on the **unplug edge only** (connected → disconnected). Turning Force Charge ON while the cable is already out — to prepare a later session — is never second-guessed.
+- Disconnection is detected with the centralized status classifier, so OCPP-style vocabularies (`available`) work alongside the Tuya `charger_free`.
+- An `unknown` / `unavailable` status reads as *connected*: a sensor glitch must never silently cancel a Force Charge you are relying on.
+- Requires the charger **status** sensor to be mapped. With a power sensor only, measured watts cannot tell "paused" from "unplugged", so the setting stays inert (and says so in the log at startup) rather than guessing.
+
+**Key entities:** `evsc_stop_charging`, `evsc_forza_ricarica`, `evsc_force_charge_auto_disarm`
 
 ---
 

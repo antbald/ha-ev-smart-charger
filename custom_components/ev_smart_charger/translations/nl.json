@@ -422,6 +422,9 @@
   },
   "entity": {
     "switch": {
+      "evsc_force_charge_auto_disarm": {
+        "name": "Laad forceren automatisch uitschakelen"
+      },
       "evsc_stop_charging": {
         "name": "Laden stoppen"
       },

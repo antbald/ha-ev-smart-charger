@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.10.2
+**Current Version:** 2.11.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -756,6 +756,63 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.11.0 (2026-08-20)
+**FEATURE: auto-disarm Force Charge when the EV is unplugged (opt-in)**
+
+`evsc_forza_ricarica` expresses an intent — "charge now, whatever the
+automations think" — that in practice ends with that charging session. But the
+switch stays ON, so the classic trap is: force a charge away from home, drive
+back, plug in, and the system silently resumes from the override instead of
+handing the session to Solar Surplus / Night Charge. Nothing in the integration
+ever cleared it.
+
+**New switch** `evsc_force_charge_auto_disarm` ("Auto-disarm force charge" / IT
+"Auto-disarmo forza ricarica" / NL "Laad forceren automatisch uitschakelen",
+`mdi:power-plug-off-outline`, **default OFF** per the opt-in convention). Entity
+counts 72→**73**, 58→**59**.
+
+**Behaviour** ([manual_stop.py](custom_components/ev_smart_charger/manual_stop.py),
+`_async_charger_status_changed`): while the setting is ON, a
+`CONF_EV_CHARGER_STATUS` transition whose `is_disconnected_status()` goes
+false → true turns `evsc_forza_ricarica` OFF (`switch.turn_off`,
+`blocking=True`) and emits a `force_charge_auto_disarm` diagnostic event.
+Three deliberate guards:
+- **Edge-only.** `was_disconnected` short-circuits the handler, so turning Force
+  Charge ON with the cable already out — to prepare a later session — is never
+  second-guessed by the next status refresh.
+- **Brand-tolerant.** Detection reuses the centralized v2.9.1 classifier, so
+  OCPP `available` counts as a disconnect alongside Tuya `charger_free`.
+- **Fail-safe direction.** `unknown` / `unavailable` / unrecognized brand
+  strings classify as *connected*, so a flapping status sensor can never
+  silently cancel a Force Charge the user is relying on.
+
+Inert when no status sensor is mapped (optional since v2.2.0): measured power
+alone cannot distinguish "paused" from "unplugged", so setup logs one INFO line
+and skips the listener rather than guessing. The Stop Charging switch is
+deliberately NOT auto-disarmed on unplug — a hold that survives the unplug is
+harmless and is what the user asked for.
+
+`ManualStopControl`'s documented responsibility widens from "manual stop" to
+manual-override lifecycle (stop, interlock, auto-disarm); the class and module
+names are unchanged.
+
+**Dashboard**: rendered as a toggle in the 🛡 **Safety** accordion of the
+Settings view via `SETTINGS_CATALOG` (EN/IT/NL name, description and hint).
+
+**Files**: `manual_stop.py`, `const.py` (`HELPER_FORCE_CHARGE_AUTO_DISARM_SUFFIX`,
+counts, VERSION), `switch.py`, `strings.json` + `translations/{en,it,nl}.json`,
+`frontend/ev-smart-charger-dashboard.js` (suffix map + Safety accordion item),
+`README.md`, `docs/SSOT.md` (§5), `docs/CODEBASE_MAP.md`, `manifest.json`;
+tests: `tests/test_manual_stop.py` (+7: disarm on unplug, disarm on a brand
+`Available` status, no-op when the setting is OFF, unavailable never disarms,
+edge-only guard, no-op when Force Charge is already OFF, setup without a status
+sensor). `VERSION = "2.11.0"`. Full suite green: **309 passed / 0 failed**.
+
+**Upgrade priority**: 🟢 RECOMMENDED — additive and OFF by default, so nothing
+changes until you enable it in Settings → Safety.
+
+---
 
 ### v2.10.2 (2026-08-20)
 **Stop Charging and Forza Ricarica are now mutually exclusive**

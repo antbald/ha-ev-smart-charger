@@ -422,6 +422,9 @@
   },
   "entity": {
     "switch": {
+      "evsc_force_charge_auto_disarm": {
+        "name": "Auto-disarm force charge"
+      },
       "evsc_stop_charging": {
         "name": "Stop charging"
       },

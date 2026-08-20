@@ -1,4 +1,4 @@
-"""Manual "Stop Charging" control for EV Smart Charger (v2.10.0 — issue #55).
+"""Manual override controls for EV Smart Charger (v2.10.0 — issue #55).
 
 The integration already ships a manual override that forces the charger ON
 (``evsc_forza_ricarica``) and vetoes every automation ``turn_off``. There was no
@@ -18,7 +18,14 @@ This component owns the behavioural half of ``switch.evsc_stop_charging``:
   automations take over on their next tick;
 * **interlock (v2.10.2)** — Stop Charging and Forza Ricarica are opposites and
   can never be ON at the same time. Turning either ON automatically turns the
-  other OFF, so the dashboard can never show two contradictory overrides.
+  other OFF, so the dashboard can never show two contradictory overrides;
+* **Force Charge auto-disarm (v2.11.0, opt-in)** — with
+  ``evsc_force_charge_auto_disarm`` ON, unplugging the EV turns
+  ``evsc_forza_ricarica`` OFF. Force Charge is meant for "charge now, whatever
+  the automations think" — an intent that ends with that session. Without this,
+  a user who forced a charge away from home comes back, plugs in, and the
+  system silently resumes from the override instead of from the normal
+  automation state.
 """
 from __future__ import annotations
 
@@ -32,11 +39,14 @@ from homeassistant.helpers.event import (
 )
 
 from .const import (
+    CONF_EV_CHARGER_STATUS,
+    HELPER_FORCE_CHARGE_AUTO_DISARM_SUFFIX,
     HELPER_FORZA_RICARICA_SUFFIX,
     HELPER_STOP_CHARGING_SUFFIX,
     MANUAL_STOP_RECHECK_INTERVAL_SECONDS,
     PRIORITY_OVERRIDE,
 )
+from .power_model import is_disconnected_status
 from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
 
@@ -67,8 +77,11 @@ class ManualStopControl:
 
         self._switch_entity: str | None = None
         self._forza_entity: str | None = None
+        self._auto_disarm_entity: str | None = None
+        self._charger_status_entity: str | None = None
         self._switch_unsub = None
         self._forza_unsub = None
+        self._status_unsub = None
         self._timer_unsub = None
         self._holding = False
 
@@ -139,6 +152,23 @@ class ManualStopControl:
             self._forza_unsub = async_track_state_change_event(
                 self.hass, self._forza_entity, self._async_forza_changed
             )
+
+        # v2.11.0: Force Charge auto-disarm on unplug (opt-in).
+        self._auto_disarm_entity = self._find_entity_by_suffix(
+            HELPER_FORCE_CHARGE_AUTO_DISARM_SUFFIX
+        )
+        self._charger_status_entity = self.config.get(CONF_EV_CHARGER_STATUS)
+        if self._forza_entity and self._charger_status_entity:
+            self._status_unsub = async_track_state_change_event(
+                self.hass, self._charger_status_entity, self._async_charger_status_changed
+            )
+        elif self._forza_entity:
+            # v2.2.0 made the status sensor optional. Measured power alone cannot
+            # tell "paused" from "unplugged", so there is no unplug edge to react
+            # to — the setting stays inert rather than guessing.
+            self.logger.info(
+                "No charger status sensor mapped - Force Charge auto-disarm is inactive"
+            )
         self._timer_unsub = async_track_time_interval(
             self.hass,
             self._async_periodic_hold_check,
@@ -169,6 +199,9 @@ class ManualStopControl:
         if self._forza_unsub:
             self._forza_unsub()
             self._forza_unsub = None
+        if self._status_unsub:
+            self._status_unsub()
+            self._status_unsub = None
         if self._timer_unsub:
             self._timer_unsub()
             self._timer_unsub = None
@@ -234,6 +267,69 @@ class ManualStopControl:
             "Force Charging engaged - releasing the manual stop (interlock)"
         )
         await self._turn_off_other(self._switch_entity, "Force Charging engaged")
+
+    def _is_auto_disarm_enabled(self) -> bool:
+        """Return True when Force Charge auto-disarm is switched ON."""
+        if not self._auto_disarm_entity:
+            return False
+        state = self.hass.states.get(self._auto_disarm_entity)
+        return bool(state and state.state == STATE_ON)
+
+    @callback
+    async def _async_charger_status_changed(self, event) -> None:
+        """Disarm Force Charge when the EV is unplugged (v2.11.0, opt-in).
+
+        Acts on the plug-out EDGE only (connected -> disconnected), so a status
+        sensor that merely restarts, or that sits on `charger_free` while the
+        user deliberately turns Force Charge on for a later session, is never
+        second-guessed. `is_disconnected_status()` is the centralized v2.9.1
+        classifier: unknown / unavailable / brand strings all read as
+        "connected", which is the safe direction here — a sensor glitch must
+        never silently cancel a Force Charge the user is relying on.
+        """
+        if not self._is_auto_disarm_enabled():
+            return
+
+        new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
+        if new_state is None or old_state is None:
+            return
+
+        now_disconnected = is_disconnected_status(new_state.state)
+        was_disconnected = is_disconnected_status(old_state.state)
+        if not now_disconnected or was_disconnected:
+            return
+
+        if not self._forza_entity:
+            return
+        forza_state = self.hass.states.get(self._forza_entity)
+        if not forza_state or forza_state.state != STATE_ON:
+            return
+
+        self.logger.separator()
+        self.logger.warning(
+            f"EV unplugged (status: {new_state.state}) - auto-disarming Force Charge"
+        )
+        await self.hass.services.async_call(
+            "switch",
+            "turn_off",
+            {"entity_id": self._forza_entity},
+            blocking=True,
+        )
+        await self._emit_diagnostic(
+            event="force_charge_auto_disarm",
+            result="disarmed",
+            reason_code="ev_unplugged",
+            reason_detail=(
+                f"Force Charge turned off after unplug (status: {new_state.state})"
+            ),
+            raw_values={
+                "charger_status": new_state.state,
+                "previous_status": old_state.state,
+            },
+            severity="warning",
+        )
+        self.logger.separator()
 
     async def _turn_off_other(self, entity_id: str | None, reason: str) -> None:
         """Turn off the opposite override switch, if it is currently ON."""

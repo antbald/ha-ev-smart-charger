@@ -18,6 +18,7 @@ from .const import (
     HELPER_HYBRID_INVERTER_MODE_SUFFIX,
     HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX,
     HELPER_PRESERVE_HOME_BATTERY_SUFFIX,
+    HELPER_FORCE_CHARGE_AUTO_DISARM_SUFFIX,
     HELPER_STOP_CHARGING_SUFFIX,
     HELPER_TRACE_LOGGING_ENABLED_SUFFIX,
     HELPER_USE_HOME_BATTERY_SUFFIX,
@@ -55,6 +56,8 @@ async def async_setup_entry(
         ("evsc_forza_ricarica", "Forza Ricarica", "mdi:power", False),
         # v2.10.0 (issue #55): manual "stop and hold" — mirror of Forza Ricarica.
         (HELPER_STOP_CHARGING_SUFFIX, "Stop Charging", "mdi:stop-circle-outline", False),
+        # v2.11.0: opt-in — unplugging the EV disarms Force Charge.
+        (HELPER_FORCE_CHARGE_AUTO_DISARM_SUFFIX, "Auto-disarm Force Charge", "mdi:power-plug-off-outline", False),
         ("evsc_boost_charge_enabled", "Boost Charge", "mdi:flash", False),
         ("evsc_boost_schedule_enabled", "Schedule Boost Charge", "mdi:calendar-clock", False),
         ("evsc_smart_charger_blocker_enabled", "Smart Charger Blocker", "mdi:solar-power", False),
