@@ -3736,12 +3736,23 @@ class EvSmartChargerDashboard extends HTMLElement {
           grid-template-columns: 1fr auto;
           background: var(--evsc-surface-strong);
           border: 1px solid var(--evsc-stroke);
+          /* v2.10.1: the "active" accent of a toggle. Green everywhere (ON =
+             charging / feature running), overridden per-toggle where ON means
+             the opposite — see .tone-red below. */
+          --evsc-toggle-on: var(--evsc-sys-green);
+        }
+
+        /* v2.10.1 (issue #55): Stop Charging is the one toggle whose ON state
+           means "no charging", so it must not borrow the green that reads as
+           "charging" everywhere else on this dashboard. */
+        .control-toggle.tone-red {
+          --evsc-toggle-on: var(--evsc-sys-red);
         }
 
         .control-toggle.is-on {
-          border-color: color-mix(in srgb, var(--evsc-sys-green) 45%, transparent);
-          background: color-mix(in srgb, var(--evsc-sys-green) 8%, var(--evsc-surface-strong));
-          box-shadow: 0 0 0 4px color-mix(in srgb, var(--evsc-sys-green) 12%, transparent),
+          border-color: color-mix(in srgb, var(--evsc-toggle-on) 45%, transparent);
+          background: color-mix(in srgb, var(--evsc-toggle-on) 8%, var(--evsc-surface-strong));
+          box-shadow: 0 0 0 4px color-mix(in srgb, var(--evsc-toggle-on) 12%, transparent),
             var(--evsc-shadow-soft);
         }
 
@@ -3770,7 +3781,7 @@ class EvSmartChargerDashboard extends HTMLElement {
         }
 
         .switch-shell.is-on {
-          background: var(--evsc-sys-green);
+          background: var(--evsc-toggle-on, var(--evsc-sys-green));
         }
 
         .switch-thumb {

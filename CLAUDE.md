@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.10.0
+**Current Version:** 2.10.1
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -756,6 +756,40 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.10.1 (2026-08-20)
+**UI: the Stop Charging toggle is red when ON (frontend-only)**
+
+Follow-up to v2.10.0. Every `.control-toggle` shares one "active" treatment —
+an Apple-system-green tinted card, border, focus halo and iOS pill. On this
+dashboard green reads as *charging*, so the new Stop Charging toggle lit up
+green while meaning the exact opposite, undercutting the whole point of the
+control (issue #55, Motivation #2: remove the force-charge foot-gun).
+
+The accent is now a CSS variable instead of a hardcoded color:
+`--evsc-toggle-on` is declared on `.control-toggle` (default
+`var(--evsc-sys-green)`) and consumed by `.control-toggle.is-on` (border,
+background tint, halo) and `.switch-shell.is-on` (the pill). A single
+`.control-toggle.tone-red { --evsc-toggle-on: var(--evsc-sys-red); }` rule
+flips the whole ON treatment to system red for the one toggle whose ON state
+means "no charging". `.switch-shell.is-on` keeps a
+`var(--evsc-toggle-on, var(--evsc-sys-green))` fallback so the shells rendered
+outside a `.control-toggle` (settings rows, weekly-planner cells) are
+untouched.
+
+Verified in the preview harness in both schemes: ON card
+`color-mix(--evsc-sys-red 8%)` + 45% border + 12% halo, pill `#ff3b30`, while
+Force Charging / Boost / every other toggle keep `#34c759` byte-for-byte.
+
+**Files**: `frontend/ev-smart-charger-dashboard.js` (CSS only), `const.py`,
+`manifest.json`, this file. `VERSION = "2.10.1"`. No schema / entity /
+config-flow change, entity counts unchanged (72 / 58). The `?v=`+content-hash
+cache-buster delivers the new bundle on the next dashboard reload.
+
+**Upgrade priority**: 🟢 RECOMMENDED for anyone on v2.10.0 who uses the
+dashboard — purely visual.
+
+---
 
 ### v2.10.0 (2026-08-20)
 **FIX: Smart Charger Blocker released every block after ~30-60 s (issue #54) + FEATURE: manual "Stop Charging" control (issue #55)**
