@@ -391,7 +391,21 @@ class SmartChargerBlocker:
             self._clear_blocking_state(exit_reason)
             return
 
-        if self._coordinator and self._coordinator.is_automation_active("Smart Charger Blocker"):
+        # v2.10.0 (issue #54): holding coordinator ownership is exactly what a
+        # legitimate, in-progress block looks like — so ownership alone is NOT
+        # evidence of staleness. Mirror the coordinator's own definition of a
+        # stale Smart Charger Blocker owner
+        # (automation_coordinator._owner_health_snapshot): neither
+        # `_currently_blocking` nor `_blocking_sequence_in_progress` set.
+        # Without these two guards the branch fired on every 1-minute tick
+        # during every valid enforcement window, releasing the block ~30-60 s
+        # after it was taken and defeating SMART_BLOCKER_ENFORCEMENT_TIMEOUT.
+        if (
+            self._coordinator
+            and self._coordinator.is_automation_active("Smart Charger Blocker")
+            and not self._currently_blocking
+            and not self._blocking_sequence_in_progress
+        ):
             self.logger.warning(
                 "Coordinator ownership is stale while blocker is not enforcing; releasing control"
             )
@@ -400,7 +414,10 @@ class SmartChargerBlocker:
                 result="released",
                 reason_code="stale_owner_released",
                 reason_detail="Coordinator ownership is stale while blocker is not enforcing",
-                raw_values={"currently_blocking": self._currently_blocking},
+                raw_values={
+                    "currently_blocking": self._currently_blocking,
+                    "blocking_sequence_in_progress": self._blocking_sequence_in_progress,
+                },
                 severity="warning",
                 external_cause="stale_owner_detected",
             )

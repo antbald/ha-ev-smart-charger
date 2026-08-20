@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.5.0
+**Current Version:** 2.10.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -756,6 +756,83 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.10.0 (2026-08-20)
+**FIX: Smart Charger Blocker released every block after ~30-60 s (issue #54) + FEATURE: manual "Stop Charging" control (issue #55)**
+
+**Fix — issue #54 (critical, silent).** `SmartChargerBlocker._async_periodic_enforcement_check`
+([automations.py](custom_components/ev_smart_charger/automations.py)) runs on its
+own 1-minute timer. Its second branch exists to clean up a genuine *desync* —
+the coordinator still names the blocker as owner while the blocker itself is no
+longer enforcing — but it only tested
+`coordinator.is_automation_active("Smart Charger Blocker")`. **Holding
+coordinator ownership is exactly what a legitimate, in-progress block looks
+like**, so the branch fired on the FIRST tick after every successful block:
+`_clear_blocking_state()` reset `_currently_blocking` and released control
+30-53 s after the block was taken, defeating
+`SMART_BLOCKER_ENFORCEMENT_TIMEOUT = 1800` almost entirely. Present since
+v1.5.8 (~40 releases): it surfaces only as a *silent absence* of enforcement,
+never as an error. A reporter's log (2026-08-09) showed five block →
+stale-release cycles in one evening, each letting the wallbox redraw
+~2.2-2.4 kW for 15-50 minutes and draining the home battery overnight.
+
+Fix: the stale branch now also requires `not self._currently_blocking and not
+self._blocking_sequence_in_progress` — the same two flags
+`automation_coordinator._owner_health_snapshot` already uses to classify this
+exact owner as "stale". The two pieces of logic now agree. The genuine-desync
+cleanup path (after a restart or an exception mid-sequence) is preserved, and
+`_should_exit_enforcement_mode` (timeout / Forza Ricarica / blocker disabled /
+conditions no longer apply) is untouched.
+
+**Feature — issue #55.** There was no control whose job is "stop charging right
+now and don't let any automation restart it". The only manual override,
+`evsc_forza_ricarica`, does the opposite (forces ON, vetoes every `turn_off`) —
+a foot-gun for a user reaching for a stop button. v2.10.0 adds its mirror image:
+
+- **New switch** `switch.evsc_stop_charging` ("Stop Charging" / IT "Blocca
+  ricarica" / NL "Laden stoppen", `mdi:stop-circle-outline`, default OFF) — one
+  row in `_SWITCH_DEFS`. Entity counts 71→**72**, 57→**58**.
+- **Coordinator veto** ([automation_coordinator.py](custom_components/ev_smart_charger/automation_coordinator.py)):
+  new `_is_manual_stop_active()` + a branch evaluated **before** the Forza
+  Ricarica branch — structural mirror of it with `turn_on`/`turn_off` swapped.
+  `turn_on` from any automation is denied; `turn_off` is always allowed. Manual
+  stop deliberately outranks Force Charge: an explicit stop must win over a
+  possibly-stale force-charge toggle. `_owner_health_snapshot` learns the new
+  "Manual Stop" owner.
+- **New component** `manual_stop.py` (`ManualStopControl`, Phase 6.25) owns the
+  behavioural half, so the switch entity stays a plain `EVSCSwitch`: a state
+  listener stops the charger **within the same second** the switch flips ON
+  (a passive veto alone would wait for some automation tick to be denied), a
+  1-minute hold re-stops charging that started *outside* the integration
+  (wallbox auto-resume, a manual flip of the raw charger switch), and setup
+  re-asserts the hold when HA restarts with the switch already ON. Turning the
+  switch OFF releases coordinator ownership and restarts nothing — the user's
+  automations take over on their next tick. The charging profile is
+  intentionally left untouched (per the issue's open question) so nothing has
+  to be restored afterwards.
+- **Dashboard**: new red hero banner state (`stop`, highest precedence, above
+  Force) + a "Stop Charging" toggle above Force Charging in the override stack,
+  EN/IT/NL strings, `ms` added to `_computeStructuralKey`.
+
+**Files**: `automations.py` (#54), `automation_coordinator.py`, NEW
+`manual_stop.py`, `switch.py`, `runtime.py`, `__init__.py` (Phase 6.25 +
+cleanup/unload), `const.py` (`HELPER_STOP_CHARGING_SUFFIX`,
+`MANUAL_STOP_RECHECK_INTERVAL_SECONDS`, counts, VERSION), `strings.json` +
+`translations/{en,it,nl}.json`, `frontend/ev-smart-charger-dashboard.js`,
+`README.md`, `manifest.json`; tests: `tests/test_smart_charger_blocker.py`
+(+3: enforcement survives N consecutive ticks, blocking-sequence flag also
+protects ownership, real 30-minute timeout still exits), NEW
+`tests/test_manual_stop.py` (+11: veto denies turn_on / allows turn_off,
+outranks Forza Ricarica, no-op when OFF, instant stop on toggle, release
+without restart, hold re-stops external restart, hold no-ops, startup
+re-assert). `VERSION = "2.10.0"`. Full suite green: **298 passed / 0 failed**.
+
+**Upgrade priority**: 🔴 STRONGLY RECOMMENDED for anyone using the Smart
+Charger Blocker as overnight protection (it was releasing every block after
+~30-60 s). 🟢 RECOMMENDED for everyone else — the new stop switch is additive
+and defaults to OFF, so behaviour is unchanged until you use it.
+
+---
 
 ### v2.9.2 (2026-07-21)
 **FIX: Armed night window without a session survives past sunrise → phantom daylight session + 1h freeze; Solar Surplus 'available' start loop**

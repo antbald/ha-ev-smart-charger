@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.9.2"
+VERSION = "2.10.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -178,6 +178,10 @@ MAX_BATTERY_CAPACITY = 200.0
 
 # Switches
 HELPER_FORZA_RICARICA_SUFFIX = "evsc_forza_ricarica"
+# v2.10.0 (issue #55): manual "stop and hold" override — the mirror image of
+# Forza Ricarica. When ON the charger is stopped immediately and no automation
+# may turn it back on. Evaluated BEFORE Forza Ricarica in the coordinator.
+HELPER_STOP_CHARGING_SUFFIX = "evsc_stop_charging"
 HELPER_BOOST_CHARGE_ENABLED_SUFFIX = "evsc_boost_charge_enabled"
 HELPER_SMART_BLOCKER_ENABLED_SUFFIX = "evsc_smart_charger_blocker_enabled"
 HELPER_USE_HOME_BATTERY_SUFFIX = "evsc_use_home_battery"
@@ -385,6 +389,12 @@ DEFAULT_CAR_READY_WEEKEND = False  # Saturday-Sunday (car not urgently needed)
 # ========== SMART BLOCKER SETTINGS ==========
 SMART_BLOCKER_ENFORCEMENT_TIMEOUT = 1800  # 30 minutes in seconds
 
+# ========== MANUAL STOP (v2.10.0 — issue #55) ==========
+# Re-assert interval for the manual "Stop Charging" hold. The coordinator veto
+# already denies every automation turn_on, so this only catches charging that
+# started outside the integration (wallbox auto-resume, manual switch flip).
+MANUAL_STOP_RECHECK_INTERVAL_SECONDS = 60
+
 # ========== RATE LIMITING ==========
 SOLAR_SURPLUS_MIN_CHECK_INTERVAL = 30  # seconds between checks
 SOLAR_SURPLUS_MAX_CHECKS_PER_MINUTE = 10  # warning threshold
@@ -454,23 +464,25 @@ HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 # adds 2 always-created numbers (nighttime sunset/sunrise offsets) → 69.
 # v2.7.4 adds 1 always-created switch (live activities enabled) → 70.
 # v2.8.0 adds 1 always-created number (spike response delay) → 71.
+# v2.10.0 (issue #55) adds 1 always-created switch (evsc_stop_charging) → 72.
 # COUPLING (issue #22): the disabled-helper tolerance in
 # __init__._async_wait_for_helper_registration assumes this equals the number
 # of entities actually created when nothing is disabled. If it drifts above
 # reality (cf. v1.6.20), a single user-disabled entity turns the tolerant
 # startup path back into a hard ConfigEntryNotReady. Keep this in sync.
-TOTAL_INTEGRATION_ENTITIES = 71
+TOTAL_INTEGRATION_ENTITIES = 72
 # Verified count (v2.3.0): 53 entities when running in PV-only mode.
 # Unchanged in v2.1.0: the discharge number is battery-only (skipped in PV-only mode).
 # v2.3.0 (issue #32): evsc_night_pv_handoff_threshold is NOT battery-only → +1 → 53.
 # v2.6.0 (issue #42): 2 nighttime offset numbers are NOT battery-only → +2 → 55.
 # v2.7.4: live activities enabled switch is NOT battery-only → +1 → 56.
 # v2.8.0: spike response delay number is NOT battery-only → +1 → 57.
+# v2.10.0 (issue #55): the manual stop switch is NOT battery-only → +1 → 58.
 # Skipped helpers (13): 2 switches (use_home_battery, preserve_home_battery),
 # 3 numbers (home_battery_min_soc, battery_support_amperage, battery_support_sunset_buffer),
 # 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).
 # Hybrid Mode entities are still created in PV-only mode but stay IDLE (requires soc_home).
-TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 57
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 58
 
 
 def has_home_battery(config: dict) -> bool:

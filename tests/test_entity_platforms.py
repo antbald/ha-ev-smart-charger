@@ -114,8 +114,9 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
 
     await switch_platform.async_setup_entry(hass, entry, async_add_entities)
 
-    # 20 always-created + 2 home-battery-only switches (use/preserve home battery).
-    assert len(entities) == 22
+    # 21 always-created + 2 home-battery-only switches (use/preserve home battery).
+    # v2.10.0 (issue #55): +1 always-created switch (evsc_stop_charging).
+    assert len(entities) == 23
 
     restored_switch = next(
         entity for entity in entities if entity.entity_id.endswith("evsc_forza_ricarica")

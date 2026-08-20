@@ -437,5 +437,6 @@ def test_entity_counts_v230():
     )
 
     # v2.8.0 adds 1 always-created number (spike response delay) → 71 / 57.
-    assert TOTAL_INTEGRATION_ENTITIES == 71
-    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 57
+    # v2.10.0 (issue #55) adds 1 always-created switch (stop charging) → 72 / 58.
+    assert TOTAL_INTEGRATION_ENTITIES == 72
+    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 58

@@ -8,6 +8,7 @@ from homeassistant.util import dt as dt_util
 
 from .runtime import EVSCRuntimeData
 from .const import (
+    HELPER_STOP_CHARGING_SUFFIX,
     PRIORITY_OVERRIDE,
     PRIORITY_BOOST_CHARGE,
     PRIORITY_SMART_BLOCKER,
@@ -60,6 +61,20 @@ class AutomationCoordinator:
             return None
         return self._runtime_data.get_entity_id(suffix)
 
+    def _is_manual_stop_active(self) -> bool:
+        """Check if the manual Stop Charging switch is active (v2.10.0, issue #55).
+
+        Deliberately evaluated BEFORE Forza Ricarica: an explicit manual stop
+        outranks every other override, including a possibly-stale force-charge
+        toggle the user forgot about.
+        """
+        stop_entity = self._find_entity_by_suffix(HELPER_STOP_CHARGING_SUFFIX)
+        if stop_entity:
+            state = self.hass.states.get(stop_entity)
+            if state and state.state == STATE_ON:
+                return True
+        return False
+
     def _is_override_active(self) -> bool:
         """Check if the override switch (Forza Ricarica) is active."""
         forza_ricarica_entity = self._find_entity_by_suffix("evsc_forza_ricarica")
@@ -92,6 +107,12 @@ class AutomationCoordinator:
                 )
                 else "stale"
             )
+
+        if owner_name == "Manual Stop":
+            manual_stop = self._runtime_data.manual_stop
+            if manual_stop is None:
+                return "unknown"
+            return "active" if manual_stop.is_active() else "stale"
 
         if owner_name == "Night Smart Charge":
             automation = self._runtime_data.night_smart_charge
@@ -167,7 +188,52 @@ class AutomationCoordinator:
         """
         _LOGGER.debug(f"[Coordinator] {automation_name} requests {action}: {reason} (priority={priority})")
 
-        # Check override switch first
+        # v2.10.0 (issue #55): manual stop wins over everything, including the
+        # Forza Ricarica override below. Structural mirror of the Forza branch
+        # with turn_on / turn_off swapped.
+        if self._is_manual_stop_active():
+            if action == "turn_on":
+                decision_reason = "Manual stop active (Stop Charging ON) - starting not allowed"
+                _LOGGER.info(f"⚠️ [Coordinator] {automation_name} blocked: {decision_reason}")
+                self._log_action_denied(automation_name, action, reason, priority, decision_reason)
+                self._schedule_diagnostic_event(
+                    event="request_charger_action",
+                    result="denied",
+                    reason_code="manual_stop",
+                    reason_detail=decision_reason,
+                    action=action,
+                    requester=automation_name,
+                    priority=priority,
+                    external_cause="manual_stop",
+                )
+                return False, decision_reason
+
+            # turn_off is exactly what the override wants — always allow it.
+            self._active_automation = {
+                "name": automation_name,
+                "priority": priority,
+                "reason": reason,
+                "action": action,
+                "timestamp": dt_util.now(),
+            }
+            self._last_action = action
+            self._last_action_time = dt_util.now()
+            decision_reason = "Manual stop active (Stop Charging ON) - allowing turn_off"
+            _LOGGER.info(f"✅ [Coordinator] {automation_name} allowed: {decision_reason}")
+            self._log_action_allowed(automation_name, action, reason, priority)
+            self._schedule_diagnostic_event(
+                event="request_charger_action",
+                result="allowed",
+                reason_code="manual_stop",
+                reason_detail=decision_reason,
+                action=action,
+                requester=automation_name,
+                priority=priority,
+                external_cause="manual_stop",
+            )
+            return True, decision_reason
+
+        # Check override switch (Forza Ricarica)
         if self._is_override_active():
             if action == "turn_off":
                 decision_reason = "Override active (Forza Ricarica ON) - blocking not allowed"

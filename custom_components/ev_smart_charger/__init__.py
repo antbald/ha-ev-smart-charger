@@ -46,6 +46,7 @@ from .night_smart_charge import NightSmartCharge
 from .boost_charge import BoostCharge
 from .automations import SmartChargerBlocker
 from .hybrid_inverter_mode import HybridInverterMode
+from .manual_stop import ManualStopControl
 from .live_activity_monitor import EVChargingLiveActivityMonitor
 from .power_model import ChargingModel
 from .solar_surplus import SolarSurplusAutomation
@@ -93,6 +94,7 @@ async def _async_cleanup_partial_setup(runtime_data: EVSCRuntimeData) -> None:
         ("solar_surplus", "Solar Surplus automation"),
         ("hybrid_mode", "Hybrid Inverter Mode"),
         ("smart_blocker", "Smart Charger Blocker"),
+        ("manual_stop", "Manual Stop control"),
         ("boost_charge", "Boost Charge"),
         ("night_smart_charge", "Night Smart Charge"),
         ("priority_balancer", "Priority Balancer"),
@@ -418,6 +420,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.exception("Smart Blocker setup error details:")
             smart_blocker = None
 
+        # ========== PHASE 6.25: CREATE MANUAL STOP CONTROL (v2.10.0 — issue #55) ==========
+        # Owns the behavioural half of switch.evsc_stop_charging: instant stop on
+        # toggle-on plus a periodic hold. The coordinator veto that denies every
+        # automation turn_on lives in AutomationCoordinator and needs no wiring.
+        _LOGGER.info("⛔ Phase 6.25: Creating Manual Stop control")
+        manual_stop = ManualStopControl(
+            hass,
+            entry.entry_id,
+            entry.data,
+            charger_controller,
+            runtime_data=runtime_data,
+            coordinator=coordinator,
+        )
+        runtime_data.manual_stop = manual_stop
+        try:
+            await manual_stop.async_setup()
+            _LOGGER.info("✅ Manual Stop control setup complete")
+        except Exception as e:
+            _LOGGER.error(f"❌ Failed to set up Manual Stop control: {e}")
+            _LOGGER.exception("Manual Stop setup error details:")
+            manual_stop = None
+            runtime_data.manual_stop = None
+
         # ========== PHASE 6.5: CREATE HYBRID INVERTER MODE (v1.8.0 — issue #20) ==========
         # Curtailment discovery sub-module driven by Solar Surplus ticks. Must be
         # created BEFORE SolarSurplusAutomation so we can pass the reference in,
@@ -535,6 +560,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime_data.night_smart_charge = night_smart_charge
     runtime_data.boost_charge = boost_charge
     runtime_data.smart_blocker = smart_blocker
+    runtime_data.manual_stop = manual_stop
     runtime_data.solar_surplus = solar_surplus
     runtime_data.hybrid_mode = hybrid_mode
     runtime_data.live_activity_monitor = live_activity_monitor
@@ -677,6 +703,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if smart_blocker:
         _LOGGER.info("🗑️  Removing Smart Charger Blocker")
         await smart_blocker.async_remove()
+
+    manual_stop = runtime_data.manual_stop
+    if manual_stop:
+        _LOGGER.info("🗑️  Removing Manual Stop control")
+        await manual_stop.async_remove()
 
     boost_charge = runtime_data.boost_charge
     if boost_charge:

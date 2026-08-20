@@ -75,6 +75,8 @@ const DAY_FULL_NAMES_BY_LOCALE = {
 const DOMAIN_SUFFIXES = {
   // ── Core controls
   forceCharge: ["switch", "evsc_forza_ricarica"],
+  // v2.10.0 (issue #55): manual "stop and hold" — mirror of Force Charge.
+  manualStop: ["switch", "evsc_stop_charging"],
   chargingProfile: ["select", "evsc_charging_profile"],
 
   // ── Boost Charge (manual + scheduled)
@@ -594,6 +596,7 @@ const FRONTEND_LOCALES = {
     "common.no_options": "No options",
     "boot.waiting_for_hass": "Waiting for Home Assistant state...",
     "hero.eyebrow": "Custom Integration Control Surface",
+    "hero.banner.manual_stop": "Charging Stopped (manual)",
     "hero.banner.force_charging": "Force Charging Active",
     "hero.banner.boost_session": "Boost Session Active",
     "hero.banner.night_charge": "Night Smart Charge Active",
@@ -632,6 +635,8 @@ const FRONTEND_LOCALES = {
     "module.main_controls": "Main Controls",
     "control.force_charge": "Force Charge",
     "control.override_all": "Override All",
+    "control.stop_charging": "Stop Charging",
+    "control.stop_charging_hint": "Stop & hold",
     "control.charging_profile": "Charging Profile",
     "control.mode_strategy": "Mode Strategy",
     "module.fast_override": "Fast Override",
@@ -743,6 +748,7 @@ const FRONTEND_LOCALES = {
     "common.no_options": "Nessuna opzione",
     "boot.waiting_for_hass": "In attesa dello stato di Home Assistant...",
     "hero.eyebrow": "Pannello di controllo integrazione custom",
+    "hero.banner.manual_stop": "Ricarica bloccata (manuale)",
     "hero.banner.force_charging": "Force Charging in corso",
     "hero.banner.boost_session": "Boost Session in corso",
     "hero.banner.night_charge": "Night Smart Charge in corso",
@@ -781,6 +787,8 @@ const FRONTEND_LOCALES = {
     "module.main_controls": "Controlli principali",
     "control.force_charge": "Forza ricarica",
     "control.override_all": "Override totale",
+    "control.stop_charging": "Blocca ricarica",
+    "control.stop_charging_hint": "Ferma e mantieni",
     "control.charging_profile": "Profilo di ricarica",
     "control.mode_strategy": "Strategia modalita",
     "module.fast_override": "Override rapido",
@@ -892,6 +900,7 @@ const FRONTEND_LOCALES = {
     "common.no_options": "Geen opties",
     "boot.waiting_for_hass": "Wachten op Home Assistant-status...",
     "hero.eyebrow": "Bedieningspaneel voor custom integratie",
+    "hero.banner.manual_stop": "Laden gestopt (handmatig)",
     "hero.banner.force_charging": "Force Charging actief",
     "hero.banner.boost_session": "Boost Sessie actief",
     "hero.banner.night_charge": "Slim nachtelijk laden actief",
@@ -930,6 +939,8 @@ const FRONTEND_LOCALES = {
     "module.main_controls": "Hoofdregeling",
     "control.force_charge": "Laad forceren",
     "control.override_all": "Alles overrulen",
+    "control.stop_charging": "Laden stoppen",
+    "control.stop_charging_hint": "Stoppen en vasthouden",
     "control.charging_profile": "Laadprofiel",
     "control.mode_strategy": "Modusstrategie",
     "module.fast_override": "Snelle override",
@@ -2577,6 +2588,9 @@ class EvSmartChargerDashboard extends HTMLElement {
     // Night is driven by sensor.evsc_night_session_state which night_smart_charge.py
     // publishes whenever its `_active_mode` transitions between idle / battery / grid
     // — so the banner reflects a REAL running session, not a config flag.
+    // v2.10.0 (issue #55): the manual stop outranks every other hero state —
+    // it is the coordinator's top-most veto, so the banner must say so.
+    const manualStopOn = this._isOn(ids.manualStopId);
     const forceChargeOn = this._isOn(ids.forceChargeId);
     const boostOn = this._isOn(ids.boostEnabledId);
     const nightSessionState = this._stateObj(ids.nightSessionId)?.state;
@@ -2590,20 +2604,24 @@ class EvSmartChargerDashboard extends HTMLElement {
     // that the green banner never appeared: the old exact `=== "charger_charging"`
     // failed on wallboxes reporting any other charging string.
     const chargingOn = this._isDrawingNow();
-    const heroState = forceChargeOn
+    const heroState = manualStopOn
+      ? "stop"
+      : (forceChargeOn
       ? "force"
       : (boostOn
         ? "boost"
         : (nightOn
           ? "night"
-          : (chargingOn ? "charging" : "normal")));
-    const heroBannerKey = heroState === "force"
+          : (chargingOn ? "charging" : "normal"))));
+    const heroBannerKey = heroState === "stop"
+      ? "hero.banner.manual_stop"
+      : (heroState === "force"
       ? "hero.banner.force_charging"
       : (heroState === "boost"
         ? "hero.banner.boost_session"
         : (heroState === "night"
           ? "hero.banner.night_charge"
-          : "hero.banner.charging"));
+          : "hero.banner.charging")));
     const heroBanner = heroState === "normal"
       ? ""
       : `
@@ -2629,6 +2647,7 @@ class EvSmartChargerDashboard extends HTMLElement {
     `;
 
     const overrideStack = `
+      ${this._renderToggle(ids.manualStopId, this._t("control.stop_charging"), this._t("control.stop_charging_hint"), "red")}
       ${this._renderToggle(ids.forceChargeId, this._t("control.force_charge"), this._t("control.override_all"), "rose")}
       ${boostGroup}
     `;
@@ -2702,6 +2721,7 @@ class EvSmartChargerDashboard extends HTMLElement {
     }
 
     const forceChargeId = this._entityId("forceCharge");
+    const manualStopId = this._entityId("manualStop");
     const boostEnabledId = this._entityId("boostEnabled");
     const boostAmperageId = this._entityId("boostAmperage");
     const boostTargetSocId = this._entityId("boostTargetSoc");
@@ -2787,7 +2807,7 @@ class EvSmartChargerDashboard extends HTMLElement {
     // runtime session state without going through _integrationState().
     const nightSessionId = this._entityId("nightSession");
     const ids = {
-      forceChargeId, boostEnabledId, boostAmperageId, boostTargetSocId,
+      forceChargeId, manualStopId, boostEnabledId, boostAmperageId, boostTargetSocId,
       chargingProfileId, nightEnabledId, nightTimeId, carReadyTimeId,
       nightSessionId,
     };
@@ -2878,6 +2898,9 @@ class EvSmartChargerDashboard extends HTMLElement {
     // change. Transitions are rare (manual user actions) so the full
     // innerHTML rebuild here is acceptable.
     const forceChargeOn = states[this._entityId("forceCharge")]?.state === "on";
+    // v2.10.0 (issue #55): the manual stop swaps the hero banner + wrapper
+    // class, so it is structural exactly like Force Charge.
+    const manualStopOn = states[this._entityId("manualStop")]?.state === "on";
     const boostOn = states[this._entityId("boostEnabled")]?.state === "on";
     // v1.11.9: night session is structural — banner appears/disappears and
     // the wrapper class flips, so the fast path can't patch it.
@@ -2906,6 +2929,7 @@ class EvSmartChargerDashboard extends HTMLElement {
       cs: chargerStatus,
       ps: priorityState,
       fc: forceChargeOn,
+      ms: manualStopOn,
       bo: boostOn,
       ni: nightOn,
       ch: chargingOnForKey,
@@ -4019,6 +4043,7 @@ class EvSmartChargerDashboard extends HTMLElement {
         .tone-rose   { --evsc-tone: var(--evsc-sys-pink);   color: var(--evsc-sys-pink); }
         .tone-amber  { --evsc-tone: var(--evsc-sys-orange); color: var(--evsc-sys-orange); }
         .tone-teal   { --evsc-tone: var(--evsc-sys-teal);   color: var(--evsc-sys-teal); }
+        .tone-red    { --evsc-tone: var(--evsc-sys-red);    color: var(--evsc-sys-red); }
 
         /* Priority state pill — v1.11.2: reverted to system sans (was
            JetBrains Mono uppercase in v1.11.0-1.11.1). Slow pulse halo
@@ -4338,6 +4363,17 @@ class EvSmartChargerDashboard extends HTMLElement {
           border-top-left-radius: 0;
           border-top-right-radius: 0;
         }
+        /* v2.10.0 (issue #55): manual stop. Same system red used for "something
+           unusual is active", but the banner copy + the mdi:stop-circle icon on
+           the toggle keep it visually distinct from Force Charging. */
+        .evsc-hero-state-stop {
+          --evsc-hero-accent: var(--evsc-sys-red);
+          --evsc-hero-glow: color-mix(in srgb, var(--evsc-sys-red) 45%, transparent);
+          box-shadow:
+            0 0 0 2px var(--evsc-hero-accent),
+            0 0 24px 4px var(--evsc-hero-glow),
+            var(--evsc-shadow-soft);
+        }
         .evsc-hero-state-force {
           --evsc-hero-accent: var(--evsc-sys-red);
           --evsc-hero-glow: color-mix(in srgb, var(--evsc-sys-red) 45%, transparent);
@@ -4409,6 +4445,7 @@ class EvSmartChargerDashboard extends HTMLElement {
           color: #fff;
           border-radius: var(--evsc-radius-lg) var(--evsc-radius-lg) 0 0;
         }
+        .evsc-hero-banner.banner-stop { background: var(--evsc-sys-red); }
         .evsc-hero-banner.banner-force { background: var(--evsc-sys-red); }
         .evsc-hero-banner.banner-boost { background: var(--evsc-deep-orange); }
         .evsc-hero-banner.banner-night { background: var(--evsc-sys-indigo); }

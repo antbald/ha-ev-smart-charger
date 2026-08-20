@@ -1,8 +1,9 @@
 """Test SmartChargerBlocker logic."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from homeassistant.util import dt as dt_util
 
 from custom_components.ev_smart_charger.automation_coordinator import (
     AutomationCoordinator,
@@ -13,6 +14,7 @@ from custom_components.ev_smart_charger.automations import SmartChargerBlocker
 from custom_components.ev_smart_charger.const import (
     CONF_EV_CHARGER_SWITCH,
     CONF_EV_CHARGER_STATUS,
+    SMART_BLOCKER_ENFORCEMENT_TIMEOUT,
 )
 
 
@@ -224,4 +226,59 @@ async def test_periodic_recheck_releases_stale_owner_without_enforcement(hass, b
 
     await blocker._async_periodic_enforcement_check(datetime(2026, 3, 9, 7, 0, 0))
 
+    assert coordinator.get_active_automation() is None
+
+
+# ── v2.10.0 (issue #54): enforcement must survive the periodic re-check ──
+
+
+async def test_periodic_recheck_keeps_active_enforcement(hass, blocker):
+    """Regression (issue #54): a valid, in-progress block must NOT be released.
+
+    Before v2.10.0 the stale-ownership branch fired on the very first 1-minute
+    tick after any successful block — because holding coordinator ownership is
+    exactly what a legitimate block looks like — releasing the block ~30-60 s in
+    and defeating SMART_BLOCKER_ENFORCEMENT_TIMEOUT entirely.
+    """
+    coordinator = await _assign_blocker_control(blocker, hass)
+    hass.states.async_set("switch.force_charge", "off")
+    hass.states.async_set("switch.blocker_enabled", "on")
+    blocker._astral_service.is_in_blocking_window.return_value = (True, "Sunset")
+    # Well inside the 30-minute enforcement window.
+    blocker._enforcement_start_time = dt_util.now()
+
+    for tick in range(3):
+        await blocker._async_periodic_enforcement_check(dt_util.now())
+        assert blocker._currently_blocking is True, f"released on tick {tick}"
+        assert coordinator.is_automation_active("Smart Charger Blocker") is True
+
+    assert blocker._enforcement_start_time is not None
+
+
+async def test_periodic_recheck_keeps_ownership_during_blocking_sequence(hass, blocker):
+    """A block still in progress (sequence flag set) must keep its ownership."""
+    coordinator = await _assign_blocker_control(blocker, hass)
+    blocker._currently_blocking = False
+    blocker._blocking_sequence_in_progress = True
+
+    await blocker._async_periodic_enforcement_check(dt_util.now())
+
+    assert coordinator.is_automation_active("Smart Charger Blocker") is True
+    assert blocker._blocking_sequence_in_progress is True
+
+
+async def test_periodic_recheck_exits_after_enforcement_timeout(hass, blocker):
+    """The real 30-minute timeout must still end enforcement (unchanged path)."""
+    coordinator = await _assign_blocker_control(blocker, hass)
+    hass.states.async_set("switch.force_charge", "off")
+    hass.states.async_set("switch.blocker_enabled", "on")
+    blocker._astral_service.is_in_blocking_window.return_value = (True, "Sunset")
+    blocker._enforcement_start_time = dt_util.now() - timedelta(
+        seconds=SMART_BLOCKER_ENFORCEMENT_TIMEOUT + 60
+    )
+
+    await blocker._async_periodic_enforcement_check(dt_util.now())
+
+    assert blocker._currently_blocking is False
+    assert blocker._enforcement_start_time is None
     assert coordinator.get_active_automation() is None

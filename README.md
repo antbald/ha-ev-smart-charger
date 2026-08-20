@@ -58,6 +58,8 @@ Most projects target one charger brand or assume a single-phase home. EV Smart C
 
 > **📱 New in v2.7.3+** — EV charging **Live Activities / Live Updates** for the Home Assistant Companion app. When enabled from **Dashboard → Settings → Notifications**, the integration keeps a single `evsc_ev_charging` activity updated for Boost Charge, Night Smart Charge, Solar Surplus, Force Charge, and normal charging detected by the shared `charging_power` / charger-status SSOT. Updates are throttled to protect the iOS push budget and the activity closes only after charging has stopped for two monitor ticks. **Default: OFF**.
 
+> **⛔ New in v2.10.0** — a **manual "Stop Charging" control** ([issue #55](https://github.com/antbald/ha-ev-smart-charger/issues/55)) and a **critical Smart Charger Blocker fix** ([issue #54](https://github.com/antbald/ha-ev-smart-charger/issues/54)). The new `switch.evsc_stop_charging` is the mirror image of Force Charge: turning it ON stops the charger within the same second and holds it stopped — every automation `turn_on` is denied by the coordinator (manual stop deliberately outranks Force Charge), and a 1-minute hold re-stops charging that restarts outside the integration (wallbox auto-resume). Turning it OFF simply resumes normal arbitration. Surfaced on the dashboard as a red hero banner + toggle next to Force Charging. The blocker fix: its own periodic re-check mistook a **legitimate in-progress block** for stale coordinator ownership and released it on the very next 1-minute tick (~30–60 s), silently defeating the 30-minute enforcement window in every release since v1.5.8. **STRONGLY RECOMMENDED for anyone relying on the Smart Charger Blocker for overnight protection.**
+
 > **🌅 New in v2.9.2** — **armed-night-window disarm + Solar Surplus disconnect gate**. Two fixes from a live incident (2026-07-21): (1) a Night Smart Charge window armed at its scheduled time with **no EV connected** stayed "active" all day via hysteresis — a morning plug-in then launched a phantom daylight battery session that was killed 3 seconds later, latching `completed_today` + the 1-hour cooldown and **freezing Solar Surplus with full sun available**. The armed-but-idle window now disarms cleanly (back to `ready`, no completion latch, no cooldown) once its own stop condition — sunrise, deadline, or PV handoff — has passed, so a morning plug-in is handled by Solar Surplus as it should be. A genuinely running session keeps the legacy hysteresis untouched. (2) Solar Surplus's plug gate now uses the v2.9.1 `is_disconnected_status()` classifier, so OCPP `available` (= no EV connected) skips the tick like `charger_free` instead of driving an endless battery-support start loop against an empty plug.
 
 > **🔌 New in v2.9.1** — **brand-vocabulary status classifiers**. "Is the cable disconnected?" and "has the charge completed?" are now answered by two centralized, case-insensitive classifiers in `power_model.py` (`is_disconnected_status` / `is_charge_complete_status`) instead of exact Tuya-string comparisons. This fixes the remaining v2.9.0 blind spot: on wallboxes reporting OCPP-style statuses (`available` = no EV connected, `charged` = session done), Night Smart Charge could start a session **with no car plugged** (the connect gate only rejected `charger_free`) and the plug-in *late-arrival* detection never fired (it compared against `charger_free` exactly). The classifiers are conservative allowlists of unambiguous synonyms — an unknown brand string still defaults to "connected", so no existing setup can lose night charging. Applied to the night-charge connect gates, late-arrival detection, and the grid-monitor lifecycle stops; `power_model.is_charging` / `is_plugged_in` now share the same vocabulary.
@@ -266,7 +268,8 @@ When multiple automations could act on the charger simultaneously, the integrati
 
 | Priority | Component | Activation Condition |
 |:---:|---|---|
-| **1** | Force Charge (`evsc_forza_ricarica`) | Switch turned ON — overrides everything |
+| **0** | Stop Charging (`evsc_stop_charging`) | Switch turned ON — stops the charger and blocks every automation `turn_on`, including Force Charge |
+| **1** | Force Charge (`evsc_forza_ricarica`) | Switch turned ON — overrides everything else |
 | **2** | Boost Charge | `evsc_boost_charge_enabled` ON or scheduled window active |
 | **3** | Smart Charger Blocker | Charger starts outside allowed time window |
 | **4** | Night Smart Charge | Current time ≥ `evsc_night_charge_time`, before sunrise |
@@ -507,6 +510,7 @@ All helper entities persist their state across Home Assistant restarts via `Rest
 
 | Suffix | Default | Description |
 |---|:---:|---|
+| `evsc_stop_charging` | OFF | **Stop Charging** — manual stop & hold. When ON the charger is stopped immediately and no automation (not even Force Charge) may start it again until you turn it OFF. |
 | `evsc_forza_ricarica` | OFF | **Force Charge** — global override. When ON, bypasses all automation decisions and keeps the charger running. |
 | `evsc_boost_charge_enabled` | OFF | Enables a manual Boost Charge session immediately. Auto-clears when the SOC target is reached. |
 | `evsc_boost_schedule_enabled` | OFF | Enables the daily Boost Charge schedule. Runs between `evsc_boost_schedule_start_time` and `evsc_boost_schedule_end_time`. |
