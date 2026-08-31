@@ -8,11 +8,18 @@ from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.util import dt as dt_util
 
 from custom_components.ev_smart_charger.const import (
+    CHARGER_STATUS_CHARGING,
+    CHARGER_STATUS_END,
+    CHARGER_STATUS_FREE,
+    CONF_EV_CHARGER_STATUS,
+    CONF_EV_CHARGER_SWITCH,
     CONF_NOTIFY_SERVICES,
     HELPER_CHARGING_PROFILE_SUFFIX,
     HELPER_FORZA_RICARICA_SUFFIX,
     HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX,
+    HELPER_STOP_CHARGING_SUFFIX,
     LIVE_ACTIVITY_CLEAR_GRACE_SECONDS,
+    LIVE_ACTIVITY_STOP_GRACE_SECONDS,
 )
 from custom_components.ev_smart_charger.live_activity_monitor import (
     LIVE_ACTIVITY_MONITOR_INTERVAL_SECONDS,
@@ -302,3 +309,227 @@ async def test_monitor_async_remove_closes_an_open_activity(hass) -> None:
     assert hass.services.async_call.call_count == 2
     payload = hass.services.async_call.await_args.args[2]
     assert payload["message"] == "clear_notification"
+
+
+# ---------------------------------------------------------------------------
+# v2.12.1 — the activity must end when the SESSION ends, not when a sensor
+# happens to agree. Reported failure: the card stayed on "charging" after the
+# charge was interrupted.
+# ---------------------------------------------------------------------------
+
+CHARGER_SWITCH = "switch.wallbox"
+CHARGER_STATUS = "sensor.wallbox_status"
+
+
+def _runtime_data_with_charger(*, charging: bool = True) -> EVSCRuntimeData:
+    """Runtime data with the charger switch/status actually mapped."""
+    runtime_data = _runtime_data(charging=charging)
+    runtime_data.config[CONF_EV_CHARGER_SWITCH] = CHARGER_SWITCH
+    runtime_data.config[CONF_EV_CHARGER_STATUS] = CHARGER_STATUS
+    runtime_data.register_entity(
+        HELPER_STOP_CHARGING_SUFFIX,
+        "switch.evsc_stop_charging",
+        object(),
+    )
+    return runtime_data
+
+
+def _charging_wallbox(hass) -> None:
+    hass.states.async_set(CHARGER_SWITCH, STATE_ON)
+    hass.states.async_set(CHARGER_STATUS, CHARGER_STATUS_CHARGING)
+    hass.states.async_set("switch.evsc_stop_charging", STATE_OFF)
+
+
+async def test_unplugging_ends_the_activity_immediately(hass) -> None:
+    """A cable out is definitive: no amperage step can produce it."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data_with_charger(charging=True)
+    _enable_live_activities(hass)
+    _charging_wallbox(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    hass.states.async_set(CHARGER_STATUS, CHARGER_STATUS_FREE)
+    runtime_data.power_model.is_charging.return_value = False
+    await monitor._async_tick()
+
+    assert hass.services.async_call.call_count == 2
+    assert hass.services.async_call.await_args.args[2]["message"] == "clear_notification"
+    assert runtime_data.live_activity.active is False
+
+
+async def test_charge_complete_ends_the_activity_immediately(hass) -> None:
+    """`charger_end` means the session is over, not that power dipped."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data_with_charger(charging=True)
+    _enable_live_activities(hass)
+    _charging_wallbox(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    hass.states.async_set(CHARGER_STATUS, CHARGER_STATUS_END)
+    await monitor._async_tick()
+
+    assert runtime_data.live_activity.active is False
+
+
+async def test_manual_stop_hold_ends_the_activity_immediately(hass) -> None:
+    """Engaging Stop Charging is an explicit end-of-session intent."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data_with_charger(charging=True)
+    _enable_live_activities(hass)
+    _charging_wallbox(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    hass.states.async_set("switch.evsc_stop_charging", STATE_ON)
+    await monitor._async_tick()
+
+    assert runtime_data.live_activity.active is False
+
+
+async def test_stale_power_sensor_no_longer_pins_the_card(hass) -> None:
+    """Regression: the reported "stuck on charging" card.
+
+    A wallbox power sensor that keeps its last value once the charger is
+    switched off made ``is_charging()`` answer True forever, so the clear path
+    was never reached. The classified stop signal now outranks the reading.
+    """
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data_with_charger(charging=True)
+    _enable_live_activities(hass)
+    _charging_wallbox(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    # Charger commanded off; the power sensor keeps reporting the old draw.
+    hass.states.async_set(CHARGER_SWITCH, STATE_OFF)
+    assert runtime_data.power_model.is_charging.return_value is True
+
+    await monitor._async_tick()
+    monitor._not_charging_since = dt_util.utcnow() - timedelta(
+        seconds=LIVE_ACTIVITY_STOP_GRACE_SECONDS + 1
+    )
+    await monitor._async_tick()
+
+    assert runtime_data.live_activity.active is False
+    assert hass.services.async_call.await_args.args[2]["message"] == "clear_notification"
+
+
+async def test_charger_off_waits_out_the_tuya_decrease_sequence(hass) -> None:
+    """The switch drops for ~6 s on every amperage step — that is not a stop."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data_with_charger(charging=True)
+    _enable_live_activities(hass)
+    _charging_wallbox(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    hass.states.async_set(CHARGER_SWITCH, STATE_OFF)
+    await monitor._async_tick()
+    hass.states.async_set(CHARGER_SWITCH, STATE_ON)
+    await monitor._async_tick()
+
+    assert runtime_data.live_activity.active is True
+    assert hass.services.async_call.call_count == 1
+
+
+async def test_ambiguous_power_dip_keeps_the_long_grace(hass) -> None:
+    """With the charger still on, only the 300 s grace may close the card."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data_with_charger(charging=True)
+    _enable_live_activities(hass)
+    _charging_wallbox(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    runtime_data.power_model.is_charging.return_value = False
+    await monitor._async_tick()
+    monitor._not_charging_since = dt_util.utcnow() - timedelta(
+        seconds=LIVE_ACTIVITY_STOP_GRACE_SECONDS + 1
+    )
+    await monitor._async_tick()
+    assert runtime_data.live_activity.active is True
+
+    monitor._not_charging_since = dt_util.utcnow() - timedelta(
+        seconds=LIVE_ACTIVITY_CLEAR_GRACE_SECONDS + 1
+    )
+    await monitor._async_tick()
+    assert runtime_data.live_activity.active is False
+
+
+async def test_definitive_stop_closes_a_lingering_night_session_card(hass) -> None:
+    """A session object stuck "active" must not pin a stale card."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data_with_charger(charging=True)
+    _enable_live_activities(hass)
+    _charging_wallbox(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    runtime_data.night_smart_charge.is_active.return_value = True
+    hass.states.async_set(CHARGER_STATUS, CHARGER_STATUS_FREE)
+    runtime_data.power_model.is_charging.return_value = False
+    await monitor._async_tick()
+
+    assert runtime_data.live_activity.active is False
+
+
+async def test_night_session_still_owns_the_tag_on_an_ambiguous_gap(hass) -> None:
+    """Boost / Night keep the tag while the evidence is only a power dip."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data_with_charger(charging=True)
+    _enable_live_activities(hass)
+    _charging_wallbox(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    runtime_data.night_smart_charge.is_active.return_value = True
+    runtime_data.power_model.is_charging.return_value = False
+    monitor._not_charging_since = dt_util.utcnow() - timedelta(
+        seconds=LIVE_ACTIVITY_CLEAR_GRACE_SECONDS + 1
+    )
+    await monitor._async_tick()
+
+    assert runtime_data.live_activity.active is True
+
+
+async def test_setup_registers_and_removes_stop_listeners(hass) -> None:
+    """Stop detection is event-driven, not only polled once a minute."""
+    runtime_data = _runtime_data_with_charger(charging=False)
+    runtime_data.config[CONF_NOTIFY_SERVICES] = []
+    monitor = _monitor(hass, runtime_data)
+    cancel_state = Mock()
+
+    with patch(
+        "custom_components.ev_smart_charger.live_activity_monitor.async_track_time_interval",
+        return_value=Mock(),
+    ), patch(
+        "custom_components.ev_smart_charger.live_activity_monitor."
+        "async_track_state_change_event",
+        return_value=cancel_state,
+    ) as track_state:
+        await monitor.async_setup()
+        tracked = track_state.call_args.args[1]
+        await monitor.async_remove()
+
+    assert CHARGER_SWITCH in tracked
+    assert CHARGER_STATUS in tracked
+    assert "switch.evsc_stop_charging" in tracked
+    cancel_state.assert_called_once()
+
+
+async def test_state_event_reevaluates_immediately(hass) -> None:
+    """A discrete state change runs a tick without waiting for the interval."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data_with_charger(charging=True)
+    _enable_live_activities(hass)
+    _charging_wallbox(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    hass.states.async_set(CHARGER_STATUS, CHARGER_STATUS_FREE)
+    runtime_data.power_model.is_charging.return_value = False
+    await monitor._async_state_event(None)
+
+    assert runtime_data.live_activity.active is False

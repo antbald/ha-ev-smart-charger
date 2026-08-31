@@ -1311,10 +1311,26 @@ drive the tag produced roughly one push per minute for the whole session.
 The SOC threshold is **hysteresis against the last pushed value**, not a fixed
 bucket, so a reading oscillating around 50% cannot flap across a boundary.
 
-Lifecycle is equally conservative:
+#### Ending the activity (v2.12.1)
 
-- the activity closes only after charging has stopped for **5 minutes**, which
-  outlasts the Tuya decrease sequence and a single missed monitor tick;
+Closing the card is driven by *how unambiguous the evidence is*, not by a single
+timer. The discrete signals are also **subscribed** (charger switch, wallbox
+status, Stop Charging, Force Charge), so the end of a session is seen within
+seconds instead of at the next 60-second poll:
+
+| Evidence | Card closes |
+|---|---|
+| Cable unplugged, charge complete, Stop Charging engaged | **Immediately** |
+| Charger switched off (commanded stop) | After **60 s** — outlasts the ~6 s Tuya stop→set→start window |
+| Measured power fell away, charger still on | After **5 minutes** (the ambiguous case) |
+
+A classified stop signal **outranks the measured reading**: a wallbox power
+sensor that freezes at its last value once the charger is off can no longer keep
+the card pinned on "charging". The same applies to a Boost / Night session whose
+state lingers `active` after the cable came out.
+
+Lifecycle is otherwise conservative:
+
 - after closing, a new activity is not started for **2 minutes**, to protect the
   push-to-start budget;
 - the first push starts the activity normally; every later refresh is sent with
@@ -1342,6 +1358,14 @@ succeeds, Home Assistant logs nothing, the phone stays quiet. It replenishes on
 its own in minutes to hours and cannot be forced. v2.12.0's 2-minute restart
 cooldown and 5-minute close grace exist specifically to stop the integration
 from burning it.
+
+**The card still says "charging" after I stopped the charge.** Fixed in v2.12.1
+— see *Ending the activity* above. Before that release the end of a session was
+detected only from measured power / wallbox status, so a power sensor that keeps
+its last value once the charger is off left the card pinned indefinitely, and
+even in the good case it took up to 6 minutes. If you still see it, check that
+`ev_charger_switch` and (ideally) `ev_charger_status` are mapped in the
+integration options — they are the signals the fast paths key off.
 
 **The card looks stale.** That is usually correct behaviour: charging power,
 amperage and wallbox status are display-only and refresh on the next scheduled

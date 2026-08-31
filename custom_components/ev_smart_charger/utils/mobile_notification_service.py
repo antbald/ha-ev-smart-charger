@@ -292,6 +292,9 @@ class MobileNotificationService:
             tag="evsc_boost_charge",
             priority="normal"
         )
+        # v2.12.1: the activity is closed by BoostCharge._complete_boost, which
+        # runs on every stop path — this call is kept only as an idempotent
+        # safety net (no-op when nothing is open).
         await self.clear_ev_charging_live_activity()
 
     async def send_hybrid_mode_started_notification(self) -> None:

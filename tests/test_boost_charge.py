@@ -177,3 +177,24 @@ async def test_boost_fails_safe_when_ev_soc_unavailable_too_long(hass, boost):
     assert boost.is_active() is False
     boost.charger_controller.stop_charger.assert_awaited_once()
     boost._notification_service.send_warning.assert_awaited_once()
+
+
+async def test_boost_completion_clears_the_live_activity_without_notifying(hass, boost):
+    """v2.12.1: ending the Live Activity must not depend on notification toggles.
+
+    The clear used to live inside the completion notification, so a silent stop
+    path (notify=False, notifications off, owner away) left a "charging" card on
+    the Lock Screen.
+    """
+    boost._mobile_notifier.clear_ev_charging_live_activity = AsyncMock()
+    boost._boost_active = True
+
+    await boost._complete_boost(
+        reason="Session ended",
+        stop_charger=True,
+        notify=False,
+        success=True,
+    )
+
+    boost._mobile_notifier.clear_ev_charging_live_activity.assert_awaited_once()
+    boost._mobile_notifier.send_boost_charge_completed_notification.assert_not_awaited()

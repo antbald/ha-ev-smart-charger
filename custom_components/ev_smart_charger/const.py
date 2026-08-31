@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.12.0"
+VERSION = "2.12.1"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -225,9 +225,20 @@ LIVE_ACTIVITY_MIN_TRANSITION_SECONDS = 30
 # the value that was last pushed (not a fixed bucket, so a reading oscillating
 # across a boundary cannot flap).
 LIVE_ACTIVITY_SOC_STEP_PERCENT = 5
-# How long charging must stay undetected before the activity is ended. Longer
-# than the Tuya stop→set→start decrease sequence and than one monitor tick.
+# How long charging must stay undetected before the activity is ended, when the
+# only evidence is that measured power fell away. Longer than the Tuya
+# stop→set→start decrease sequence and than one monitor tick.
 LIVE_ACTIVITY_CLEAR_GRACE_SECONDS = 300
+# v2.12.1: the grace above is calibrated for an AMBIGUOUS gap (a power dip that
+# may just be an amperage step). A commanded stop is not ambiguous — the charger
+# switch is OFF — but the Tuya decrease sequence also drops the switch for ~6 s,
+# so this tier is short rather than immediate.
+LIVE_ACTIVITY_STOP_GRACE_SECONDS = 60
+# Definitive end-of-session signals (cable out, charge complete, manual stop
+# hold engaged) can never be produced by an amperage step, so the activity is
+# closed on the spot: leaving a "charging" card on the Lock Screen after the
+# session ended is the one failure users actually see.
+LIVE_ACTIVITY_DEFINITIVE_STOP_GRACE_SECONDS = 0
 # After ending an activity, refuse to start a new one for this long: each start
 # consumes push-to-start budget, and once that is exhausted new activities fail
 # silently (no error anywhere).

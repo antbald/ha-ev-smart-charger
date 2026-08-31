@@ -166,10 +166,33 @@ invisible (the service call succeeds, nothing is logged, the device is silent).
 Floors: `LIVE_ACTIVITY_MIN_TRANSITION_SECONDS` (30 s) for mode/target changes,
 `LIVE_ACTIVITY_MIN_UPDATE_SECONDS` (300 s) for SOC-driven refreshes.
 
-**Lifecycle.** `LIVE_ACTIVITY_CLEAR_GRACE_SECONDS` (300 s) of measured
-not-charging before `clear_notification`, then
-`LIVE_ACTIVITY_RESTART_COOLDOWN_SECONDS` (120 s) before a new activity may
-start. `clear_ev_charging_live_activity()` is a no-op when no activity is
+**Lifecycle (grace tiers rewritten in v2.12.1).** Ending the activity is driven
+by `live_activity_monitor._stop_signal()`, which classifies *why* charging is
+not happening and picks a confirmation window to match — because the single
+300 s grace was calibrated for one specific ambiguity (the Tuya
+stop → set → start decrease makes measured power read zero for a few seconds)
+and was being charged to signals that no amperage step can produce:
+
+| Signal | Source | Grace |
+|---|---|:---:|
+| `manual_stop` / `unplugged` / `charge_complete` | `evsc_stop_charging` ON, `is_disconnected_status()`, `is_charge_complete_status()` | `LIVE_ACTIVITY_DEFINITIVE_STOP_GRACE_SECONDS` = 0 s |
+| `charger_off` | `CONF_EV_CHARGER_SWITCH` OFF | `LIVE_ACTIVITY_STOP_GRACE_SECONDS` = 60 s |
+| *(none)* | power fell away, charger still on | `LIVE_ACTIVITY_CLEAR_GRACE_SECONDS` = 300 s |
+
+**A classified stop signal outranks `power_model.is_charging()`**
+(`charging = stop_signal is None and self._is_charging()`). This is the v2.12.1
+fix: many wallbox integrations freeze the charging-power sensor at its last
+value once the charger is switched off, so `is_charging()` answered True
+indefinitely and the clear path was never reached at all — the card stayed on
+"charging" until Apple's 8-hour expiry. A definitive signal also overrides the
+Boost/Night stand-down branch, so a session object lingering `active` after the
+cable came out cannot pin a stale card; an ambiguous gap still leaves the tag to
+its owner. Boost's clear lives in `_complete_boost` (every stop path), not
+inside the notification method, so notification toggles and owner presence can
+no longer keep an activity open.
+
+After a clear, `LIVE_ACTIVITY_RESTART_COOLDOWN_SECONDS` (120 s) must pass before
+a new activity may start. `clear_ev_charging_live_activity()` is a no-op when no activity is
 believed open (pass `force=True` for defensive teardown), so repeated stop paths
 cannot spam clears. `async_remove()` closes the activity on unload rather than
 leaving it frozen for Apple's 8-hour expiry.
@@ -184,8 +207,13 @@ while plainly charging, since the mode label already says so.
 Refreshes of an already-open card are always allowed — freezing it on stale data
 for up to 8 hours because the owner drove away is worse than keeping it current.
 
-`live_activity_monitor.py` owns the normal-charging half: it runs every 60 s and
-once at setup, opens/updates the tag when
+`live_activity_monitor.py` owns the normal-charging half: it runs every 60 s,
+once at setup, and (v2.12.1) on every state change of the discrete stop signals
+— charger switch, wallbox status, `evsc_stop_charging`, `evsc_forza_ricarica`,
+`evsc_live_activities_enabled`. The continuously-moving power sensors are
+deliberately NOT subscribed: they would fire dozens of events per minute for a
+decision the interval tick already covers, and they are the ambiguous tier by
+definition. It opens/updates the tag when
 `runtime_data.power_model.is_charging(hass)` is true, skips entirely while Boost
 or Night Smart Charge is active (they own the tag then), and labels the mode as
 `force_charge`, `solar_surplus`, or fallback `charging` from runtime

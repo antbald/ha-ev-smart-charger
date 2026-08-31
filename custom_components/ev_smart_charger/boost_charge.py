@@ -475,6 +475,14 @@ class BoostCharge:
         if self._coordinator:
             self._coordinator.release_control("Boost Charge", reason)
 
+        # v2.12.1: the Live Activity lifecycle must not ride on the notification
+        # toggles. The clear used to live inside the completion notification,
+        # so a user with Night Charge notifications OFF (or away from home, or
+        # any silent stop path with notify=False) kept a "charging" card on the
+        # Lock Screen until the monitor's grace period expired. No-op when
+        # nothing is open.
+        await self._mobile_notifier.clear_ev_charging_live_activity()
+
         if notify:
             await self._mobile_notifier.send_boost_charge_completed_notification(
                 end_soc=end_soc,

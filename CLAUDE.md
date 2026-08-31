@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.12.0
+**Current Version:** 2.12.1
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -756,6 +756,97 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.12.1 (2026-08-31)
+**FIX: the EV charging Live Activity stayed on "charging" after the charge was interrupted**
+
+Reported after v2.12.0 shipped: stopping a charge left the Lock Screen card
+showing the car as charging. Root-caused to **the whole end-of-session path
+depending on a single, and in practice unreliable, question** — "does
+`power_model.is_charging()` still say True?".
+
+**Bug A — a stale reading pins the card forever (the reported symptom).**
+`EVChargingLiveActivityMonitor._async_tick` decided everything from
+`power_model.is_charging()`, which resolves to `measured power > 200 W` when a
+charging-power sensor is mapped, or to the tolerant status blocklist otherwise.
+Many wallbox integrations (Tuya cloud in particular) **freeze the power sensor
+at its last value** when the charger is switched off, and brand status strings
+lag. In that state `is_charging()` answers True indefinitely, so the tick took
+the *push* branch on every pass and `_async_handle_not_charging()` — the only
+code that can ever clear the tag — was **never reached**. The activity then sat
+there until Apple expired it, up to 8 hours later.
+
+**Bug B — even the good case was slow.** Detection was polling-only (60 s) and a
+single `LIVE_ACTIVITY_CLEAR_GRACE_SECONDS = 300` grace applied to *every* kind
+of stop, so an unplug took up to ~6 minutes to close the card. That grace exists
+for one specific ambiguity — the Tuya stop → 5 s → set → 1 s → start decrease
+sequence makes measured power read zero for a few seconds on every amperage step
+— and was being charged to signals that can never be produced by an amperage
+step.
+
+**Bug C — Boost's clear rode on the notification toggles.** The only place that
+ended the activity when a Boost session finished was inside
+`send_boost_charge_completed_notification`, which returns early when the Night
+Charge notification switch is OFF, when the car owner is away, or when
+`_complete_boost` is called with `notify=False`. Any of those left the card open
+until the monitor's grace expired.
+
+**Fix — classify the stop, then act at a speed that matches the evidence.**
+`_stop_signal()` (new, in `live_activity_monitor.py`) answers *why* charging is
+not happening, using the centralized v2.9.1 brand classifiers so OCPP
+vocabularies are covered:
+
+| Signal | Source | Grace |
+|---|---|:---:|
+| `manual_stop` | `evsc_stop_charging` ON | `LIVE_ACTIVITY_DEFINITIVE_STOP_GRACE_SECONDS` = **0 s** |
+| `unplugged` | `is_disconnected_status()` | **0 s** |
+| `charge_complete` | `is_charge_complete_status()` | **0 s** |
+| `charger_off` | charger switch OFF | `LIVE_ACTIVITY_STOP_GRACE_SECONDS` = **60 s** |
+| *(none — ambiguous)* | power fell away, charger still on | `LIVE_ACTIVITY_CLEAR_GRACE_SECONDS` = **300 s** (unchanged) |
+
+A classified signal now **outranks** the measured reading
+(`charging = stop_signal is None and self._is_charging()`), which is what kills
+Bug A: the commanded switch being OFF is authoritative regardless of what a
+frozen sensor reports. The 60 s tier is deliberately not 0 s — the Tuya decrease
+sequence drops that same switch for ~6 s on every step.
+
+Detection is also **event-driven** now: `async_track_state_change_event` on the
+charger switch, the wallbox status, `evsc_stop_charging`, `evsc_forza_ricarica`
+and `evsc_live_activities_enabled` runs a tick within seconds of the change. The
+continuously-moving power sensors are deliberately **not** subscribed (they
+would fire dozens of events per minute for a decision the 60 s poll already
+covers, and they are the ambiguous tier by definition). The interval tick is
+unchanged, so an install with no status/switch mapped keeps exactly the v2.12.0
+behaviour.
+
+A **definitive** signal now also overrides the Boost/Night stand-down branch: a
+session object that lingers `active` after the cable came out can no longer pin
+a stale card. An ambiguous gap still leaves the tag to whoever owns it.
+
+**Bug C**: `BoostCharge._complete_boost` clears the activity itself, on every
+stop path, before the notification block. The call inside
+`send_boost_charge_completed_notification` is kept as an idempotent safety net
+(`clear_ev_charging_live_activity` is already a no-op when nothing is open).
+
+**Files**: `live_activity_monitor.py` (stop classifier, grace tiers, state
+listeners, boost/night override), `boost_charge.py` (unconditional clear),
+`utils/mobile_notification_service.py` (comment), `const.py`
+(`LIVE_ACTIVITY_STOP_GRACE_SECONDS`, `LIVE_ACTIVITY_DEFINITIVE_STOP_GRACE_SECONDS`,
+VERSION), `manifest.json`, `README.md`; tests:
+`tests/test_live_activity_monitor.py` (+10: unplug / charge-complete / manual
+stop close immediately, the stale-power-sensor regression, the Tuya decrease
+sequence does NOT close, the ambiguous dip keeps the 300 s grace, a definitive
+stop closes a lingering Night session card, an ambiguous gap does not, listener
+registration + cleanup, event-driven re-evaluation),
+`tests/test_boost_charge.py` (+1: completion clears with `notify=False`).
+`VERSION = "2.12.1"`. No schema / entity / config-flow change, entity counts
+unchanged (73 / 59). Full suite green: **340 passed / 0 failed**.
+
+**Upgrade priority**: 🔴 STRONGLY RECOMMENDED for anyone running v2.12.0 with
+Live Activities enabled — without it a card can stay on "charging" for hours
+after the session ended.
+
+---
 
 ### v2.12.0 (2026-08-31)
 **FULL iOS LIVE ACTIVITIES SUPPORT: default ON + update policy rewritten around the Companion App guidance**
