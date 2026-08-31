@@ -16,6 +16,7 @@ from homeassistant.helpers.event import (
 
 from .const import (
     CHARGER_STATUS_FREE,
+    LIVE_ACTIVITY_MODE_BOOST,
     CONF_EV_CHARGER_STATUS,
     CONF_CAR_OWNER,
     CONF_NOTIFY_SERVICES,
@@ -426,7 +427,7 @@ class BoostCharge:
 
         self._soc_read_failures = 0
         await self._mobile_notifier.send_ev_charging_live_activity(
-            mode="Boost",
+            mode=LIVE_ACTIVITY_MODE_BOOST,
             amperage=target_amps,
             ev_soc=current_soc,
             target_soc=target_soc,

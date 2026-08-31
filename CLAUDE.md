@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.11.0
+**Current Version:** 2.12.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -756,6 +756,133 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.12.0 (2026-08-31)
+**FULL iOS LIVE ACTIVITIES SUPPORT: default ON + update policy rewritten around the Companion App guidance**
+
+**Compatibility headline.** The Home Assistant Companion app now renders Live
+Activities on the iOS Lock Screen and Dynamic Island, so the feature built in
+v2.7.3 is finally usable end to end. v2.7.3 shipped it **disabled** precisely
+because iOS could not display it, which also meant its update policy was never
+validated against a real device. v2.12.0 declares the feature **fully
+supported**: enabled by default, validated on-device, and rebuilt around
+Apple's actual constraints.
+
+Requirements (from the Companion App docs): **HA Core ≥ 2026.7.0**, **iOS/iPadOS
+≥ 17.2**, **Android ≥ 16** for the full Live Update experience, at least one
+mapped `notify.mobile_app_*` service, and — easy to miss — Live Activities
+allowed in **iOS Settings → Home Assistant** plus the one-time privacy
+disclosure accepted on first start. Documented in the README with a
+troubleshooting section covering the silent push-to-start exhaustion.
+
+Testing it on a real phone exposed how aggressive the v2.7.3 policy was. On a solar-surplus session the `evsc_ev_charging`
+tag was pushed roughly **once a minute for the whole charge**. Live Activities
+are persistent by design, so that reads as a phone that will not stop moving.
+
+**Root cause — the trigger set was full of continuously-moving values.** The
+snapshot signature included the charging power (bucketed to 500 W), the
+amperage (rounded to 1 A) and the wallbox status. All three churn constantly in
+normal operation: solar surplus walks the wattage continuously, and the Tuya
+safe-decrease sequence (stop → 5 s → set → 1 s → start) flaps
+`charger_charging → charger_wait → charger_charging` on **every** amperage step.
+With a 60-second floor as the only brake, essentially every tick qualified.
+Two structural problems made it worse:
+- **Throttle state was per-instance.** Every component builds its own
+  `MobileNotificationService`, so Boost (15 s monitor), Night Smart Charge
+  (two 15 s monitors) and the normal-charging monitor (60 s) each throttled
+  against their own clock while pushing the *same* shared tag.
+- **Start/end churn.** The activity closed after two inactive ticks (~2 min),
+  which a single tick landing inside a Tuya decrease sequence could trigger.
+  Each restart consumes push-to-start budget, and the Companion App docs are
+  explicit that exhausting it makes new activities **fail silently** — the
+  service call succeeds, Home Assistant logs nothing, the phone stays quiet.
+
+**Fix — push on discrete state changes only**, per the documented guidance
+("throttle continuous values to meaningful steps", "trigger on state changes,
+not polling"). `_build_live_activity_snapshot` now splits the payload:
+
+| Value | Triggers a push? | Floor |
+|---|:---:|---|
+| Charging mode | ✅ | `LIVE_ACTIVITY_MIN_TRANSITION_SECONDS` = 30 s |
+| Today's EV target SOC | ✅ | 30 s |
+| EV SOC | ✅ after ±`LIVE_ACTIVITY_SOC_STEP_PERCENT` (5) | `LIVE_ACTIVITY_MIN_UPDATE_SECONDS` = 300 s |
+| Charging power / amperage / wallbox status | ❌ display-only | — |
+
+The SOC threshold is **hysteresis against the last pushed value**, not a fixed
+bucket, so a reading oscillating around 50% cannot flap across a boundary.
+Display-only values still render into the message; they ride along on the next
+scheduled push.
+
+**Shared lifecycle.** New `runtime.LiveActivityState` on the config entry owns
+`active` / `signature` / `last_update` / `last_pushed_soc` / `ended_at`;
+`MobileNotificationService._live_activity_state` resolves to it (with a
+per-instance fallback for services built without runtime data). Boost, Night
+Charge and the monitor now share one clock and one lifecycle.
+
+**Lifecycle hardening.** `LIVE_ACTIVITY_CLEAR_GRACE_SECONDS` (300 s) of measured
+not-charging before `clear_notification` — measured in wall-clock seconds, not
+ticks, so a tick landing in a decrease sequence is harmless — then
+`LIVE_ACTIVITY_RESTART_COOLDOWN_SECONDS` (120 s) before a new activity may
+start. `clear_ev_charging_live_activity()` is a no-op when nothing is open
+(`force=True` for defensive teardown), so repeated stop paths cannot spam
+clears. `async_remove()` now closes the activity on unload instead of leaving it
+frozen on the lock screen until Apple's 8-hour expiry.
+
+**Payload polish.** The first push starts the activity; later refreshes carry
+`silent: true` (push priority 5, the documented power-friendly setting) and
+`alert_once: true`, so a card already on screen never re-alerts. Added
+`progress_bar_direction: "increasing"`. The message dropped its redundant
+second "Charging" — the status suffix now appears only when the wallbox is
+*not* plainly charging (Waiting / Complete / Idle). All Live Activity copy is
+now **localized EN/IT/NL** (title, mode labels, status, target, fallbacks):
+mode is passed as a key (`LIVE_ACTIVITY_MODE_*`) and resolved at render time,
+with a tolerant fallback that shows an unknown literal rather than dropping it.
+
+**Presence gate narrowed.** `_is_car_owner_home()` now gates only the *start* of
+an activity. Refreshes of an open card are always allowed — freezing it on stale
+data for up to 8 hours because the owner drove away is worse than keeping it
+current.
+
+**Default flipped to ON.** The switch shipped OFF because iOS could not render
+the activity. Since `RestoreEntity` makes a restored state win forever, a plain
+default change would only reach fresh installs, so `EVSCSwitch` gained a
+**generation stamp**: it writes `{"default_generation": N}` into its restore
+extra data and re-applies the shipped default exactly once when the stored
+generation is lower. A user who then turns the switch off writes the current
+generation, and that choice survives every later upgrade. Generation `0` (every
+other switch) keeps the pre-v2.12.0 "restored state always wins" behaviour; a
+missing or unparseable stamp counts as older, never as an error.
+
+**Files**: `const.py` (policy constants + mode keys + `DEFAULT_LIVE_ACTIVITIES_ENABLED`
++ `LIVE_ACTIVITIES_DEFAULT_GENERATION`, VERSION), `runtime.py`
+(`LiveActivityState`), `utils/mobile_notification_service.py` (policy rewrite,
+shared state, localized payload), `live_activity_monitor.py` (grace in seconds,
+clear-on-unload, mode keys), `switch.py` (default ON + generation stamp),
+`night_smart_charge.py` / `boost_charge.py` (mode keys), `localization.py`
+(12 new keys × EN/IT/NL), `frontend/ev-smart-charger-dashboard.js` (hint +
+description), `README.md`, `docs/SSOT.md` (§4.1.1 rewritten, new §7.1),
+`docs/CODEBASE_MAP.md`, `manifest.json`; tests:
+`tests/test_live_activity_notifications.py` (rewritten, 14 tests: payload,
+status suffix, silent refresh, clear no-op, display-only churn, SOC step +
+interval, hysteresis anti-flap, mode transition, shared state across services,
+restart cooldown, presence start-vs-refresh, SOC recovery after an
+unavailable sensor, no-notify-services never marking an activity open),
+`tests/test_live_activity_monitor.py`
+(+4: short-gap tolerance, grace-period clear, no clear when nothing is open, no
+re-push per tick, clear on unload), `tests/test_entity_platforms.py` (+4:
+re-default once, user choice sticks, corrupt stamp, generation 0 untouched).
+`VERSION = "2.12.0"`. No schema / entity / config-flow change, entity counts
+unchanged (73 / 59). Full suite green: **329 passed / 0 failed**.
+
+**Upgrade priority**: 🟢 STRONGLY RECOMMENDED for every iPhone user on
+HA Core 2026.7+ / iOS 17.2+ — this is the release where EV charging Live
+Activities become a supported, on-by-default feature. For anyone who already had
+them enabled it is the difference between a card that moves once a minute and
+one that moves when something actually happens. Not applicable below those
+versions: the switch is on, but the Companion App simply never renders an
+activity, and nothing else changes.
+
+---
 
 ### v2.11.0 (2026-08-20)
 **FEATURE: auto-disarm Force Charge when the EV is unplugged (opt-in)**

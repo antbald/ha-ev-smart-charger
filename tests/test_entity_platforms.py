@@ -152,7 +152,8 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
     assert restored_switch.is_on is True
     assert default_on_switch.is_on is True
     assert live_activities_switch.translation_key == "evsc_live_activities_enabled"
-    assert live_activities_switch.is_on is False
+    # v2.12.0: default ON now that iOS Live Activities ship in the Companion App
+    assert live_activities_switch.is_on is True
     assert preserve_switch.translation_key == "evsc_preserve_home_battery"
     assert preserve_switch.entity_category is EntityCategory.CONFIG
     assert preserve_switch.is_on is False
@@ -338,3 +339,93 @@ async def test_sensor_platform_setup_publish_restore_and_log_manager(hass, runti
         "evsc_cached_ev_soc",
     }
     assert runtime_keys.issubset(runtime_data.entity_ids_by_key)
+
+
+async def _attach_with_extra(entity, hass, last_state, extra_payload) -> None:
+    """Attach an entity with both restored state and restored extra data."""
+    entity.hass = hass
+    entity.async_get_last_state = AsyncMock(return_value=last_state)
+    entity.async_get_last_extra_data = AsyncMock(
+        return_value=None
+        if extra_payload is None
+        else Mock(as_dict=Mock(return_value=extra_payload))
+    )
+    entity.async_write_ha_state = Mock()
+    await entity.async_added_to_hass()
+
+
+def _live_activities_switch(entities):
+    return next(
+        entity
+        for entity in entities
+        if entity.entity_id.endswith("evsc_live_activities_enabled")
+    )
+
+
+async def test_changed_default_is_reapplied_once_on_upgrade(hass, runtime_data):
+    """v2.12.0: an install upgrading from an older release adopts the new default.
+
+    State written before the generation bump carries no stamp, so the switch
+    that shipped OFF up to v2.11.0 turns ON exactly once.
+    """
+    entry = _mock_entry(runtime_data)
+    entities, async_add_entities = _collector()
+    await switch_platform.async_setup_entry(hass, entry, async_add_entities)
+    switch = _live_activities_switch(entities)
+
+    await _attach_with_extra(switch, hass, State(switch.entity_id, "off"), None)
+
+    assert switch.is_on is True
+    assert switch.extra_restore_state_data.as_dict() == {"default_generation": 1}
+
+
+async def test_user_choice_survives_once_the_generation_is_stamped(hass, runtime_data):
+    """Turning the switch back OFF after the re-default sticks permanently."""
+    entry = _mock_entry(runtime_data)
+    entities, async_add_entities = _collector()
+    await switch_platform.async_setup_entry(hass, entry, async_add_entities)
+    switch = _live_activities_switch(entities)
+
+    await _attach_with_extra(
+        switch,
+        hass,
+        State(switch.entity_id, "off"),
+        {"default_generation": 1},
+    )
+
+    assert switch.is_on is False
+
+
+async def test_corrupt_generation_stamp_does_not_crash_restore(hass, runtime_data):
+    """A garbage stamp is treated as "older than current", never as an error."""
+    entry = _mock_entry(runtime_data)
+    entities, async_add_entities = _collector()
+    await switch_platform.async_setup_entry(hass, entry, async_add_entities)
+    switch = _live_activities_switch(entities)
+
+    await _attach_with_extra(
+        switch,
+        hass,
+        State(switch.entity_id, "off"),
+        {"default_generation": "not-a-number"},
+    )
+
+    assert switch.is_on is True
+
+
+async def test_generation_zero_switches_never_reapply_their_default(hass, runtime_data):
+    """Every other switch keeps the pre-v2.12.0 "restored state always wins"."""
+    entry = _mock_entry(runtime_data)
+    entities, async_add_entities = _collector()
+    await switch_platform.async_setup_entry(hass, entry, async_add_entities)
+    notify_switch = next(
+        entity
+        for entity in entities
+        if entity.entity_id.endswith("evsc_notify_smart_blocker_enabled")
+    )
+
+    # Default is ON; a stored OFF must survive with no extra data at all.
+    await _attach_with_extra(notify_switch, hass, State(notify_switch.entity_id, "off"), None)
+
+    assert notify_switch.is_on is False
+    assert notify_switch.extra_restore_state_data.as_dict() == {"default_generation": 0}

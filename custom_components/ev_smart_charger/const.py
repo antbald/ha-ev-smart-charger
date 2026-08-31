@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.11.0"
+VERSION = "2.12.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -198,6 +198,48 @@ HELPER_NOTIFY_SMART_BLOCKER_SUFFIX = "evsc_notify_smart_blocker_enabled"
 HELPER_NOTIFY_PRIORITY_BALANCER_SUFFIX = "evsc_notify_priority_balancer_enabled"
 HELPER_NOTIFY_NIGHT_CHARGE_SUFFIX = "evsc_notify_night_charge_enabled"
 HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX = "evsc_live_activities_enabled"
+
+# ── Live Activity update policy (v2.12.0) ────────────────────────────────────
+# The Companion App docs are explicit that iOS throttles (and silently drops)
+# frequent Live Activity updates, and that the separate push-to-start budget is
+# exhausted by repeated start/end cycles. So the tag is driven by *discrete
+# state changes*, never by polling:
+#   • Only mode, EV target and a 5-point EV SOC step schedule a push.
+#   • Amperage, charging power and charger status are DISPLAY-ONLY: they are
+#     refreshed on the next scheduled push but never trigger one on their own.
+#     (The Tuya safe-decrease sequence flaps charger_charging→wait→charging on
+#     every amperage step, and solar surplus moves the wattage continuously —
+#     letting either drive the tag produced an update per minute.)
+# Live Activity default state is re-applied once on upgrade (see
+# LIVE_ACTIVITIES_DEFAULT_GENERATION).
+DEFAULT_LIVE_ACTIVITIES_ENABLED = True
+# Bump when the default above changes and the new default must be re-applied to
+# existing installs exactly once. EVSCSwitch stamps this into its restore extra
+# data, so a user who then turns the switch off keeps it off forever.
+LIVE_ACTIVITIES_DEFAULT_GENERATION = 1
+# Floor between two SOC-driven refreshes of the open activity.
+LIVE_ACTIVITY_MIN_UPDATE_SECONDS = 300
+# Floor between two transition-driven pushes (mode / target changed).
+LIVE_ACTIVITY_MIN_TRANSITION_SECONDS = 30
+# EV SOC hysteresis: push only after the SOC moved this many points away from
+# the value that was last pushed (not a fixed bucket, so a reading oscillating
+# across a boundary cannot flap).
+LIVE_ACTIVITY_SOC_STEP_PERCENT = 5
+# How long charging must stay undetected before the activity is ended. Longer
+# than the Tuya stop→set→start decrease sequence and than one monitor tick.
+LIVE_ACTIVITY_CLEAR_GRACE_SECONDS = 300
+# After ending an activity, refuse to start a new one for this long: each start
+# consumes push-to-start budget, and once that is exhausted new activities fail
+# silently (no error anywhere).
+LIVE_ACTIVITY_RESTART_COOLDOWN_SECONDS = 120
+
+# Live Activity mode keys (localized at render time via localization.py).
+LIVE_ACTIVITY_MODE_BOOST = "boost"
+LIVE_ACTIVITY_MODE_NIGHT_BATTERY = "night_battery"
+LIVE_ACTIVITY_MODE_NIGHT_GRID = "night_grid"
+LIVE_ACTIVITY_MODE_SOLAR_SURPLUS = "solar_surplus"
+LIVE_ACTIVITY_MODE_FORCE_CHARGE = "force_charge"
+LIVE_ACTIVITY_MODE_CHARGING = "charging"
 
 # Persistent notification IDs (fixed → updated in place, never stacked)
 # v2.5.0 (issue #35): surfaced when Priority Balancer is disabled while home

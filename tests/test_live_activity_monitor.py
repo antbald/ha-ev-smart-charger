@@ -5,12 +5,14 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.util import dt as dt_util
 
 from custom_components.ev_smart_charger.const import (
     CONF_NOTIFY_SERVICES,
     HELPER_CHARGING_PROFILE_SUFFIX,
     HELPER_FORZA_RICARICA_SUFFIX,
     HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX,
+    LIVE_ACTIVITY_CLEAR_GRACE_SECONDS,
 )
 from custom_components.ev_smart_charger.live_activity_monitor import (
     LIVE_ACTIVITY_MONITOR_INTERVAL_SECONDS,
@@ -97,8 +99,12 @@ async def test_monitor_skips_when_night_charge_is_active(hass) -> None:
     hass.services.async_call.assert_not_awaited()
 
 
-async def test_monitor_clears_after_two_inactive_ticks(hass) -> None:
-    """A brief not-charging dip does not immediately close the Live Activity."""
+async def test_monitor_keeps_activity_during_a_short_charging_gap(hass) -> None:
+    """The Tuya stop→set→start decrease sequence must not close the card.
+
+    Each restart costs push-to-start budget, and exhausting it makes new
+    activities fail silently, so a few not-charging ticks are tolerated.
+    """
     hass.services.async_call = AsyncMock()
     runtime_data = _runtime_data(charging=True)
     _enable_live_activities(hass)
@@ -107,14 +113,59 @@ async def test_monitor_clears_after_two_inactive_ticks(hass) -> None:
     await monitor._async_tick()
     runtime_data.power_model.is_charging.return_value = False
     await monitor._async_tick()
-    assert hass.services.async_call.call_count == 1
+    await monitor._async_tick()
+    await monitor._async_tick()
 
+    assert hass.services.async_call.call_count == 1
+    assert runtime_data.live_activity.active is True
+
+
+async def test_monitor_clears_after_the_grace_period(hass) -> None:
+    """A sustained charging gap closes the Live Activity."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data(charging=True)
+    _enable_live_activities(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    runtime_data.power_model.is_charging.return_value = False
+    await monitor._async_tick()
+    monitor._not_charging_since = dt_util.utcnow() - timedelta(
+        seconds=LIVE_ACTIVITY_CLEAR_GRACE_SECONDS + 1
+    )
     await monitor._async_tick()
 
     assert hass.services.async_call.call_count == 2
     payload = hass.services.async_call.await_args.args[2]
     assert payload["message"] == "clear_notification"
     assert payload["data"]["tag"] == LIVE_ACTIVITY_TAG
+    assert runtime_data.live_activity.active is False
+
+
+async def test_monitor_does_not_clear_when_nothing_is_open(hass) -> None:
+    """An idle monitor never sends a clear push."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data(charging=False)
+    _enable_live_activities(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    await monitor._async_tick()
+
+    hass.services.async_call.assert_not_awaited()
+
+
+async def test_monitor_does_not_repush_on_every_tick(hass) -> None:
+    """A steady charge keeps ticking without burning a push per minute."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data(charging=True)
+    _enable_live_activities(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    for _ in range(10):
+        await monitor._async_tick()
+
+    assert hass.services.async_call.call_count == 1
 
 
 async def test_monitor_mode_label_force_charge(hass) -> None:
@@ -188,10 +239,11 @@ async def test_monitor_mode_label_fallback_charging(hass) -> None:
     assert payload["message"].startswith("Charging ·")
 
 
-async def test_monitor_is_off_by_default(hass) -> None:
+async def test_monitor_is_inert_while_the_helper_switch_is_off(hass) -> None:
     """Normal charging Live Activity monitor is inert while the helper is OFF."""
     hass.services.async_call = AsyncMock()
     runtime_data = _runtime_data(charging=True)
+    hass.states.async_set("switch.evsc_live_activities_enabled", STATE_OFF)
     monitor = _monitor(hass, runtime_data)
 
     await monitor._async_tick()
@@ -235,3 +287,18 @@ async def test_monitor_async_remove_cancels_timer(hass) -> None:
         seconds=LIVE_ACTIVITY_MONITOR_INTERVAL_SECONDS
     )
     cancel.assert_called_once()
+
+
+async def test_monitor_async_remove_closes_an_open_activity(hass) -> None:
+    """Unloading the integration must not leave a frozen card on screen."""
+    hass.services.async_call = AsyncMock()
+    runtime_data = _runtime_data(charging=True)
+    _enable_live_activities(hass)
+    monitor = _monitor(hass, runtime_data)
+
+    await monitor._async_tick()
+    await monitor.async_remove()
+
+    assert hass.services.async_call.call_count == 2
+    payload = hass.services.async_call.await_args.args[2]
+    assert payload["message"] == "clear_notification"

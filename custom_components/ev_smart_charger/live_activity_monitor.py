@@ -8,18 +8,23 @@ from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 
+from homeassistant.util import dt as dt_util
+
 from .const import (
     CONF_CAR_OWNER,
     CONF_NOTIFY_SERVICES,
     HELPER_CHARGING_PROFILE_SUFFIX,
     HELPER_FORZA_RICARICA_SUFFIX,
+    LIVE_ACTIVITY_CLEAR_GRACE_SECONDS,
+    LIVE_ACTIVITY_MODE_CHARGING,
+    LIVE_ACTIVITY_MODE_FORCE_CHARGE,
+    LIVE_ACTIVITY_MODE_SOLAR_SURPLUS,
 )
 from .runtime import EVSCRuntimeData
 from .utils.logging_helper import EVSCLogger
 from .utils.mobile_notification_service import MobileNotificationService
 
 LIVE_ACTIVITY_MONITOR_INTERVAL_SECONDS = 60
-LIVE_ACTIVITY_CLEAR_AFTER_INACTIVE_TICKS = 2
 
 
 class EVChargingLiveActivityMonitor:
@@ -46,8 +51,13 @@ class EVChargingLiveActivityMonitor:
             runtime_data=runtime_data,
         )
         self._timer_unsub = None
-        self._inactive_ticks = 0
-        self._live_activity_active = False
+        # v2.12.0: measured in wall-clock seconds instead of ticks. The Tuya
+        # safe-decrease sequence (stop → 5s → set → 1s → start) makes measured
+        # power read zero for a few seconds on every amperage step, so a tick
+        # landing inside that window used to count as "not charging" and could
+        # end the activity after two of them — and each restart costs
+        # push-to-start budget.
+        self._not_charging_since = None
         self._last_enabled = False
 
     async def async_setup(self) -> None:
@@ -64,10 +74,13 @@ class EVChargingLiveActivityMonitor:
         )
 
     async def async_remove(self) -> None:
-        """Stop the monitor."""
+        """Stop the monitor and close any activity it left on screen."""
         if self._timer_unsub:
             self._timer_unsub()
             self._timer_unsub = None
+        # An unclosed activity would otherwise sit on the lock screen with
+        # frozen data until Apple expires it (up to 8 hours).
+        await self._mobile_notifier.clear_ev_charging_live_activity()
         self.logger.info("Normal charging Live Activity monitor removed")
 
     async def _async_tick(self, now=None) -> None:
@@ -76,33 +89,45 @@ class EVChargingLiveActivityMonitor:
         if not enabled:
             if self._last_enabled:
                 await self._mobile_notifier.clear_ev_charging_live_activity()
-            self._inactive_ticks = 0
-            self._live_activity_active = False
+            self._not_charging_since = None
             self._last_enabled = False
             return
 
         self._last_enabled = True
 
         if self._is_boost_or_night_active():
-            self._inactive_ticks = 0
-            self._live_activity_active = False
+            # Boost / Night Charge own the tag while active and keep it fresh
+            # from their own monitors; the normal path must not fight them.
+            self._not_charging_since = None
             return
 
         if not self._is_charging():
-            self._inactive_ticks += 1
-            if (
-                self._live_activity_active
-                and self._inactive_ticks >= LIVE_ACTIVITY_CLEAR_AFTER_INACTIVE_TICKS
-            ):
-                await self._mobile_notifier.clear_ev_charging_live_activity()
-                self._live_activity_active = False
+            await self._async_handle_not_charging()
             return
 
-        self._inactive_ticks = 0
+        self._not_charging_since = None
         await self._mobile_notifier.send_ev_charging_live_activity(
             mode=self._mode_label(),
         )
-        self._live_activity_active = True
+
+    async def _async_handle_not_charging(self) -> None:
+        """Close the activity only after a sustained charging gap."""
+        state = self._runtime_data.live_activity
+        if not state.active:
+            self._not_charging_since = None
+            return
+
+        now = dt_util.utcnow()
+        if self._not_charging_since is None:
+            self._not_charging_since = now
+            return
+
+        elapsed = (now - self._not_charging_since).total_seconds()
+        if elapsed < LIVE_ACTIVITY_CLEAR_GRACE_SECONDS:
+            return
+
+        await self._mobile_notifier.clear_ev_charging_live_activity()
+        self._not_charging_since = None
 
     def _is_boost_or_night_active(self) -> bool:
         boost_charge = self._runtime_data.boost_charge
@@ -124,10 +149,10 @@ class EVChargingLiveActivityMonitor:
 
     def _mode_label(self) -> str:
         if self._is_force_charge_enabled():
-            return "Force Charge"
+            return LIVE_ACTIVITY_MODE_FORCE_CHARGE
         if self._is_solar_surplus_context():
-            return "Solar Surplus"
-        return "Charging"
+            return LIVE_ACTIVITY_MODE_SOLAR_SURPLUS
+        return LIVE_ACTIVITY_MODE_CHARGING
 
     def _is_force_charge_enabled(self) -> bool:
         entity_id = self._runtime_data.get_entity_id(HELPER_FORZA_RICARICA_SUFFIX)

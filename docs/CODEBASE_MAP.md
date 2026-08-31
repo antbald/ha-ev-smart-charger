@@ -61,7 +61,7 @@ Makefile
 | `custom_components/ev_smart_charger/manual_stop.py` | Manual "Stop Charging" override (v2.10.0, issue #55) | Owns the behavioural half of `evsc_stop_charging`: immediate stop on toggle-on, 1-minute hold against externally-started charging, re-assert at setup. v2.10.2: two-way interlock with `evsc_forza_ricarica` — turning either ON turns the other OFF. v2.11.0: opt-in Force Charge auto-disarm on the EV unplug edge (`evsc_force_charge_auto_disarm`). The coordinator-side veto lives in `automation_coordinator._is_manual_stop_active` |
 | `custom_components/ev_smart_charger/night_smart_charge.py` | Overnight charging workflow with battery or grid mode | Owns night-session logic and handoff paths; PV-production handoff stop (v2.3.0, issue #32) in `_should_stop_for_deadline`; grid-availability terminal stop (v2.6.0, issue #36) as grid-monitor Check 0.5 |
 | `custom_components/ev_smart_charger/solar_surplus.py` | Daytime solar-surplus charging and dynamic current control | Owns daytime adaptive loop |
-| `custom_components/ev_smart_charger/live_activity_monitor.py` | Normal charging Live Activity / Live Update monitor | Notification-only; gated by `evsc_live_activities_enabled` (default OFF), uses `power_model.is_charging()`, skips Boost/Night, clears after two inactive ticks |
+| `custom_components/ev_smart_charger/live_activity_monitor.py` | Normal charging Live Activity / Live Update monitor | Notification-only; gated by `evsc_live_activities_enabled` (default **ON** since v2.12.0), uses `power_model.is_charging()`, skips Boost/Night, clears after a 5-minute not-charging grace, closes the activity on unload |
 
 ## 4. Supporting services
 
@@ -75,7 +75,7 @@ Makefile
 | `custom_components/ev_smart_charger/utils/time_parsing_service.py` | Parsing helper for time values |
 | `custom_components/ev_smart_charger/utils/logging_helper.py` | Shared logging setup |
 | `custom_components/ev_smart_charger/utils/notification_service.py` | Persistent notifications |
-| `custom_components/ev_smart_charger/utils/mobile_notification_service.py` | Mobile-app notifications and EV charging Live Activity payloads with optional car-owner presence gating |
+| `custom_components/ev_smart_charger/utils/mobile_notification_service.py` | Mobile-app notifications and EV charging Live Activity payloads; v2.12.0 update policy (mode/target/5%-SOC trigger set, display-only power/amperage/status) throttled against the shared `runtime.LiveActivityState` |
 
 Removed from active architecture:
 

@@ -8,6 +8,8 @@ from homeassistant.helpers.event import async_track_time_interval, async_track_s
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    LIVE_ACTIVITY_MODE_NIGHT_BATTERY,
+    LIVE_ACTIVITY_MODE_NIGHT_GRID,
     CONF_CAR_OWNER,
     CONF_EV_CHARGER_STATUS,
     CONF_EV_CHARGER_SWITCH,
@@ -1591,7 +1593,7 @@ class NightSmartCharge:
                     forecast=pv_forecast
                 )
                 await self._mobile_notifier.send_ev_charging_live_activity(
-                    mode="Night Battery",
+                    mode=LIVE_ACTIVITY_MODE_NIGHT_BATTERY,
                     amperage=amperage,
                     target_soc=ev_target,
                     force=True,
@@ -1734,7 +1736,7 @@ class NightSmartCharge:
 
         self.logger.info(f"   {self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - continuing charge")
         await self._mobile_notifier.send_ev_charging_live_activity(
-            mode="Night Battery",
+            mode=LIVE_ACTIVITY_MODE_NIGHT_BATTERY,
             amperage=self._get_night_charge_amperage(),
             ev_soc=ev_soc,
             target_soc=ev_target,
@@ -1832,7 +1834,7 @@ class NightSmartCharge:
 
         self.logger.info(f"   {self.logger.ACTION} EV below target ({ev_soc}% < {ev_target}%) - continuing charge")
         await self._mobile_notifier.send_ev_charging_live_activity(
-            mode="Night Grid",
+            mode=LIVE_ACTIVITY_MODE_NIGHT_GRID,
             amperage=self._get_night_charge_amperage(),
             ev_soc=ev_soc,
             target_soc=ev_target,
@@ -2067,7 +2069,7 @@ class NightSmartCharge:
                     forecast=pv_forecast
                 )
                 await self._mobile_notifier.send_ev_charging_live_activity(
-                    mode="Night Grid",
+                    mode=LIVE_ACTIVITY_MODE_NIGHT_GRID,
                     amperage=amperage,
                     target_soc=ev_target,
                     force=True,

@@ -135,30 +135,69 @@ Backward compatible: with no power sensor mapped, `read_charging_power` returns
 as v2.1.x. Constants: `CHARGING_POWER_DRAWING_FLOOR_W = 200`,
 `CHARGING_POWER_GRACE_SECONDS = 15`, `NIGHT_GRID_DRAW_START_GRACE_SECONDS = 90`.
 
-### 4.1.1 EV charging Live Activity monitor (v2.7.3)
+### 4.1.1 EV charging Live Activity (v2.7.3, policy rewritten in v2.12.0)
 
-`custom_components/ev_smart_charger/live_activity_monitor.py` owns normal
-charging Live Activity / Live Update presence. It is a notification monitor, not
-a charger actuator:
+The `evsc_ev_charging` tag is **one shared resource on the phone**. Its
+lifecycle and throttle therefore live on the config entry
+(`runtime.LiveActivityState`, reached via
+`MobileNotificationService._live_activity_state`), not on the individual
+notification-service instances: Boost (15 s monitor), Night Smart Charge (15 s
+monitors) and the normal-charging monitor (60 s) each build their own
+`MobileNotificationService`, and before v2.12.0 each throttled against its own
+clock.
 
-- runs every 60 seconds and once at setup
-- opens/updates the shared `evsc_ev_charging` live notification when
-  `runtime_data.power_model.is_charging(hass)` is true
-- skips entirely while Boost Charge or Night Smart Charge is active, because
-  those flows own their own live updates
-- clears only after two consecutive inactive ticks to avoid flicker during brief
-  sensor or charging dips
-- labels the mode as `Force Charge`, `Solar Surplus`, or fallback `Charging`
-  based on runtime helper/coordinator state
+**Update policy — discrete state changes only.** The Companion App docs state
+that iOS throttles and silently drops frequent updates, and that repeated
+start/end cycles exhaust a separate push-to-start budget whose exhaustion is
+invisible (the service call succeeds, nothing is logged, the device is silent).
+`_build_live_activity_snapshot` therefore splits the payload in two:
 
-It uses the configured `notify.mobile_app_*` services through
-`MobileNotificationService`, inherits the car-owner presence filter, and does
-not add config flow fields or control-plane ownership.
+- **trigger set** (`snapshot["signature"]` + `snapshot["soc"]`): charging mode
+  and today's EV target, plus the EV SOC compared with
+  `LIVE_ACTIVITY_SOC_STEP_PERCENT` (5) hysteresis *against the last pushed
+  value* — not a fixed bucket, so an oscillating reading cannot flap;
+- **display-only**: charging power, amperage and wallbox status. They are
+  rendered into the message but never schedule a push. This is the v2.12.0 fix:
+  solar surplus moves the wattage continuously and the Tuya safe-decrease
+  sequence flaps `charger_charging → charger_wait → charger_charging` on every
+  amperage step, so with them in the trigger set the tag was pushed roughly
+  once a minute for the whole session.
+
+Floors: `LIVE_ACTIVITY_MIN_TRANSITION_SECONDS` (30 s) for mode/target changes,
+`LIVE_ACTIVITY_MIN_UPDATE_SECONDS` (300 s) for SOC-driven refreshes.
+
+**Lifecycle.** `LIVE_ACTIVITY_CLEAR_GRACE_SECONDS` (300 s) of measured
+not-charging before `clear_notification`, then
+`LIVE_ACTIVITY_RESTART_COOLDOWN_SECONDS` (120 s) before a new activity may
+start. `clear_ev_charging_live_activity()` is a no-op when no activity is
+believed open (pass `force=True` for defensive teardown), so repeated stop paths
+cannot spam clears. `async_remove()` closes the activity on unload rather than
+leaving it frozen for Apple's 8-hour expiry.
+
+**Payload.** The first push starts the activity; every later refresh carries
+`silent: true` (push priority 5) and `alert_once: true`, so a card already on
+screen never re-alerts. Mode labels are keys (`LIVE_ACTIVITY_MODE_*`) localized
+at render time via `localization.py` (EN/IT/NL); the status suffix is omitted
+while plainly charging, since the mode label already says so.
+
+**Presence gate.** `_is_car_owner_home()` gates *starting* an activity only.
+Refreshes of an already-open card are always allowed — freezing it on stale data
+for up to 8 hours because the owner drove away is worse than keeping it current.
+
+`live_activity_monitor.py` owns the normal-charging half: it runs every 60 s and
+once at setup, opens/updates the tag when
+`runtime_data.power_model.is_charging(hass)` is true, skips entirely while Boost
+or Night Smart Charge is active (they own the tag then), and labels the mode as
+`force_charge`, `solar_surplus`, or fallback `charging` from runtime
+helper/coordinator state. It is a notification monitor, not a charger actuator,
+and adds no config-flow fields or control-plane ownership.
 
 The feature is gated by the helper switch `evsc_live_activities_enabled`, which
-is default OFF. When the helper is OFF or unavailable, no live-update payload is
-sent. Turning it OFF after it was enabled causes the monitor to send a single
-`clear_notification` for `evsc_ev_charging`.
+is **default ON since v2.12.0** (was OFF). When the helper is OFF or
+unavailable, no live-update payload is sent; turning it OFF after it was enabled
+makes the monitor send a single `clear_notification` for `evsc_ev_charging`.
+The new default is re-applied to existing installs exactly once through
+`EVSCSwitch`'s `default_generation` stamp (see §7).
 
 ### 4.2 Night Smart Charge stop conditions (v2.3.0, issue #32)
 
@@ -347,6 +386,24 @@ Entity layer guarantees:
 - no cross-entry helper lookup
 - Home Assistant metadata applied consistently for config and diagnostic helpers
 - frontend profile selector filtered to the supported profiles `manual` and `solar_surplus`
+
+### 7.1 Changing a shipped default (v2.12.0)
+
+`RestoreEntity` makes a restored state win over the shipped default forever, so
+changing a default only ever reaches fresh installs. `EVSCSwitch` closes that
+gap with a **generation stamp**: it writes `{"default_generation": N}` into its
+restore extra data, and on restore re-applies the shipped default exactly once
+when the stored generation is lower than the one it ships with.
+
+- generation `0` (every switch except the one being re-defaulted) keeps the
+  pre-v2.12.0 behaviour: restored state always wins;
+- a user who toggles the switch after the re-default writes the current
+  generation, so that choice survives every later upgrade;
+- a missing or unparseable stamp counts as "older", never as an error.
+
+The map lives in `switch.async_setup_entry._DEFAULT_GENERATIONS`. Bump the
+generation constant in `const.py` only when a default genuinely changes and the
+change must reach existing installs; adding a switch never needs it.
 
 ## 8. Canonical modules
 

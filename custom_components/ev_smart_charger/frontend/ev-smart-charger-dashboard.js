@@ -520,11 +520,11 @@ const SETTINGS_CATALOG = [
       { entityKey: "liveActivities", kind: "toggle",
         name: { en: "EV Live Activities", it: "Live Activities EV", nl: "EV Live Activities" },
         desc: {
-          en: "Show EV charging progress on the Companion app Lock Screen / Dynamic Island when supported.",
-          it: "Mostra l'avanzamento della ricarica EV su Lock Screen / Dynamic Island della Companion app quando supportato.",
-          nl: "Toon EV-laadvoortgang op het vergrendelscherm / Dynamic Island van de Companion-app wanneer ondersteund.",
+          en: "Show EV charging progress on the Companion app Lock Screen / Dynamic Island. Updates only on mode changes and every 5% of EV SOC.",
+          it: "Mostra l'avanzamento della ricarica EV su Lock Screen / Dynamic Island della Companion app. Si aggiorna solo ai cambi di modalita e ogni 5% di SOC.",
+          nl: "Toon EV-laadvoortgang op het vergrendelscherm / Dynamic Island van de Companion-app. Werkt alleen bij moduswissels en elke 5% SOC bij.",
         },
-        hint: { en: "Default off", it: "Default off", nl: "Standaard uit" } },
+        hint: { en: "Default on", it: "Default on", nl: "Standaard aan" } },
     ],
   },
   {

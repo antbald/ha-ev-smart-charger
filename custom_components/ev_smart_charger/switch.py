@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.restore_state import RestoredExtraData, RestoreEntity
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.const import STATE_ON
 
@@ -16,7 +16,9 @@ from .const import (
     DEFAULT_CAR_READY_WEEKEND,
     DEFAULT_HYBRID_INVERTER_MODE,
     HELPER_HYBRID_INVERTER_MODE_SUFFIX,
+    DEFAULT_LIVE_ACTIVITIES_ENABLED,
     HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX,
+    LIVE_ACTIVITIES_DEFAULT_GENERATION,
     HELPER_PRESERVE_HOME_BATTERY_SUFFIX,
     HELPER_FORCE_CHARGE_AUTO_DISARM_SUFFIX,
     HELPER_STOP_CHARGING_SUFFIX,
@@ -71,7 +73,11 @@ async def async_setup_entry(
         ("evsc_notify_smart_blocker_enabled", "Notify Smart Blocker", "mdi:bell-outline", True),
         ("evsc_notify_priority_balancer_enabled", "Notify Priority Balancer", "mdi:bell-outline", True),
         ("evsc_notify_night_charge_enabled", "Notify Night Charge", "mdi:bell-outline", True),
-        (HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX, "Live Activities", "mdi:progress-bolt", False),
+        # v2.12.0: default ON now that iOS Live Activities ship in the
+        # Companion App. Re-applied once to existing installs via
+        # _DEFAULT_GENERATIONS (see EVSCSwitch.async_added_to_hass).
+        (HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX, "Live Activities", "mdi:progress-bolt",
+         DEFAULT_LIVE_ACTIVITIES_ENABLED),
         # Logging switches
         ("evsc_enable_file_logging", "Enable File Logging", "mdi:file-document-outline", False),
         (HELPER_TRACE_LOGGING_ENABLED_SUFFIX, "Trace Logging", "mdi:timeline-text-outline", False),
@@ -85,8 +91,20 @@ async def async_setup_entry(
     if not battery_configured:
         _SWITCH_DEFS = [d for d in _SWITCH_DEFS if d[0] not in _BATTERY_ONLY_SWITCHES]
 
+    # v2.12.0: switches whose default changed in a release and must adopt the
+    # new default exactly once on upgrade. Generation 0 (everything else) means
+    # "restored state always wins", i.e. the pre-v2.12.0 behaviour.
+    _DEFAULT_GENERATIONS: dict[str, int] = {
+        HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX: LIVE_ACTIVITIES_DEFAULT_GENERATION,
+    }
+
     entities = [
-        EVSCSwitch(runtime_data, entry.entry_id, *defn)
+        EVSCSwitch(
+            runtime_data,
+            entry.entry_id,
+            *defn,
+            default_generation=_DEFAULT_GENERATIONS.get(defn[0], 0),
+        )
         for defn in _SWITCH_DEFS
     ]
 
@@ -129,6 +147,7 @@ class EVSCSwitch(EVSCEntityMixin, SwitchEntity, RestoreEntity):
         name: str,
         icon: str,
         default_state: bool = False,
+        default_generation: int = 0,
     ) -> None:
         """Initialize the switch."""
         self._init_evsc_entity(
@@ -142,6 +161,7 @@ class EVSCSwitch(EVSCEntityMixin, SwitchEntity, RestoreEntity):
         )
         self._is_on = default_state
         self._default_state = default_state
+        self._default_generation = default_generation
 
     @property
     def is_on(self) -> bool:
@@ -158,6 +178,34 @@ class EVSCSwitch(EVSCEntityMixin, SwitchEntity, RestoreEntity):
         self._is_on = False
         self.async_write_ha_state()
 
+    @property
+    def extra_restore_state_data(self) -> RestoredExtraData:
+        """Persist which default generation this state was written under."""
+        return RestoredExtraData({"default_generation": self._default_generation})
+
+    async def _should_reapply_default(self) -> bool:
+        """Return True when a changed default must be adopted once (v2.12.0).
+
+        A switch whose shipped default changes needs a way to reach installs
+        that already have a restored state, without ever overriding a choice
+        the user made after the change. The generation stamp does exactly that:
+        state written before the bump carries a lower generation (or none at
+        all), and the very first save after the re-default stamps the new one,
+        so any later user toggle sticks permanently.
+        """
+        if self._default_generation <= 0:
+            return False
+
+        extra_data = await self.async_get_last_extra_data()
+        stored = 0
+        if extra_data is not None:
+            payload = extra_data.as_dict() or {}
+            try:
+                stored = int(payload.get("default_generation", 0))
+            except (TypeError, ValueError):
+                stored = 0
+        return stored < self._default_generation
+
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
@@ -166,6 +214,14 @@ class EVSCSwitch(EVSCEntityMixin, SwitchEntity, RestoreEntity):
         if (last_state := await self.async_get_last_state()) is not None:
             self._is_on = last_state.state == STATE_ON
             _LOGGER.info(f"  ↩️ Restored state: {self._is_on}")
+
+            if await self._should_reapply_default():
+                self._is_on = self._default_state
+                _LOGGER.info(
+                    "  🔁 Applying new shipped default once (generation %s): %s",
+                    self._default_generation,
+                    self._is_on,
+                )
         else:
             # No previous state, use default
             self._is_on = self._default_state

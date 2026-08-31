@@ -3,9 +3,28 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
+
+
+@dataclass
+class LiveActivityState:
+    """Shared state of the single EV charging Live Activity (v2.12.0).
+
+    Every component builds its own MobileNotificationService, so before this
+    existed each one throttled against its own clock: Night Charge (15s
+    monitor), Boost (15s monitor) and the normal-charging monitor (60s) could
+    each push the same tag independently. The tag is one shared resource on the
+    phone, so its lifecycle and throttle live on the config entry instead.
+    """
+
+    active: bool = False
+    signature: tuple | None = None
+    last_update: datetime | None = None
+    last_pushed_soc: float | None = None
+    ended_at: datetime | None = None
 
 
 @dataclass
@@ -32,6 +51,8 @@ class EVSCRuntimeData:
     log_manager: Any | None = None
     diagnostic_manager: Any | None = None
     power_model: Any | None = None  # ChargingModel (phase mode + charger model, v2.0.0)
+    # Lifecycle + throttle of the shared EV charging Live Activity (v2.12.0)
+    live_activity: LiveActivityState = field(default_factory=LiveActivityState)
 
     def register_entity(self, key: str, entity_id: str, entity: Any) -> None:
         """Register an integration-owned entity."""

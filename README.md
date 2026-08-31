@@ -56,7 +56,7 @@ Most projects target one charger brand or assume a single-phase home. EV Smart C
 
 > **🆕 New in v2.6.0** — mass bug-fix & improvement release (issues #36–#42). Highlights: an optional **`grid_available` binary sensor** ([issue #36](https://github.com/antbald/ha-ev-smart-charger/issues/36)) stops Night Smart Charge grid mode during a **grid outage** so it doesn't drain the home battery on hybrid Battery First / UPS inverters (fail-safe: an unavailable sensor never triggers a false stop); a **customizable nighttime window** ([issue #42](https://github.com/antbald/ha-ev-smart-charger/issues/42)) via two opt-in offset numbers (start before sunset / end after sunrise); and a big **INFO log-noise reduction** ([issue #40](https://github.com/antbald/ha-ev-smart-charger/issues/40)) — idle ticks no longer flood the HA log. Also: valid day icons (#37), faster Generic-charger ramp-up (#38), a consistent Hybrid full-battery threshold (#39), and a cleaner telemetry log (#41). **All backward compatible** — the two features are opt-in.
 
-> **📱 New in v2.7.3+** — EV charging **Live Activities / Live Updates** for the Home Assistant Companion app. When enabled from **Dashboard → Settings → Notifications**, the integration keeps a single `evsc_ev_charging` activity updated for Boost Charge, Night Smart Charge, Solar Surplus, Force Charge, and normal charging detected by the shared `charging_power` / charger-status SSOT. Updates are throttled to protect the iOS push budget and the activity closes only after charging has stopped for two monitor ticks. **Default: OFF**.
+> **📱 New in v2.12.0 — full iOS Live Activities support.** Now that the Companion App renders Live Activities on the iPhone Lock Screen and Dynamic Island, EV charging Live Activities are **ON by default** and their update policy has been rewritten around Apple's real constraints: a single `evsc_ev_charging` activity is pushed only on discrete state changes (mode switch, EV target change, every 5 points of EV SOC), never on the continuously moving charging power, amperage or wallbox status — so the card moves when something actually happens instead of once a minute. Covers Boost Charge, Night Smart Charge, Solar Surplus, Force Charge, and normal charging. Requires HA Core 2026.7+ and iOS 17.2+ (Android 16+ for Live Updates), plus allowing Live Activities in **iOS Settings → Home Assistant**.
 
 > **🔌 New in v2.11.0** — **auto-disarm Force Charge on unplug** (opt-in). Force Charge means "charge now, whatever the automations think" — an intent that ends with that session, except the switch stays ON. Enable `evsc_force_charge_auto_disarm` (Dashboard → Settings → 🛡 Safety) and unplugging the EV turns Force Charge OFF automatically, so the next plug-in starts from the normal automation state instead of a forgotten override. Acts on the unplug **edge** only, and an `unknown`/`unavailable` status never counts as a disconnect — a sensor glitch must not cancel a Force Charge you are relying on. **Default OFF**; requires the charger status sensor.
 
@@ -457,7 +457,7 @@ Used by Night Smart Charge to decide between home battery and grid charging. If 
 
 The `person` entity enables presence-based filtering: notifications are only sent when the car owner is home. If the entity is unavailable, notifications are sent anyway as a fail-safe.
 
-The same mobile notify services can be used for EV charging Live Activities / Live Updates on supported Companion App versions. They are OFF by default and can be enabled later from the generated dashboard.
+The same mobile notify services can be used for EV charging Live Activities / Live Updates on supported Companion App versions. They are ON by default and can be turned off from the generated dashboard.
 
 ### Step 6 — External Connectors
 
@@ -1237,9 +1237,44 @@ If the `person` entity is unavailable, notifications are always sent (fail-safe 
 
 ### EV Charging Live Activities / Live Updates
 
-On Home Assistant Core 2026.7+ with a supported Companion App, EV Smart Charger can send a single live notification tagged `evsc_ev_charging`.
+EV Smart Charger keeps a single live notification tagged `evsc_ev_charging` on
+your phone for the whole charging session — on the **iOS Lock Screen and
+Dynamic Island**, and in the **Android notification shade / status bar chip**.
 
-Enable it with `switch.evsc_live_activities_enabled` or from **Dashboard → Settings → Notifications → EV Live Activities**. The default is **OFF**, so upgrades never start Live Activities without an explicit opt-in.
+#### Compatibility
+
+**Fully supported on iOS as of v2.12.0.** The feature was built in v2.7.3 while
+iOS could not yet render the activity, so it shipped disabled and its update
+policy was never validated against a real device. Now that the Companion App
+delivers Live Activities on iOS, v2.12.0 turns it on by default and rewrites the
+update policy around Apple's actual constraints (see *Update policy* below).
+
+| Requirement | Version |
+|---|---|
+| Home Assistant Core | **2026.7.0 or later** |
+| iOS / iPadOS | **17.2 or later** (iPhone and iPad) |
+| Android | **16 or later** for the full Live Update experience |
+| Companion App | a build that supports `live_update` (ship with the versions above) |
+
+**One-time setup on iOS — without this you will see nothing:**
+
+1. Open **iOS Settings → Home Assistant** and allow **Live Activities**.
+2. Accept the **one-time privacy disclosure** that iOS shows the first time an
+   activity starts.
+
+On Android, some Samsung devices additionally need *"Live notifications for all
+apps"* enabled in developer options before the status-bar chip appears.
+
+The feature needs at least one `notify.mobile_app_*` service mapped in the
+integration's Notifications step; without one nothing is dispatched.
+
+#### Enabling / disabling
+
+It is controlled by `switch.evsc_live_activities_enabled` or from **Dashboard →
+Settings → Notifications → EV Live Activities**. Since v2.12.0 the default is
+**ON**, and the new default is applied once to installs upgrading from v2.11.0
+or earlier. If you then turn the switch off, it stays off across every later
+upgrade.
 
 It starts or updates automatically when the EV is drawing current, including:
 
@@ -1249,9 +1284,74 @@ It starts or updates automatically when the EV is drawing current, including:
 - Force Charge
 - manual/normal charging detected by the shared charging-state SSOT
 
-The activity shows SOC progress, charging state, charging speed (`kW` when a charging-power sensor is mapped, otherwise amperage), and today's EV target. Tapping it opens `/ev-smart-charger`.
+The activity shows SOC progress, charging speed (`kW` when a charging-power sensor is mapped, otherwise amperage), today's EV target, and the wallbox status when it is not plainly charging. All copy is localized (EN / IT / NL). Tapping it opens `/ev-smart-charger`.
 
-Updates are intentionally coarse: the integration reuses meaningful state changes and a 60-second monitor for normal charging, with a two-tick stop debounce before sending `clear_notification`. This avoids flooding the iOS Live Activity push budget.
+#### Update policy (v2.12.0)
+
+The Companion App documentation is explicit that iOS throttles — and silently
+drops — frequent Live Activity updates, and that repeated start/end cycles
+exhaust a *separate* push-to-start budget whose exhaustion is invisible (the
+automation succeeds, Home Assistant logs nothing, the phone stays quiet). So a
+push is scheduled by **discrete state changes only**:
+
+| Value | Triggers a push? | Notes |
+|---|:---:|---|
+| Charging mode (Boost / Night / Solar Surplus / Force / Charging) | ✅ | Floored at 30 s |
+| Today's EV target SOC | ✅ | Floored at 30 s |
+| EV SOC | ✅ | Only after moving **5 points** from the last pushed value, and at most every **5 minutes** |
+| Charging power (kW) | ❌ | Display-only — refreshed on the next scheduled push |
+| Amperage | ❌ | Display-only |
+| Wallbox status | ❌ | Display-only |
+
+Charging power, amperage and status are deliberately excluded: solar surplus
+moves the wattage continuously, and the Tuya safe-decrease sequence
+(stop → set → start) flaps the status on every amperage step, so letting either
+drive the tag produced roughly one push per minute for the whole session.
+
+The SOC threshold is **hysteresis against the last pushed value**, not a fixed
+bucket, so a reading oscillating around 50% cannot flap across a boundary.
+
+Lifecycle is equally conservative:
+
+- the activity closes only after charging has stopped for **5 minutes**, which
+  outlasts the Tuya decrease sequence and a single missed monitor tick;
+- after closing, a new activity is not started for **2 minutes**, to protect the
+  push-to-start budget;
+- the first push starts the activity normally; every later refresh is sent with
+  `silent: true` (push priority 5) and `alert_once: true`, so a card already on
+  screen never re-alerts;
+- Boost Charge, Night Smart Charge and the normal-charging monitor share one
+  lifecycle and one throttle clock on the config entry, so they cannot push the
+  same tag independently;
+- unloading the integration closes the activity instead of leaving it frozen on
+  the lock screen until Apple expires it (up to 8 hours).
+
+#### Troubleshooting
+
+**Nothing appears on the Lock Screen.** Check, in this order: Live Activities
+allowed in **iOS Settings → Home Assistant**; the one-time privacy disclosure
+accepted; HA Core ≥ 2026.7.0 and iOS ≥ 17.2; `switch.evsc_live_activities_enabled`
+ON; at least one `notify.mobile_app_*` service mapped; and the car owner `person`
+entity at `home` if you configured one (presence gates *starting* a new
+activity).
+
+**It stopped appearing after a lot of testing.** iOS keeps a *push-to-start*
+budget separate from the update budget, and repeated start/end cycles exhaust
+it. When it is exhausted, new activities fail **silently** — the service call
+succeeds, Home Assistant logs nothing, the phone stays quiet. It replenishes on
+its own in minutes to hours and cannot be forced. v2.12.0's 2-minute restart
+cooldown and 5-minute close grace exist specifically to stop the integration
+from burning it.
+
+**The card looks stale.** That is usually correct behaviour: charging power,
+amperage and wallbox status are display-only and refresh on the next scheduled
+push (a mode change, an EV target change, or 5 points of EV SOC). The SOC ring
+and progress bar are the values that track your session.
+
+**The card shows 0 W / no speed.** Map your wallbox's charging-power sensor in
+the integration's Sensors step. Without it the activity falls back to the
+configured amperage. A flat `0 W` while charging usually means a reversed-sign
+sensor — see the `charging_power_w` diagnostic attribute.
 
 **Per-feature notification toggles:**
 
@@ -1260,7 +1360,7 @@ Updates are intentionally coarse: the integration reuses meaningful state change
 | `evsc_notify_smart_blocker_enabled` | ON | Notifications when Smart Charger Blocker stops the charger |
 | `evsc_notify_priority_balancer_enabled` | ON | Notifications when Priority Balancer state changes |
 | `evsc_notify_night_charge_enabled` | ON | Notifications when Night Smart Charge starts or completes |
-| `evsc_live_activities_enabled` | OFF | EV charging Live Activities / Live Updates |
+| `evsc_live_activities_enabled` | ON | EV charging Live Activities / Live Updates (v2.12.0: was OFF) |
 
 ---
 
