@@ -17,6 +17,18 @@ _PACKAGE_LOGGER = logging.getLogger("custom_components.ev_smart_charger")
 _GLOBAL_FILE_HANDLER: logging.FileHandler | None = None
 _GLOBAL_FILE_HANDLER_PATH: str | None = None
 _GLOBAL_FILE_HANDLER_LOCK = threading.Lock()
+# v2.13.0 (issue #59) — the file handler only ever receives records the package
+# logger itself lets through. Home Assistant installs with a `logger:` block set
+# to `default: warning` (or stricter) drop every EVSC INFO record at the logger,
+# so the toggle produced an EMPTY daily log file. When file logging is enabled we
+# therefore lower the package logger to INFO and restore the previous explicit
+# level on disable. INFO (not DEBUG) is deliberate: it is the activity stream the
+# daily log is documented to contain, it matches Home Assistant's own default
+# root level (so most installs see no change in home-assistant.log), and DEBUG
+# would flood it. Users who want DEBUG in the file still set it in `logger:` —
+# the handler picks up whatever the logger passes.
+_SAVED_PACKAGE_LEVEL: int | None = None
+_PACKAGE_LEVEL_OVERRIDDEN = False
 _EVENT_COUNTER = count(1)
 _EVENT_COUNTER_LOCK = threading.Lock()
 
@@ -271,6 +283,39 @@ class EVSCLogger:
         return handler
 
     @classmethod
+    def _ensure_package_level_for_file_logging(cls) -> None:
+        """Lower the package logger to INFO so records reach the file handler.
+
+        v2.13.0 (issue #59). Must be called while holding the handler lock. A
+        no-op when the effective level already admits INFO, so it is idempotent
+        across repeated enables and daily rotations.
+        """
+        global _SAVED_PACKAGE_LEVEL, _PACKAGE_LEVEL_OVERRIDDEN
+
+        if _PACKAGE_LOGGER.getEffectiveLevel() <= logging.INFO:
+            return
+        if not _PACKAGE_LEVEL_OVERRIDDEN:
+            _SAVED_PACKAGE_LEVEL = _PACKAGE_LOGGER.level
+            _PACKAGE_LEVEL_OVERRIDDEN = True
+        _PACKAGE_LOGGER.setLevel(logging.INFO)
+
+    @classmethod
+    def _restore_package_level(cls) -> None:
+        """Restore the package logger level changed when file logging started."""
+        global _SAVED_PACKAGE_LEVEL, _PACKAGE_LEVEL_OVERRIDDEN
+
+        if not _PACKAGE_LEVEL_OVERRIDDEN:
+            return
+        _PACKAGE_LOGGER.setLevel(_SAVED_PACKAGE_LEVEL or logging.NOTSET)
+        _SAVED_PACKAGE_LEVEL = None
+        _PACKAGE_LEVEL_OVERRIDDEN = False
+
+    @classmethod
+    def get_effective_level_name(cls) -> str:
+        """Return the package logger's effective level name (diagnostics)."""
+        return logging.getLevelName(_PACKAGE_LOGGER.getEffectiveLevel())
+
+    @classmethod
     def enable_global_file_logging(cls, log_file_path: str) -> bool:
         """
         Enable global file logging handler once for the whole integration logger.
@@ -283,6 +328,8 @@ class EVSCLogger:
         normalized_path = cls._normalize_log_path(log_file_path)
 
         with _GLOBAL_FILE_HANDLER_LOCK:
+            cls._ensure_package_level_for_file_logging()
+
             if _GLOBAL_FILE_HANDLER and _GLOBAL_FILE_HANDLER_PATH == normalized_path:
                 return False
 
@@ -311,6 +358,8 @@ class EVSCLogger:
         global _GLOBAL_FILE_HANDLER, _GLOBAL_FILE_HANDLER_PATH
 
         with _GLOBAL_FILE_HANDLER_LOCK:
+            cls._restore_package_level()
+
             if not _GLOBAL_FILE_HANDLER:
                 return False
 

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.12.1
+**Current Version:** 2.13.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -756,6 +756,131 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.13.0 (2026-09-07)
+**FEATURE: opt-in off-grid amperage ceiling for Solar Surplus (issue #57) + two
+fixes: empty file-logging output (issue #59) and SOC fields that rejected a
+plain helper (issue #58)**
+
+**#57 — off-grid amperage ceiling (feature, opt-in).** Solar Surplus sizes
+amperage purely from PV surplus (plus battery support) and had **zero behaviour
+difference between "grid present" and "grid confirmed lost"** — a grep for any
+islanding awareness in `solar_surplus.py` returned nothing. On a hybrid inverter
+running islanded, the real per-phase AC-output capacity can be far below what
+abundant PV plus a full home battery supplies, so EV charging plus house load
+can exceed the inverter's AC-output protection. The reporter's Deye tripped
+**F33 `AC_OverCurr_Fault`** twice on 2026-08-20 while fully islanded, with the
+EV at ~18–19 A. The existing `evsc_solar_max_amperage` is too blunt a tool: it
+caps unconditionally, so preventing a recurrence meant sacrificing charging
+speed every single day the grid is up.
+
+New always-created number **`evsc_offgrid_max_amperage`** ("Off-Grid Max
+Amperage", `mdi:transmission-tower-off`, 6–32, default **32 = off**, mirroring
+`evsc_solar_max_amperage`). Not battery-only — off-grid capacity is a
+wiring/inverter fact independent of a mapped home battery. Entity counts
+73→**74**, 59→**60**. On generic chargers the existing step-rewrite block
+(step=1 for unit "A") applies automatically.
+
+The gate reuses the already production-proven v2.6.0 signal:
+`ChargingModel.is_grid_available()` returns `None` when `grid_available` is
+unmapped **or** reads unavailable/unknown, and `True`/`False` only on an
+explicit on/off. `_get_offgrid_cap_amps()` returns a cap **only** when that
+answer is exactly `False` *and* the configured ceiling is below the top amp
+level, snapping down to the highest valid level (17 A → 16 A) so a non-standard
+amperage is never sent to the wallbox, and clamping at the 6 A floor rather than
+an invalid 0. So a boot-time flap, an inverter-integration restart, or an
+unmapped sensor can never throttle charging — and an install that leaves the
+default sees byte-for-byte v2.12.x behaviour.
+
+Two injection points in `_async_periodic_check`:
+- **Target clamp**, immediately after the existing solar-max cap. Both caps run
+  in sequence on the same `target_amps`, so whichever is stricter simply wins —
+  no composition logic.
+- **`_offgrid_overload_guard()`**, evaluated at the top of "Apply Charging
+  Logic" *before* Grid Import Protection, so a genuine off-grid overload is
+  corrected first. Deliberately a **hard, single-step** `set_amperage()` clamp
+  rather than the gradual one-level-per-tick surplus walk-down: the point is
+  protecting the inverter now, not several minutes from now.
+  `set_amperage()` already runs the safe stop → set → start sequence when
+  decreasing on Tuya-model chargers, so it is safe on every supported wallbox.
+  Extracted as its own method (returns True when it acted, caller aborts the
+  tick) rather than inlined, so the gate is unit-testable.
+
+**No debounce**, by design: `is_grid_available()` *is* the debounced fail-safe
+signal, and a reversible amperage cap does not need the anti-flap protection a
+*terminal* stop (Night Charge's `STOP_REASON_GRID_LOSS`) needs — if the grid
+returns, the cap stops applying on the next tick and the normal surplus ramp
+resumes on its own. **Scope: Solar Surplus only** — Night Smart Charge already
+stops terminally on grid loss. `offgrid_cap_a` is added to the Solar Surplus
+diagnostic payload, and a dedicated `OFFGRID_OVERLOAD_PROTECTION` diagnostic
+state is emitted when the guard fires.
+
+**#59 — file logging produced an EMPTY daily file (bug).** Reported as a
+side-effect while diagnosing a charging-current question: *"I've enabled logging
+in EV Smart Charger but nothing is currently getting logged."* Root cause: the
+daily `FileHandler` is attached to the `custom_components.ev_smart_charger`
+package logger, but **a handler only ever receives records the logger itself
+lets through**. Nothing anywhere set the package logger's level, so on any
+install whose `logger:` block sets `default: warning` (or stricter — a common
+setup, and the shape this project's own README suggests) every EVSC `INFO`
+record was dropped at the `isEnabledFor` check. The toggle created the file and
+then wrote nothing to it, which is indistinguishable from a broken feature.
+
+`EVSCLogger.enable_global_file_logging()` now calls
+`_ensure_package_level_for_file_logging()` (under the existing handler lock):
+when the effective level is above INFO it remembers the previous *explicit*
+level and lowers the package logger to INFO; `disable_global_file_logging()`
+restores it. Idempotent, so the midnight rotation's disable→enable pair and any
+repeated enable cannot corrupt the saved level, and a user who explicitly asked
+for `DEBUG` is never narrowed to INFO. **INFO, not DEBUG**, is deliberate: it is
+the activity stream the daily log is documented to contain, it matches Home
+Assistant's own default root level (so most installs see no change in
+`home-assistant.log`), and DEBUG would flood it — users who want DEBUG in the
+file still set it in `logger:` and the handler picks up whatever the logger
+passes. `sensor.evsc_log_file_path` gained `file_logging_active` and
+`effective_log_level` attributes so an empty file is self-diagnosable.
+
+**#58 — SOC fields rejected a plain helper (fix, UI affordance).** Reported by a
+user whose EV exposes no SOC at all; the community workaround was to wrap an
+`input_number` in a template sensor purely to satisfy a sensor-only selector.
+EV SOC stays **architecturally required** — the Priority Balancer's daily
+targets, Night Smart Charge's stop conditions and Boost's target all key off it,
+so a genuinely SOC-less mode is not a small change — but there is no reason to
+force a wrapper: every reader goes through `state_helper`, which is
+domain-agnostic. New `SOC_INPUT_DOMAINS = ["sensor", "number", "input_number"]`
+is now the selector for both `soc_car` and `soc_home` in every flow, so an
+`input_number` helper can be mapped directly. No schema/migration change —
+existing entries keep their mapped sensor.
+
+**Files**: `const.py` (`HELPER_OFFGRID_MAX_AMPERAGE_SUFFIX`,
+`DEFAULT_OFFGRID_MAX_AMPERAGE`, `SOC_INPUT_DOMAINS`, counts, VERSION),
+`number.py` (+1 always-created number), `solar_surplus.py` (discovery,
+`_get_offgrid_cap_amps`, `_offgrid_overload_guard`, target clamp, diagnostic),
+`config_flow.py` (#58), `utils/logging_helper.py` (#59), `sensor.py` (#59
+attributes), `strings.json` + `translations/{en,it,nl}.json`,
+`frontend/ev-smart-charger-dashboard.js` (suffix map + Solar settings stepper
+EN/IT/NL), `README.md`, `manifest.json`; tests: NEW
+`tests/test_v2130_offgrid_cap.py` (12: fail-safe when unmapped /
+unavailable / unknown, no-op when grid present, no-op at default 32 A, cap
+applies off-grid, snap-down to a valid level, never below the 6 A floor,
+immediate clamp of a running over-ceiling session, no spurious call at/below
+the ceiling, no-op when the charger is off, no-op when the grid is present),
+NEW `tests/test_v2130_file_logging_level.py` (6: level lowered, records really
+reach the file, previous level restored, explicit DEBUG never narrowed,
+rotation-safe saved level, level exposed for diagnostics), NEW
+`tests/test_v2130_soc_input_domains.py` (1: the constant *and* the config-flow
+selector offer the helper domains), plus entity-count updates in
+`test_config_flow.py` / `test_entity_platforms.py`. `VERSION = "2.13.0"`.
+No config-flow schema change (step counts unchanged). Full suite green:
+**359 passed / 0 failed**.
+
+**Upgrade priority**: 🟢 RECOMMENDED for hybrid-inverter owners who ever run
+islanded — map `grid_available` and set the ceiling to your inverter's real
+per-phase off-grid capacity (default 32 A = off, so nothing changes until you
+do). 🟢 RECOMMENDED for anyone who has ever enabled file logging and found the
+file empty. ⚪ NO-OP otherwise.
+
+---
 
 ### v2.12.1 (2026-08-31)
 **FIX: the EV charging Live Activity stayed on "charging" after the charge was interrupted**

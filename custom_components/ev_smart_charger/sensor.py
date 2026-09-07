@@ -23,6 +23,7 @@ from .const import (
 )
 from .entity_base import EVSCEntityMixin
 from .runtime import EVSCRuntimeData, get_runtime_data
+from .utils.logging_helper import EVSCLogger
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -372,6 +373,11 @@ class EVSCLogFilePathSensor(EVSCEntityMixin, SensorEntity):
             "friendly_name": "Log File Path",
             "logs_directory": self._get_logs_directory(),
             "structure": "logs/<year>/<month>/<day>.log",
+            # v2.13.0 (issue #59): the daily file only ever receives records the
+            # package logger lets through. Surfacing both makes an empty log file
+            # self-diagnosable instead of looking like a broken toggle.
+            "file_logging_active": EVSCLogger.is_global_file_logging_enabled(),
+            "effective_log_level": EVSCLogger.get_effective_level_name(),
         }
 
     async def async_update(self) -> None:

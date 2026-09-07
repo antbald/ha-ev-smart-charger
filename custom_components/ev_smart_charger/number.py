@@ -22,6 +22,8 @@ from .const import (
     DEFAULT_BATTERY_SUPPORT_AMPERAGE,
     DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
     DEFAULT_SOLAR_MAX_AMPERAGE,
+    DEFAULT_OFFGRID_MAX_AMPERAGE,
+    HELPER_OFFGRID_MAX_AMPERAGE_SUFFIX,
     DEFAULT_MAX_BATTERY_DISCHARGE_FOR_EV,
     HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX,
     DEFAULT_EV_MIN_SOC_WEEKDAY,
@@ -73,6 +75,9 @@ async def async_setup_entry(
         # v2.8.0: consumption-spike fast response debounce (0 = disabled/legacy)
         ("evsc_spike_response_delay", "EVSC Spike Response Delay", "mdi:flash-alert", 0, 60, 1, DEFAULT_SPIKE_RESPONSE_DELAY, "s"),
         ("evsc_solar_max_amperage", "EVSC Solar Max Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_SOLAR_MAX_AMPERAGE, "A"),
+        # v2.13.0 (issue #57): stricter ceiling applied ONLY while the optional
+        # `grid_available` sensor reads explicitly off. Default 32 = off.
+        (HELPER_OFFGRID_MAX_AMPERAGE_SUFFIX, "EVSC Off-Grid Max Amperage", "mdi:transmission-tower-off", 6, 32, 2, DEFAULT_OFFGRID_MAX_AMPERAGE, "A"),
         # Home battery (skipped in PV-only mode)
         ("evsc_home_battery_min_soc", "EVSC Home Battery Min SOC", "mdi:battery-50", 0, 100, 5, DEFAULT_HOME_BATTERY_MIN_SOC, "%"),
         ("evsc_battery_support_amperage", "EVSC Battery Support Amperage", "mdi:current-ac", 6, 32, 2, DEFAULT_BATTERY_SUPPORT_AMPERAGE, "A"),

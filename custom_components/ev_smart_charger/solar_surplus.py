@@ -31,6 +31,7 @@ from .const import (
     HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX,
     HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX,
     HELPER_SOLAR_MAX_AMPERAGE_SUFFIX,
+    HELPER_OFFGRID_MAX_AMPERAGE_SUFFIX,
     HELPER_NIGHTTIME_SUNSET_OFFSET_SUFFIX,
     HELPER_NIGHTTIME_SUNRISE_OFFSET_SUFFIX,
     HELPER_SPIKE_RESPONSE_DELAY_SUFFIX,
@@ -41,6 +42,7 @@ from .const import (
     SPIKE_STEP_DOWN_MARGIN_W,
     DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN,
     DEFAULT_SOLAR_MAX_AMPERAGE,
+    DEFAULT_OFFGRID_MAX_AMPERAGE,
     SURPLUS_START_THRESHOLD,
     SURPLUS_STOP_THRESHOLD,
     SURPLUS_DEADBAND_START_DELAY,
@@ -134,6 +136,7 @@ class SolarSurplusAutomation:
         self._battery_support_amperage_entity = None
         self._battery_support_sunset_buffer_entity = None
         self._solar_max_amperage_entity = None
+        self._offgrid_max_amperage_entity = None
         # v2.6.0 (issue #42): nighttime window offsets (minutes). 0 = astronomical.
         self._nighttime_sunset_offset_entity = None
         self._nighttime_sunrise_offset_entity = None
@@ -348,6 +351,67 @@ class SolarSurplusAutomation:
             return False
         return True
 
+    def _get_offgrid_cap_amps(self) -> int | None:
+        """Return the off-grid amperage ceiling, or None when it must not apply.
+
+        v2.13.0 (issue #57). Returns an amp level only when ALL of:
+        - the optional ``grid_available`` binary_sensor reads explicitly OFF
+          (``is_grid_available`` is fail-safe: ``None`` when unmapped or the
+          sensor is unavailable/unknown, so a boot-time flap can never cap);
+        - the configured ceiling is below the top amp level (32 = cap off).
+
+        The returned value is snapped down to the highest valid amp level so a
+        non-standard amperage is never sent to the wallbox.
+        """
+        if self._power_model.is_grid_available(self.hass) is not False:
+            return None  # grid present, or unknown -> fail-safe no-op
+        max_amps = int(
+            get_float(
+                self.hass,
+                self._offgrid_max_amperage_entity,
+                DEFAULT_OFFGRID_MAX_AMPERAGE,
+            )
+        )
+        if max_amps >= self._amp_levels[-1]:
+            return None  # 32A = cap disabled
+        valid = [level for level in self._amp_levels if level <= max_amps]
+        return valid[-1] if valid else self._amp_levels[0]
+
+    async def _offgrid_overload_guard(
+        self, charger_is_on: bool, current_amps: int
+    ) -> bool:
+        """Clamp a running session that exceeds the off-grid ceiling.
+
+        v2.13.0 (issue #57). Returns True when it acted, so the caller aborts
+        the rest of the tick. Deliberately a hard, single-step clamp rather than
+        the gradual one-level-per-tick surplus walk-down: the point is to protect
+        the islanded inverter now, not several minutes from now.
+        ``set_amperage`` already runs the safe stop -> set -> start sequence when
+        decreasing on Tuya-model chargers, so this is safe on every wallbox.
+        """
+        offgrid_cap = self._get_offgrid_cap_amps()
+        if not charger_is_on or offgrid_cap is None or current_amps <= offgrid_cap:
+            return False
+
+        self.logger.warning(
+            f"Off-grid overload protection: {current_amps}A > ceiling "
+            f"{offgrid_cap}A - clamping immediately"
+        )
+        await self._update_diagnostic_sensor(
+            "OFFGRID_OVERLOAD_PROTECTION",
+            {
+                "last_check": dt_util.now().isoformat(),
+                "decision": "offgrid_overload_clamp",
+                "current_charging_a": current_amps,
+                "offgrid_cap_a": offgrid_cap,
+            },
+        )
+        if await self._ensure_control("Off-grid overload protection"):
+            await self.charger_controller.set_amperage(
+                offgrid_cap, "Off-grid overload protection"
+            )
+        return True
+
     async def _ensure_control(self, reason: str) -> bool:
         """Ensure Solar Surplus owns the session before mutating the charger."""
         return await self._acquire_control("turn_on", reason)
@@ -413,6 +477,7 @@ class SolarSurplusAutomation:
             # v2.1.0 (issue #29): battery-only deadband buffer limit helper
             self._max_battery_discharge_entity = self._find_entity_by_suffix(HELPER_MAX_BATTERY_DISCHARGE_FOR_EV_SUFFIX)
         self._solar_max_amperage_entity = self._find_entity_by_suffix(HELPER_SOLAR_MAX_AMPERAGE_SUFFIX)
+        self._offgrid_max_amperage_entity = self._find_entity_by_suffix(HELPER_OFFGRID_MAX_AMPERAGE_SUFFIX)
         self._solar_surplus_diagnostic_sensor_entity = self._find_entity_by_suffix("evsc_solar_surplus_diagnostic")
         if self._runtime_data is not None:
             self._solar_surplus_diagnostic_sensor_obj = self._runtime_data.get_entity(
@@ -1168,6 +1233,17 @@ class SolarSurplusAutomation:
                 self.logger.info(f"Target capped: {target_amps}A → {capped}A (solar max amperage: {max_amps}A)")
                 target_amps = capped
 
+        # v2.13.0 (issue #57) — off-grid ceiling. Applied on top of the solar-max
+        # cap on the same target, so whichever cap is stricter simply wins. No-op
+        # when the grid is present/unknown or the ceiling is left at 32A.
+        offgrid_cap = self._get_offgrid_cap_amps()
+        if target_amps > 0 and offgrid_cap is not None and target_amps > offgrid_cap:
+            self.logger.info(
+                f"Target capped: {target_amps}A → {offgrid_cap}A "
+                f"(off-grid max amperage: {offgrid_cap}A)"
+            )
+            target_amps = offgrid_cap
+
         # === 12b. Opportunistic Dead Band Start ===
         # When charger is OFF and surplus is in dead band (5.5-6.5A) for a prolonged
         # period, override target to 6A. This prevents the charger from sitting idle
@@ -1253,10 +1329,22 @@ class SolarSurplusAutomation:
                 "grid_import_timer_started_ts": self._last_grid_import_high,
                 "grid_import_elapsed_s": None,
                 "grid_import_remaining_s": None,
+                # v2.13.0 (issue #57): None when the grid is present/unknown or
+                # the ceiling is disabled, the applied amp level otherwise.
+                "offgrid_cap_a": offgrid_cap,
             }
         )
 
         # === 14. Apply Charging Logic ===
+
+        # v2.13.0 (issue #57) — off-grid overload protection. Evaluated FIRST so
+        # an islanded inverter running over its safe per-phase ceiling is pulled
+        # back before any other gate. Deliberately a hard, single-step clamp (not
+        # the gradual one-level-per-tick surplus walk-down): the point is to
+        # protect the inverter now. set_amperage() already runs the safe
+        # stop -> set -> start sequence when decreasing on Tuya-model chargers.
+        if await self._offgrid_overload_guard(charger_is_on, current_amps):
+            return
 
         # Grid Import Protection
         if grid_import > grid_threshold:

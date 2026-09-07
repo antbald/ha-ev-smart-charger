@@ -505,6 +505,9 @@
       "evsc_spike_response_delay": {
         "name": "Reactievertraging verbruikspieken"
       },
+      "evsc_offgrid_max_amperage": {
+        "name": "Maximale stroomsterkte off-grid"
+      },
       "evsc_home_battery_min_soc": {
         "name": "Min. SOC thuisbatterij"
       },

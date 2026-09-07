@@ -505,6 +505,9 @@
       "evsc_spike_response_delay": {
         "name": "Consumption spike response delay"
       },
+      "evsc_offgrid_max_amperage": {
+        "name": "Off-grid max amperage"
+      },
       "evsc_home_battery_min_soc": {
         "name": "Home battery min SOC"
       },

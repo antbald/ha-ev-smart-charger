@@ -37,6 +37,7 @@ from .const import (
     CONF_PV_FORECAST,
     CONF_PV_FORECAST_TOMORROW,
     CONF_SOC_CAR,
+    SOC_INPUT_DOMAINS,
     CONF_SOC_HOME,
     CHARGER_MODEL_GENERIC,
     CHARGER_MODEL_TUYA,
@@ -228,8 +229,8 @@ def _sensor_schema(
     soc_home_marker = vol.Required if existing_soc_home else vol.Optional
 
     fields: dict[Any, Any] = {
-        vol.Required(CONF_SOC_CAR, **_field_config(current_data.get(CONF_SOC_CAR))): _entity_selector("sensor"),
-        soc_home_marker(CONF_SOC_HOME, **_field_config(existing_soc_home)): _entity_selector("sensor"),
+        vol.Required(CONF_SOC_CAR, **_field_config(current_data.get(CONF_SOC_CAR))): _entity_selector(SOC_INPUT_DOMAINS),
+        soc_home_marker(CONF_SOC_HOME, **_field_config(existing_soc_home)): _entity_selector(SOC_INPUT_DOMAINS),
     }
 
     # Per-quantity power sensors, grouped L1[/L2/L3]. Single-phase = L1 only.

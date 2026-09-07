@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.12.1"
+VERSION = "2.13.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -105,6 +105,11 @@ DEFAULT_CHARGER_MODEL = CHARGER_MODEL_TUYA
 CONF_EV_CHARGER_SWITCH = "ev_charger_switch"
 CONF_EV_CHARGER_CURRENT = "ev_charger_current"
 CONF_EV_CHARGER_STATUS = "ev_charger_status"
+# v2.13.0 (issue #58): SOC fields accept a plain helper as well as a sensor.
+# Many EVs expose no SOC at all; those users track it manually and had to wrap an
+# `input_number` in a template sensor purely to satisfy a sensor-only selector.
+# All readers go through state_helper, which is domain-agnostic.
+SOC_INPUT_DOMAINS = ["sensor", "number", "input_number"]
 CONF_SOC_CAR = "soc_car"
 CONF_SOC_HOME = "soc_home"
 CONF_FV_PRODUCTION = "fv_production"
@@ -270,6 +275,10 @@ HELPER_HOME_BATTERY_MIN_SOC_SUFFIX = "evsc_home_battery_min_soc"
 HELPER_BATTERY_SUPPORT_AMPERAGE_SUFFIX = "evsc_battery_support_amperage"
 HELPER_BATTERY_SUPPORT_SUNSET_BUFFER_SUFFIX = "evsc_battery_support_sunset_buffer"
 HELPER_SOLAR_MAX_AMPERAGE_SUFFIX = "evsc_solar_max_amperage"
+# v2.13.0 (issue #57) — per-phase amperage ceiling applied by Solar Surplus ONLY
+# while the optional `grid_available` binary_sensor reads explicitly off (the
+# inverter is islanded). Default 32 (top of CHARGER_AMP_LEVELS) = cap disabled.
+HELPER_OFFGRID_MAX_AMPERAGE_SUFFIX = "evsc_offgrid_max_amperage"
 # v2.1.0 (issue #29) — max home-battery discharge (W) allowed to cover the EV
 # charging floor (deadband buffer + Hybrid Mode masking checks). 0 = feature off.
 # Battery-only helper (meaningless without a home battery).
@@ -401,6 +410,7 @@ DEFAULT_HOME_BATTERY_MIN_SOC = 20  # percent
 DEFAULT_BATTERY_SUPPORT_AMPERAGE = 16  # amps (user configurable)
 DEFAULT_BATTERY_SUPPORT_SUNSET_BUFFER_MIN = 60  # minutes before sunset (block battery support when close to sunset)
 DEFAULT_SOLAR_MAX_AMPERAGE = 32  # amps (user configurable, default = no cap)
+DEFAULT_OFFGRID_MAX_AMPERAGE = 32  # amps (32 = off, top of CHARGER_AMP_LEVELS)
 DEFAULT_MAX_BATTERY_DISCHARGE_FOR_EV = 0  # watts (0 = feature off, current behaviour)
 
 # ========== DEFAULT VALUES - PRIORITY BALANCER ==========
@@ -528,7 +538,8 @@ HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 # of entities actually created when nothing is disabled. If it drifts above
 # reality (cf. v1.6.20), a single user-disabled entity turns the tolerant
 # startup path back into a hard ConfigEntryNotReady. Keep this in sync.
-TOTAL_INTEGRATION_ENTITIES = 73
+# v2.13.0 adds 1 always-created number (evsc_offgrid_max_amperage) → 74.
+TOTAL_INTEGRATION_ENTITIES = 74
 # Verified count (v2.3.0): 53 entities when running in PV-only mode.
 # Unchanged in v2.1.0: the discharge number is battery-only (skipped in PV-only mode).
 # v2.3.0 (issue #32): evsc_night_pv_handoff_threshold is NOT battery-only → +1 → 53.
@@ -541,7 +552,8 @@ TOTAL_INTEGRATION_ENTITIES = 73
 # 3 numbers (home_battery_min_soc, battery_support_amperage, battery_support_sunset_buffer),
 # 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).
 # Hybrid Mode entities are still created in PV-only mode but stay IDLE (requires soc_home).
-TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 59
+# v2.13.0 (issue #57): the off-grid amperage cap is NOT battery-only → +1 → 60.
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 60
 
 
 def has_home_battery(config: dict) -> bool:

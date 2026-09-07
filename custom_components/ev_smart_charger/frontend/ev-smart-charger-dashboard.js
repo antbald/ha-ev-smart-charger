@@ -107,6 +107,7 @@ const DOMAIN_SUFFIXES = {
   surplusDropDelay: ["number", "evsc_surplus_drop_delay"],
   spikeResponseDelay: ["number", "evsc_spike_response_delay"],
   solarMaxAmperage: ["number", "evsc_solar_max_amperage"],
+  offgridMaxAmperage: ["number", "evsc_offgrid_max_amperage"],
   useHomeBattery: ["switch", "evsc_use_home_battery"],
   homeBatteryMinSoc: ["number", "evsc_home_battery_min_soc"],
   batterySupportAmperage: ["number", "evsc_battery_support_amperage"],
@@ -219,6 +220,14 @@ const SETTINGS_CATALOG = [
           nl: "Maximale stroom die Solar Surplus mag opvragen. Beperkt wallboxgebruik onder de fysieke limiet.",
         },
         hint: { en: "Default 32 A · Tuya: 6/8/10/13/16/20/24/32 · Generic: 6–32 A (1 A)", it: "Default 32 A · Tuya: 6/8/10/13/16/20/24/32 · Generica: 6–32 A (1 A)", nl: "Standaard 32 A · Tuya: 6/8/10/13/16/20/24/32 · Generiek: 6–32 A (1 A)" } },
+      { entityKey: "offgridMaxAmperage", kind: "stepper",
+        name: { en: "Off-Grid Max Amperage", it: "Amperaggio max off-grid", nl: "Maximale stroomsterkte off-grid" },
+        desc: {
+          en: "Stricter current ceiling applied by Solar Surplus ONLY while the optional grid-available sensor reads off (inverter islanded). Protects an islanded inverter from an AC over-current trip. Requires the grid-available sensor to be mapped.",
+          it: "Tetto di corrente piu stretto applicato da Solar Surplus SOLO quando il sensore opzionale di rete disponibile e off (inverter in isola). Protegge l'inverter isolato da un fault di sovracorrente AC. Richiede il sensore rete disponibile mappato.",
+          nl: "Strengere stroomlimiet die Solar Surplus ALLEEN toepast wanneer de optionele net-beschikbaar sensor uit staat (omvormer in eilandbedrijf). Beschermt een eilandbedrijf-omvormer tegen een AC-overstroomfout. Vereist een gekoppelde net-beschikbaar sensor.",
+        },
+        hint: { en: "Default 32 A = off", it: "Default 32 A = disattivato", nl: "Standaard 32 A = uit" } },
     ],
   },
   {

@@ -434,6 +434,8 @@ The charger switch entity is used as the unique ID for the config entry. Adding 
 | EV charging power (v2.2.0) | No | `W` |
 | Grid available (v2.6.0) | No | `binary_sensor` |
 
+**EV battery SOC (v2.13.0 — [issue #58](https://github.com/antbald/ha-ev-smart-charger/issues/58)):** the two SOC fields accept a `sensor`, a `number` **or an `input_number`**. EV SOC is architecturally required — the Priority Balancer's daily targets, Night Smart Charge's stop conditions and Boost's target all key off it — but many EVs expose no SOC at all over any Home Assistant integration. Those owners can create an `input_number` helper, map it directly here, and keep it up to date manually or from their own automation. Before v2.13.0 the field was a sensor-only selector, forcing a template-sensor wrapper around the helper.
+
 **EV charging power (v2.2.0):** the most reliable signal for whether the car is actually drawing current — when mapped it becomes the single source of truth for charging detection (and the dashboard's green "EV charging" banner), overriding the status string. In three-phase mode map all three per-phase sensors (they are summed) or leave all blank. The sensor must report positive watts while charging; if yours reports negative, wrap it in a template sensor (`{{ states('sensor.your_power') | float(0) | abs }}`) — the diagnostic sensor's `charging_power_w` will read a flat 0 W if the sign is reversed.
 
 **Battery power (v2.1.0):** optional signed power sensor for the home battery, used by Hybrid Inverter Mode and Night Smart Charge grid mode to tell real solar headroom apart from the home battery silently covering the EV. **Sign convention: NEGATIVE = discharging, POSITIVE = charging.** If your sensor reports the opposite sign, invert it with a template sensor that negates the value, e.g. `{{ states('sensor.your_battery_power') | float(0) * -1 }}` — the diagnostic sensor's `battery_discharge_w` will read a flat 0 W if the sign is reversed.
@@ -567,6 +569,7 @@ When a day's flag is **ON** and the EV target is not yet reached at sunrise, Nig
 | `evsc_surplus_drop_delay` | `30` | `0–120` | s | How long surplus must be insufficient before stopping the charger. |
 | `evsc_spike_response_delay` | `10` | `0–60` | s | Consumption-spike fast response (v2.8.0): with stable PV, after this many seconds of grid import the charger steps down in one operation to the level that zeroes the import. `0` disables (legacy slow ramp). |
 | `evsc_solar_max_amperage` | `32` | `6–32` | A | Hard ceiling on Solar Surplus amperage. Lower this if your wallbox rejects currents above a certain value (e.g. set to `16` for wallboxes limited to 16 A). |
+| `evsc_offgrid_max_amperage` | `32` | `6–32` | A | Stricter ceiling applied **only while the optional `grid_available` sensor reads off** (hybrid inverter islanded). `32` = disabled. Requires `grid_available` to be mapped; see [Off-grid amperage ceiling](#off-grid-amperage-ceiling). |
 | `evsc_home_battery_min_soc` | `20` | `0–100` | % | Home battery must be above this SOC before battery support activates. |
 | `evsc_battery_support_amperage` | `16` | `6–32` | A | Amperage used when the home battery supplements solar charging. |
 | `evsc_battery_support_sunset_buffer` | `60` | `0–240` | min | Block home battery support when sunset is closer than this. Prevents draining the home battery in the last minutes of fading solar (e.g. plug-in at 18:00 with sunset at 19:15). Set to `0` to disable the guard. |
@@ -760,6 +763,32 @@ Battery support is also blocked when sunset is within `evsc_battery_support_suns
 **Solar max amperage cap:**
 
 `evsc_solar_max_amperage` (default `32 A`) sets a hard ceiling so Solar Surplus never exceeds what your wallbox accepts. Set this to `16` if your wallbox rejects `20 A` or higher commands.
+
+#### Off-grid amperage ceiling
+
+On a hybrid inverter running **islanded** (grid lost), the real per-phase AC
+output capacity can be far below what abundant PV plus a full home battery
+would otherwise supply. Solar Surplus sizes amperage from surplus alone, so EV
+charging plus house load could exceed the inverter's AC-output protection and
+trip an over-current fault.
+
+`evsc_offgrid_max_amperage` (default `32 A` = **off**) is a second, stricter
+ceiling that applies **only** while the optional `grid_available` binary sensor
+reads explicitly `off`:
+
+- **Grid present, or the sensor unmapped / `unavailable` / `unknown` → the
+  ceiling never applies.** This is deliberate and fail-safe: a boot-time or
+  inverter-restart flap can never throttle your charging.
+- Both ceilings run in sequence on the same target, so whichever is stricter
+  wins — you keep full amperage every day the grid is up and only give up
+  capacity while genuinely islanded.
+- A session already running above the ceiling is clamped **immediately, in one
+  step**, before any other gate — protecting the inverter now rather than
+  walking down over several minutes.
+
+Set it to the highest current your inverter can sustain per phase while
+islanded (e.g. a 12 kW three-phase unit ÷ 3 ≈ 4 kW/phase ≈ 17 A, de-rated in
+practice). Leave it at `32 A` to keep v2.12.x behaviour exactly.
 
 ---
 
@@ -1209,6 +1238,18 @@ Enable `evsc_enable_file_logging` to write all integration activity to a dedicat
 A new file is created automatically at midnight. Previous days are kept indefinitely. Access log files via SSH, the File Editor add-on, or Samba share.
 
 When troubleshooting is complete, disable the toggle to stop writing. Existing log files are preserved.
+
+Turning the toggle ON also lowers the integration's own log level to `INFO` for
+as long as file logging is active, and restores your previous level when you
+turn it off. Before v2.13.0 an install whose `logger:` block set
+`default: warning` (or stricter) dropped every EVSC record *before* it reached
+the file handler, so the daily file was created and then stayed empty. If you
+need `DEBUG` in the file, set it in the `logger:` block (see below) — the file
+handler records whatever the logger passes.
+
+The `evsc_log_file_path` sensor exposes `file_logging_active` and
+`effective_log_level` as attributes, so an empty log file is diagnosable at a
+glance.
 
 ### Trace Logging
 
