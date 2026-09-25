@@ -436,6 +436,13 @@ The charger switch entity is used as the unique ID for the config entry. Adding 
 
 **EV battery SOC (v2.13.0 — [issue #58](https://github.com/antbald/ha-ev-smart-charger/issues/58)):** the two SOC fields accept a `sensor`, a `number` **or an `input_number`**. EV SOC is architecturally required — the Priority Balancer's daily targets, Night Smart Charge's stop conditions and Boost's target all key off it — but many EVs expose no SOC at all over any Home Assistant integration. Those owners can create an `input_number` helper, map it directly here, and keep it up to date manually or from their own automation. Before v2.13.0 the field was a sensor-only selector, forcing a template-sensor wrapper around the helper.
 
+**Home consumption — what to include:** map a sensor that reports the **household load only**. Solar Surplus computes `surplus = solar production − home consumption` and sizes the EV amperage from it, so:
+
+- **Exclude EV charging.** If the wallbox load is part of the reading, every amp the car draws is subtracted from the surplus that sized it, and the charger ramps itself down.
+- **Exclude home-battery charging (and discharging).** If battery charging counts as consumption, all PV flowing into the battery reads as "used", surplus sits near zero while the battery charges, and the EV only ever gets what the battery leaves over — the battery wins by accident, regardless of your settings. Which of the two should come first is decided explicitly by the **Priority Balancer** (daily EV and home SOC targets); battery discharge toward the EV is governed by battery support and `evsc_max_battery_discharge_for_ev` (with the optional battery-power sensor).
+
+Most inverter integrations expose a "load" / "house consumption" sensor that already has this shape. If yours only reports a total, build a template sensor that subtracts the EV and battery-charging terms.
+
 **EV charging power (v2.2.0):** the most reliable signal for whether the car is actually drawing current — when mapped it becomes the single source of truth for charging detection (and the dashboard's green "EV charging" banner), overriding the status string. In three-phase mode map all three per-phase sensors (they are summed) or leave all blank. The sensor must report positive watts while charging; if yours reports negative, wrap it in a template sensor (`{{ states('sensor.your_power') | float(0) | abs }}`) — the diagnostic sensor's `charging_power_w` will read a flat 0 W if the sign is reversed.
 
 **Battery power (v2.1.0):** optional signed power sensor for the home battery, used by Hybrid Inverter Mode and Night Smart Charge grid mode to tell real solar headroom apart from the home battery silently covering the EV. **Sign convention: NEGATIVE = discharging, POSITIVE = charging.** If your sensor reports the opposite sign, invert it with a template sensor that negates the value, e.g. `{{ states('sensor.your_battery_power') | float(0) * -1 }}` — the diagnostic sensor's `battery_discharge_w` will read a flat 0 W if the sign is reversed.
@@ -924,6 +931,8 @@ Boost Charge is a high-priority override that guarantees the EV reaches `evsc_bo
 If the car is plugged in *after* the start time but while still within the scheduled window, the session starts immediately on plug-in — no manual intervention needed.
 
 The session ends at the configured end time even if the SOC target has not been reached. Disabling the schedule toggle mid-session stops the charger immediately.
+
+**Boosting a session that is already charging (v2.13.1 — [issue #60](https://github.com/antbald/ha-ev-smart-charger/issues/60)):** Boost can be enabled on top of a charge that is already running — for example to push past today's EV target, or to lift a solar-limited amperage. Some charger integrations (Tesla Fleet, for one) reject `switch.turn_on` when the vehicle is already charging (`Command was unsuccessful: is_charging`). Such a rejection is no longer treated as a failure: when the charger switch reports ON, or a mapped charging-power sensor shows real draw, the start counts as successful, the Boost amperage stays applied and the session continues. A rejection while the charger is genuinely off is still reported as a failure.
 
 **Key entities:** `evsc_boost_charge_enabled`, `evsc_boost_schedule_enabled`, `evsc_boost_charge_amperage`, `evsc_boost_target_soc`, `evsc_boost_schedule_start_time`, `evsc_boost_schedule_end_time`
 

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.13.0
+**Current Version:** 2.13.1
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -756,6 +756,52 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.13.1 (2026-09-25)
+**FIX: Boost Charge aborted when enabled on an already-charging vehicle (issue #60)**
+
+Reported with a Tesla Wall Connector driven through Tesla Fleet: enabling
+`evsc_boost_charge_enabled` while the car was already charging (Force Charge ON,
+~11 kW drawn) bounced the switch OFF within 1-3 s. Tesla Fleet's `switch.charge`
+**rejects `turn_on` when the vehicle is already charging** (`HomeAssistantError:
+Command was unsuccessful: is_charging`). `ChargerController.start_charger()`
+treated any exception from the service call as fatal, so Boost ran its
+`start_failed` teardown (coordinator released → Boost stopped → Boost failed)
+even though the diagnostic itself recorded `charger_on: True`,
+`drawing_now: True`, `measured_power_w: 11224`. Boosting a running session is a
+legitimate use (raise a solar-limited amperage, exceed today's EV target).
+
+Fix: every charger `switch.turn_on` in the controller (`start_charger`,
+`_start_charger_unlocked`, the Tuya decrease sequence restart) now goes through
+`_turn_on_charger_switch()`. On a rejected call it refreshes state and tolerates
+the error **only on strong evidence** the charger is running
+(`_charger_already_running()`): the switch reports ON, or a mapped
+charging-power sensor reads above `CHARGING_POWER_DRAWING_FLOOR_W`. The tolerant
+status-string fallback of `power_model.is_charging` is deliberately *not* used,
+so an unknown brand status can never mask a real failure. A tolerated start
+emits `reason_code="already_charging"` and logs a WARNING instead of the ERROR
+(`_call_service` gained `log_failure=False`); a genuine failure still logs the
+ERROR and returns `success=False`. The amperage set before `turn_on` is
+unchanged, so the Boost amperage is applied to the running session.
+
+Also documented in the README (answering issue #61): the Home consumption sensor
+must exclude both EV charging and home-battery charging/discharging — surplus is
+`production − consumption`, and priority between EV and home battery belongs to
+the Priority Balancer, not to the shape of the consumption sensor.
+
+**Files**: `charger_controller.py`, `const.py` + `manifest.json` (VERSION),
+`README.md`, this file; tests: NEW `tests/test_v2131_redundant_start.py` (5:
+switch-ON rejection succeeds with amperage applied, measured draw with a stale
+OFF switch succeeds, genuinely-off rejection fails, standby power below the
+floor never masks a failure, tolerant turn_on in the unlocked start path).
+`VERSION = "2.13.1"`. No schema / entity / config-flow change, entity counts
+unchanged (74 / 60). Full suite green: **364 passed / 0 failed**.
+
+**Upgrade priority**: 🟢 RECOMMENDED for Tesla (Fleet) and any charger whose
+integration rejects a redundant start — Boost now works on a running session.
+⚪ NO-OP otherwise.
+
+---
 
 ### v2.13.0 (2026-09-07)
 **FEATURE: opt-in off-grid amperage ceiling for Solar Surplus (issue #57) + two

@@ -18,6 +18,7 @@ from .const import (
     CHARGER_MODEL_TUYA,
     CHARGER_START_SEQUENCE_DELAY,
     CHARGER_STOP_SEQUENCE_DELAY,
+    CHARGING_POWER_DRAWING_FLOOR_W,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_SWITCH,
     SERVICE_CALL_TIMEOUT,
@@ -262,11 +263,7 @@ class ChargerController:
                     await self._set_amperage_internal(normalized_target)
                     await asyncio.sleep(CHARGER_AMPERAGE_STABILIZATION_DELAY)
 
-                await self._call_service(
-                    "switch",
-                    "turn_on",
-                    {"entity_id": self._charger_switch},
-                )
+                rejected_while_running = await self._turn_on_charger_switch()
                 await asyncio.sleep(CHARGER_START_SEQUENCE_DELAY)
 
                 self._record_operation_time()
@@ -274,7 +271,11 @@ class ChargerController:
                 await self._emit_operation_diagnostic(
                     "charger_start",
                     "succeeded",
-                    reason_code="command_executed",
+                    reason_code=(
+                        "already_charging"
+                        if rejected_while_running
+                        else "command_executed"
+                    ),
                     reason_detail=reason or "No reason provided",
                     target_amps=self._current_amperage,
                 )
@@ -522,14 +523,55 @@ class ChargerController:
             await self._set_amperage_internal(target_amps)
             await asyncio.sleep(CHARGER_AMPERAGE_STABILIZATION_DELAY)
 
-        await self._call_service(
-            "switch",
-            "turn_on",
-            {"entity_id": self._charger_switch},
-        )
+        await self._turn_on_charger_switch()
         await asyncio.sleep(CHARGER_START_SEQUENCE_DELAY)
         self._record_operation_time()
         await self._refresh_state()
+
+    async def _turn_on_charger_switch(self) -> bool:
+        """Turn the charger switch on, tolerating a redundant-command rejection.
+
+        Some charger integrations reject ``switch.turn_on`` when the vehicle is
+        already charging (e.g. Tesla Fleet raises "Command was unsuccessful:
+        is_charging"). The desired outcome is already achieved, so a rejection
+        is only treated as fatal when the charger is not actually running
+        afterwards (issue #60).
+
+        Returns True when a rejection was tolerated, False on a clean call.
+        """
+        try:
+            await self._call_service(
+                "switch",
+                "turn_on",
+                {"entity_id": self._charger_switch},
+                log_failure=False,
+            )
+            return False
+        except Exception as ex:
+            await self._refresh_state()
+            if self._charger_already_running():
+                self.logger.warning(
+                    "Charger rejected switch.turn_on (%s) but is already "
+                    "charging - treating the start as successful",
+                    ex,
+                )
+                return True
+            self.logger.error("Service call failed: switch.turn_on - %s", ex)
+            raise
+
+    def _charger_already_running(self) -> bool:
+        """Return True when the charger is on, by switch echo or measured draw.
+
+        Only strong evidence counts: the switch reporting ON, or a mapped power
+        sensor above the drawing floor. The tolerant status fallback is not
+        used here, so an unknown brand status can never mask a real failure.
+        """
+        if self._is_on:
+            return True
+        return (
+            self._measured_power_w is not None
+            and self._measured_power_w > CHARGING_POWER_DRAWING_FLOOR_W
+        )
 
     async def _stop_charger_unlocked(self) -> None:
         """Stop the charger without reacquiring the controller lock."""
@@ -577,11 +619,7 @@ class ChargerController:
         await asyncio.sleep(CHARGER_STOP_SEQUENCE_DELAY)
         await self._set_amperage_internal(target_amps)
         await asyncio.sleep(CHARGER_AMPERAGE_STABILIZATION_DELAY)
-        await self._call_service(
-            "switch",
-            "turn_on",
-            {"entity_id": self._charger_switch},
-        )
+        await self._turn_on_charger_switch()
         await asyncio.sleep(CHARGER_START_SEQUENCE_DELAY)
         self._record_operation_time()
         await self._refresh_state()
@@ -614,7 +652,14 @@ class ChargerController:
             return self._amp_levels[0]
         return min(self._amp_levels, key=lambda value: abs(value - int(target_amps)))
 
-    async def _call_service(self, domain: str, service: str, data: dict):
+    async def _call_service(
+        self,
+        domain: str,
+        service: str,
+        data: dict,
+        *,
+        log_failure: bool = True,
+    ):
         """Call a Home Assistant service with timeout and error handling."""
         try:
             async with async_timeout.timeout(SERVICE_CALL_TIMEOUT):
@@ -625,10 +670,14 @@ class ChargerController:
                     blocking=True,
                 )
         except asyncio.TimeoutError:
-            self.logger.error("Service call timeout: %s.%s", domain, service)
+            if log_failure:
+                self.logger.error("Service call timeout: %s.%s", domain, service)
             raise
         except Exception as ex:
-            self.logger.error("Service call failed: %s.%s - %s", domain, service, ex)
+            if log_failure:
+                self.logger.error(
+                    "Service call failed: %s.%s - %s", domain, service, ex
+                )
             raise
 
     async def is_charging(self) -> bool:
