@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.13.1"
+VERSION = "2.13.2"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -506,6 +506,7 @@ HYBRID_COOLDOWN_SHORT_SECONDS = 120  # 2 min after a failed probe
 HYBRID_COOLDOWN_LONG_SECONDS = 900   # 15 min after N consecutive fails (sliding window)
 HYBRID_FAILURE_WINDOW_SECONDS = 1800  # 30 min sliding window for failure counting
 HYBRID_HEADROOM_STABLE_SECONDS = 60  # how long grid_import must stay low before stepping up
+HYBRID_EDGE_CEILING_SECONDS = 600  # v2.13.2: block re-climbing a level that forced a step-down for 10 min
 HYBRID_SUNSET_BUFFER_MIN = 90  # minutes before sunset — do not probe when sun is too low
 HYBRID_TRANSIENT_GRACE_SECONDS = 20  # first N seconds of PROBING: ignore grid_import (inverter ramp)
 HYBRID_GRID_ENTRY_SMOOTH_SECONDS = 60  # how long grid_import must stay low BEFORE entering PROBING

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.13.1
+**Current Version:** 2.13.2
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -756,6 +756,48 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.13.2 (2026-09-28)
+**FIX: Hybrid Inverter Mode RIDING_EDGE ramp froze mid-way (~10 A) despite PV headroom**
+
+`_handle_riding_edge` had three grid-import regions: step down when
+`grid_import > threshold` is sustained, step up only when
+`grid_import <= threshold / 2` for `HYBRID_HEADROOM_STABLE_SECONDS`, and
+**hold forever** in between. Zero-export inverters regulate to a small
+residual import that grows with the load (a CT control loop with a
+percentage deadband), so once that residual crossed `threshold / 2`
+(25 W at the default 50 W) the ramp neither climbed nor stepped down — on a
+typical install that happened around 10 A, with kilowatts of curtailed PV
+still available. Reproduced in a simulation with a 1.5 %-of-load residual:
+the old code sat at 8–10 A indefinitely.
+
+Fix: the step-up path now runs whenever `grid_import <= threshold` (the
+import is within the user's own budget). Anti-oscillation moved from the
+import domain to the amperage domain: every step-down (grid or battery
+masking) records the tripped level as an **edge ceiling**
+(`_set_edge_ceiling`), and the ramp may not climb back onto it for
+`HYBRID_EDGE_CEILING_SECONDS = 600`; after expiry the edge is re-probed once
+(PV availability changes through the day). An over-threshold tick now also
+clears `_headroom_ok_since`, so a step-up always needs a fresh stable window,
+and the import-violation timer resets as soon as import is back within the
+threshold (previously only below half of it). The ceiling is cleared on any
+return to IDLE, surfaced in the diagnostic snapshot (`edge_ceiling_amps`,
+`edge_ceiling_until`) and in the diagnostic state
+(`holding below {N}A import ceiling`). The Generic 2-level jump (issue #38)
+respects the ceiling. PROBING and IDLE-entry smoothing are unchanged.
+
+**Files**: `hybrid_inverter_mode.py`, `const.py` (`HYBRID_EDGE_CEILING_SECONDS`,
+VERSION), `manifest.json`, `README.md`, this file; tests: NEW
+`tests/test_v2132_hybrid_ramp.py` (4: ramp reaches 32 A with zero import,
+residual import within the threshold no longer freezes the ramp, a step-down
+blocks re-climbing until the ceiling expires then re-probes, sustained import
+still steps down). `VERSION = "2.13.2"`. No schema / entity / config-flow
+change, entity counts unchanged (74 / 60). Full suite green:
+**368 passed / 0 failed**.
+
+**Upgrade priority**: 🟢 RECOMMENDED for every Hybrid Inverter Mode user.
+
+---
 
 ### v2.13.1 (2026-09-25)
 **FIX: Boost Charge aborted when enabled on an already-charging vehicle (issue #60)**

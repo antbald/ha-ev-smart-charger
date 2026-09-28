@@ -56,6 +56,8 @@ Most projects target one charger brand or assume a single-phase home. EV Smart C
 
 > **🆕 New in v2.6.0** — mass bug-fix & improvement release (issues #36–#42). Highlights: an optional **`grid_available` binary sensor** ([issue #36](https://github.com/antbald/ha-ev-smart-charger/issues/36)) stops Night Smart Charge grid mode during a **grid outage** so it doesn't drain the home battery on hybrid Battery First / UPS inverters (fail-safe: an unavailable sensor never triggers a false stop); a **customizable nighttime window** ([issue #42](https://github.com/antbald/ha-ev-smart-charger/issues/42)) via two opt-in offset numbers (start before sunset / end after sunrise); and a big **INFO log-noise reduction** ([issue #40](https://github.com/antbald/ha-ev-smart-charger/issues/40)) — idle ticks no longer flood the HA log. Also: valid day icons (#37), faster Generic-charger ramp-up (#38), a consistent Hybrid full-battery threshold (#39), and a cleaner telemetry log (#41). **All backward compatible** — the two features are opt-in.
 
+> **⚡ New in v2.13.2** — **Hybrid Inverter Mode no longer stalls mid-ramp.** In RIDING_EDGE the amperage only stepped up while grid import stayed below *half* of `evsc_grid_import_threshold`, and was held forever between half and the full threshold. Zero-export inverters regulate to a small residual import that grows with the load, so on many installs the ramp froze around 10 A even with kilowatts of PV headroom left. The ramp now climbs whenever import is within the threshold; anti-oscillation moved to the amperage domain — a level that forced a step-down is not re-tried for 10 minutes, after which the edge is probed again. **RECOMMENDED for every Hybrid Inverter Mode user.**
+
 > **📱 New in v2.12.0 — full iOS Live Activities support.** Now that the Companion App renders Live Activities on the iPhone Lock Screen and Dynamic Island, EV charging Live Activities are **ON by default** and their update policy has been rewritten around Apple's real constraints: a single `evsc_ev_charging` activity is pushed only on discrete state changes (mode switch, EV target change, every 5 points of EV SOC), never on the continuously moving charging power, amperage or wallbox status — so the card moves when something actually happens instead of once a minute. Covers Boost Charge, Night Smart Charge, Solar Surplus, Force Charge, and normal charging. Requires HA Core 2026.7+ and iOS 17.2+ (Android 16+ for Live Updates), plus allowing Live Activities in **iOS Settings → Home Assistant**.
 
 > **🔌 New in v2.11.0** — **auto-disarm Force Charge on unplug** (opt-in). Force Charge means "charge now, whatever the automations think" — an intent that ends with that session, except the switch stays ON. Enable `evsc_force_charge_auto_disarm` (Dashboard → Settings → 🛡 Safety) and unplugging the EV turns Force Charge OFF automatically, so the next plug-in starts from the normal automation state instead of a forgotten override. Acts on the unplug **edge** only, and an `unknown`/`unavailable` status never counts as a disconnect — a sensor glitch must not cancel a Force Charge you are relying on. **Default OFF**; requires the charger status sensor.
@@ -1060,8 +1062,8 @@ Two-phase probing protects against inverter slow-ramp:
 
 After a successful probe, Hybrid Mode transitions to **RIDING_EDGE** where it "rides the edge" of `grid_import`:
 
-- Grid stays below 50 % of threshold for 60 s → step amperage **up** one level (6 → 8 → 10 → 13 → 16 → 20 → 24 → 32 A)
-- Grid exceeds threshold for `evsc_hybrid_max_import_duration` → step amperage **down** one level
+- Grid stays at or below the threshold for 60 s → step amperage **up** one level (6 → 8 → 10 → 13 → 16 → 20 → 24 → 32 A)
+- Grid exceeds threshold for `evsc_hybrid_max_import_duration` → step amperage **down** one level; the level that tripped the step-down is not re-tried for 10 minutes (anti-oscillation), then the edge is probed again
 - At 6 A and grid still high → stop and treat as a failed probe
 
 #### Cost transparency
@@ -1093,6 +1095,7 @@ You will receive **one push notification per day** (filtered by car-owner presen
 | Every probe fails (`COOLDOWN_SHORT` then `COOLDOWN_LONG`) | Raise `evsc_hybrid_max_import_duration` to 90–120 s. Slow-ramp inverters (Solis, Growatt) need more time to react. |
 | Module enters `HARD_EXIT` too often | Your inverter probably has genuine PV constraints (small system, partial shading). Raise `evsc_hybrid_battery_full_threshold` to 100 % so probing only happens when truly full. |
 | RIDING_EDGE oscillates a lot | Raise `evsc_grid_import_threshold` slightly (from 50 W default to 100 W) for more headroom. |
+| RIDING_EDGE stops climbing at a low amperage (e.g. 10 A) | Fixed in v2.13.2. If it still holds, check the diagnostic: `holding below …A import ceiling` means that level really imported from the grid within the last 10 minutes. |
 
 #### Interaction with other automations
 

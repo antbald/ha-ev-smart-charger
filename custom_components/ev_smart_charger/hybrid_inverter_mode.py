@@ -26,8 +26,10 @@ State machine:
       └─ FAIL → stop_charger + COOLDOWN_SHORT, append to failure window
 
     RIDING_EDGE
-      ├─ headroom_ok_since ≥ HYBRID_HEADROOM_STABLE_SECONDS → step amperage up
-      ├─ import_violation_since ≥ max_import_duration → step amperage down
+      ├─ grid ≤ threshold for HYBRID_HEADROOM_STABLE_SECONDS → step amperage up
+      │  (never onto an active edge ceiling)
+      ├─ import_violation_since ≥ max_import_duration → step amperage down and
+      │  set an edge ceiling on the tripped level for HYBRID_EDGE_CEILING_SECONDS
       ├─ at 6A and import persists → STOP + COOLDOWN_SHORT (counts as FAIL)
       ├─ sustained ≥ HYBRID_RIDING_EDGE_SUCCESS_DURATION → reset failure window
       └─ exit condition fails → IDLE (graceful, NOT counted as FAIL)
@@ -84,6 +86,7 @@ from .const import (
     HELPER_SOLAR_MAX_AMPERAGE_SUFFIX,
     HYBRID_COOLDOWN_LONG_SECONDS,
     HYBRID_COOLDOWN_SHORT_SECONDS,
+    HYBRID_EDGE_CEILING_SECONDS,
     HYBRID_FAILURE_WINDOW_SECONDS,
     HYBRID_GRID_ENTRY_SMOOTH_SECONDS,
     HYBRID_HEADROOM_STABLE_SECONDS,
@@ -206,6 +209,10 @@ class HybridInverterMode:
         # we jump 2 levels at a time to converge faster. Reset on any step-down
         # or exit. Tuya is unaffected (its levels are already coarse).
         self._consecutive_stepup_count: int = 0
+        # v2.13.2: amperage level that last forced a step-down; the ramp may not
+        # climb back onto it until _edge_ceiling_until (anti-oscillation).
+        self._edge_ceiling_amps: int | None = None
+        self._edge_ceiling_until: datetime | None = None
 
         # Grid import entry smoothing (so we don't enter PROBING on a 1s dip)
         self._grid_import_below_threshold_since: datetime | None = None
@@ -553,6 +560,9 @@ class HybridInverterMode:
             snapshot["headroom_ok_since"] = self._headroom_ok_since.isoformat()
         if self._import_violation_since is not None:
             snapshot["import_violation_since"] = self._import_violation_since.isoformat()
+        if self._edge_ceiling_amps is not None and self._edge_ceiling_until is not None:
+            snapshot["edge_ceiling_amps"] = self._edge_ceiling_amps
+            snapshot["edge_ceiling_until"] = self._edge_ceiling_until.isoformat()
         if self._notification_sent_on_date is not None:
             snapshot["notification_sent_on_date"] = str(self._notification_sent_on_date)
         return snapshot
@@ -813,6 +823,9 @@ class HybridInverterMode:
 
         # Decrease path
         if grid_import > grid_threshold:
+            # v2.13.2: an over-threshold reading breaks the headroom stability
+            # window — a step-up must be earned by a fresh stable period.
+            self._headroom_ok_since = None
             if self._import_violation_since is None:
                 self._import_violation_since = now
             violation_elapsed = (now - self._import_violation_since).total_seconds()
@@ -833,6 +846,7 @@ class HybridInverterMode:
                         self._import_violation_since = None
                         self._headroom_ok_since = None
                         self._consecutive_stepup_count = 0  # issue #38
+                        self._set_edge_ceiling(current_amps, now)
                         await self._publish_diagnostic(
                             reason=f"RIDING_EDGE @ {next_down}A (reduced)"
                         )
@@ -851,8 +865,16 @@ class HybridInverterMode:
             )
             return
 
-        # Reset violation tracking when we're back below threshold
-        if grid_import <= grid_threshold / 2:
+        # v2.13.2: at/below the threshold the grid is within budget → ramp path.
+        # Before v2.13.2 this required grid_import <= threshold/2 and held the
+        # amperage forever in the (threshold/2, threshold] band. Zero-export
+        # inverters regulate to a small residual import that grows with the
+        # load, so the ramp froze as soon as that residual crossed threshold/2
+        # (~10 A on a typical install) even with kilowatts of headroom left.
+        # Anti-oscillation now lives in the amperage domain instead: a level
+        # that tripped a step-down is blocked for HYBRID_EDGE_CEILING_SECONDS
+        # (see _set_edge_ceiling).
+        if grid_import <= grid_threshold:
             self._import_violation_since = None
 
             # v2.1.0 (issue #29): battery-discharge masking step-down. With grid
@@ -891,6 +913,7 @@ class HybridInverterMode:
                             self._battery_violation_since = None
                             self._headroom_ok_since = None
                             self._consecutive_stepup_count = 0  # issue #38
+                            self._set_edge_ceiling(current_amps, now)
                             await self._publish_diagnostic(
                                 reason=f"RIDING_EDGE @ {next_down}A (reduced, battery)"
                             )
@@ -917,13 +940,22 @@ class HybridInverterMode:
             if self._headroom_ok_since is None:
                 self._headroom_ok_since = now
             headroom_elapsed = (now - self._headroom_ok_since).total_seconds()
+            # v2.13.2: never climb back onto a level that just tripped a
+            # step-down while its ceiling is still active.
+            max_amps = solar_max_amperage
+            ceiling = self._active_edge_ceiling(now)
+            if ceiling is not None:
+                max_amps = min(
+                    max_amps,
+                    AmperageCalculator.get_next_level_down(ceiling, self._amp_levels),
+                )
             # Increase path
             if (
                 headroom_elapsed >= HYBRID_HEADROOM_STABLE_SECONDS
-                and current_amps < solar_max_amperage
+                and current_amps < max_amps
             ):
                 next_up = AmperageCalculator.get_next_level_up(
-                    current_amps, solar_max_amperage, self._amp_levels
+                    current_amps, max_amps, self._amp_levels
                 )
                 # issue #38: self-tuning — on a Generic charger (1A levels), once
                 # we've already stepped up twice in a row on stable headroom, jump
@@ -933,10 +965,10 @@ class HybridInverterMode:
                     self._power_model.charger_model == CHARGER_MODEL_GENERIC
                     and self._consecutive_stepup_count >= 2
                     and next_up > current_amps
-                    and next_up < solar_max_amperage
+                    and next_up < max_amps
                 ):
                     next_up = AmperageCalculator.get_next_level_up(
-                        next_up, solar_max_amperage, self._amp_levels
+                        next_up, max_amps, self._amp_levels
                     )
                 if next_up > current_amps:
                     self.logger.info(
@@ -956,15 +988,38 @@ class HybridInverterMode:
                             reason=f"RIDING_EDGE @ {next_up}A (increased)"
                         )
                     return
-            await self._publish_diagnostic(
-                reason=f"RIDING_EDGE @ {current_amps}A (stable {headroom_elapsed:.0f}s)"
-            )
+            if ceiling is not None and current_amps >= max_amps:
+                reason = (
+                    f"RIDING_EDGE @ {current_amps}A (holding below {ceiling}A "
+                    "import ceiling)"
+                )
+            else:
+                reason = (
+                    f"RIDING_EDGE @ {current_amps}A (stable {headroom_elapsed:.0f}s)"
+                )
+            await self._publish_diagnostic(reason=reason)
             return
 
-        # Grid in the hysteresis band — hold position
-        await self._publish_diagnostic(
-            reason=f"RIDING_EDGE @ {current_amps}A (grid {grid_import:.0f}W, holding)"
-        )
+    def _set_edge_ceiling(self, tripped_amps: int, now: datetime) -> None:
+        """Block climbing back to a level that just forced a step-down.
+
+        v2.13.2: replaces the old grid-import hysteresis band as the RIDING_EDGE
+        anti-oscillation mechanism. The ceiling expires after
+        HYBRID_EDGE_CEILING_SECONDS so the edge is re-probed periodically
+        (PV availability changes during the day).
+        """
+        self._edge_ceiling_amps = tripped_amps
+        self._edge_ceiling_until = now + timedelta(seconds=HYBRID_EDGE_CEILING_SECONDS)
+
+    def _active_edge_ceiling(self, now: datetime) -> int | None:
+        """Return the active ceiling (amps), clearing it once expired."""
+        if self._edge_ceiling_amps is None or self._edge_ceiling_until is None:
+            return None
+        if now >= self._edge_ceiling_until:
+            self._edge_ceiling_amps = None
+            self._edge_ceiling_until = None
+            return None
+        return self._edge_ceiling_amps
 
     async def _handle_cooldown(self, now: datetime) -> None:
         """During COOLDOWN_*: wait for the timer to expire."""
@@ -1096,6 +1151,8 @@ class HybridInverterMode:
             self._headroom_ok_since = None
             self._riding_edge_entered_at = None
             self._current_target_amps = 0
+            self._edge_ceiling_amps = None
+            self._edge_ceiling_until = None
         self.logger.info(
             f"{self.logger.DECISION} Hybrid state: {prev_state} → {new_state} ({reason})"
         )
