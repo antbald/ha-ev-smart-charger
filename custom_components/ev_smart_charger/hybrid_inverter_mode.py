@@ -16,7 +16,10 @@ import limit. If import rises and persists → no headroom, stop and cool down.
 State machine:
 
     IDLE
-      └─ entry conditions met → [start_charger(6A) + notify_once] → PROBING
+      ├─ entry conditions met, charger OFF → [start_charger(6A) + notify_once] → PROBING
+      └─ entry conditions met, charger already ON and Solar Surplus cannot
+         reach the next level (surplus pinned to the EV draw) → adopt the
+         running session → RIDING_EDGE (v2.13.3)
 
     PROBING (probe_duration s at 6A, two-phase observation)
       ├─ Phase A (0-20s "transient grace"): ignore grid_import (inverter ramp)
@@ -324,6 +327,7 @@ class HybridInverterMode:
         charger_is_on: bool,
         priority: str | None,
         now: datetime,
+        current_amps: int = 0,
     ) -> bool:
         """Return True if Solar Surplus must delegate this tick to hybrid mode.
 
@@ -381,9 +385,31 @@ class HybridInverterMode:
             self._grid_import_below_threshold_since = None
             return False
 
-        # Surplus must look near-zero (curtailment signature). If surplus is real
-        # and above start threshold, normal Solar Surplus path handles it.
-        if surplus_amps >= SURPLUS_STOP_THRESHOLD:
+        if charger_is_on:
+            # v2.13.3: adopt a session Solar Surplus is already running. Once
+            # the inverter curtails, the measured surplus is pinned to the EV's
+            # own draw (production follows the load), so Solar Surplus can never
+            # justify the next level and the amperage freezes wherever the
+            # session happened to be (e.g. 10 A). Adopt only when Solar Surplus
+            # cannot climb on its own (surplus below the next level) and the
+            # charger is not already at its ceiling.
+            solar_max_amperage = get_int(
+                self.hass,
+                self._solar_max_amperage_entity,
+                default=DEFAULT_SOLAR_MAX_AMPERAGE,
+            )
+            if current_amps <= 0 or current_amps >= solar_max_amperage:
+                self._grid_import_below_threshold_since = None
+                return False
+            next_up = AmperageCalculator.get_next_level_up(
+                current_amps, solar_max_amperage, self._amp_levels
+            )
+            if next_up <= current_amps or surplus_amps >= next_up:
+                self._grid_import_below_threshold_since = None
+                return False
+        elif surplus_amps >= SURPLUS_STOP_THRESHOLD:
+            # Surplus must look near-zero (curtailment signature). If surplus is
+            # real and above start threshold, normal Solar Surplus handles it.
             self._grid_import_below_threshold_since = None
             return False
 
@@ -393,11 +419,12 @@ class HybridInverterMode:
             self._grid_import_below_threshold_since = None
             return False
 
-        # Charger must currently be off AND plugged in (not free, not finished).
-        if charger_is_on:
-            return False
+        # Charger must be plugged in (not free, not finished). A charger that is
+        # OFF also needs a readable status; a running one is its own evidence.
         status = get_state(self.hass, self._charger_status)
-        if status in (CHARGER_STATUS_FREE, CHARGER_STATUS_END, None, "unavailable", "unknown"):
+        if status in (CHARGER_STATUS_FREE, CHARGER_STATUS_END):
+            return False
+        if not charger_is_on and status in (None, "unavailable", "unknown"):
             return False
 
         # Priority Balancer must not say HOME. EV_FREE override is allowed only
@@ -478,7 +505,10 @@ class HybridInverterMode:
             # State-specific handlers
             if self._state == HYBRID_STATE_IDLE:
                 # Caller guaranteed entry conditions are met (is_relevant returned True)
-                await self._start_probe(now)
+                if charger_is_on and current_amps > 0:
+                    await self._adopt_session(now, current_amps)
+                else:
+                    await self._start_probe(now)
                 return True
 
             if self._state == HYBRID_STATE_PROBING:
@@ -609,8 +639,15 @@ class HybridInverterMode:
         if status in (CHARGER_STATUS_FREE, CHARGER_STATUS_END):
             return f"charger status now {status}"
 
-        # 6A floor + plausibility
-        if surplus_watts < self._max_negative_surplus_w:
+        # 6A floor + plausibility. PROBING only: in RIDING_EDGE a real deficit
+        # shows up as grid import and is handled by the step-down path. With a
+        # consumption sensor that includes the EV, surplus ≈ -grid_import, so
+        # this check would stop the charger (and restart from 6 A) instead of
+        # stepping down one level at the edge (v2.13.3).
+        if (
+            self._state == HYBRID_STATE_PROBING
+            and surplus_watts < self._max_negative_surplus_w
+        ):
             return f"surplus dropped below {self._max_negative_surplus_w}W (no plausible headroom)"
 
         # PRIORITY checks
@@ -661,6 +698,38 @@ class HybridInverterMode:
         await self._transition(HYBRID_STATE_PROBING, reason="probe started")
 
         # Single notification per session (sunrise→sunset)
+        today = now.date()
+        if self._notification_sent_on_date != today:
+            await self._mobile_notifier.send_hybrid_mode_started_notification()
+            self._notification_sent_on_date = today
+
+    async def _adopt_session(self, now: datetime, current_amps: int) -> None:
+        """Transition IDLE → RIDING_EDGE on a session that is already charging.
+
+        v2.13.3: no probe is needed — the running charger already proves the
+        load is being served with grid import low (smoothed by is_relevant), so
+        we go straight to riding the edge from the current amperage.
+        """
+        if self._solar_surplus is not None:
+            acquired = await self._solar_surplus._acquire_control(
+                "turn_on", "Hybrid Mode: adopting running session"
+            )
+            if not acquired:
+                self.logger.info("Coordinator denied adoption — staying IDLE")
+                return
+
+        self.logger.separator()
+        self.logger.start(
+            f"{self.logger.SOLAR} Hybrid Mode: adopting running session at "
+            f"{current_amps}A (surplus pinned to EV load — curtailment)"
+        )
+        self._current_target_amps = current_amps
+        self._import_violation_since = None
+        self._battery_violation_since = None
+        self._headroom_ok_since = None
+        self._riding_edge_entered_at = now
+        await self._transition(HYBRID_STATE_RIDING_EDGE, reason="adopted running session")
+
         today = now.date()
         if self._notification_sent_on_date != today:
             await self._mobile_notifier.send_hybrid_mode_started_notification()

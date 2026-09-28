@@ -1166,6 +1166,7 @@ class SolarSurplusAutomation:
                 charger_is_on=charger_is_on,
                 priority=priority,
                 now=now,
+                current_amps=current_amps_for_hybrid,
             ):
                 handled = await self._hybrid_mode.tick(
                     surplus_amps=surplus_amps,

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.13.2
+**Current Version:** 2.13.3
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -756,6 +756,60 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.13.3 (2026-09-28)
+**FIX: charging frozen at 10 A under curtailment — Hybrid Inverter Mode now adopts a running session**
+
+v2.13.2 did not solve the maintainer's report ("stuck at 10 A, the inverter can
+deliver more"). An end-to-end simulation — the real Solar Surplus tick driving
+the real Hybrid state machine against a simulated zero-export inverter
+(`production = min(pv_available, house + ev)`) — showed the RIDING_EDGE ramp
+itself climbs fine, and located the real, deterministic freeze elsewhere:
+
+**Bug A — Hybrid Mode never engaged on a running session.** `is_relevant()`
+returned False whenever `charger_is_on`, so Hybrid Mode could only start from
+its own 6 A probe. A session already running when the home battery fills and
+the inverter starts curtailing — started by Solar Surplus, battery support, or
+surviving an HA restart (Hybrid always boots IDLE) — stayed with normal Solar
+Surplus. Under curtailment production follows the load, so the measured
+surplus equals the EV's own draw (or ≈0 with a consumption sensor that
+includes the EV): `calculate_from_surplus` never returns more than the current
+level and the amperage froze forever (simulated: 10 A for 40 ticks with 7 kW
+available).
+
+Fix: with the charger ON, `is_relevant()` (new `current_amps` argument, passed
+by Solar Surplus) keeps every other entry guard (toggle, daytime, sunset
+buffer, battery full, cooldown/HARD_EXIT, priority, smoothed low grid import)
+and replaces the "surplus < 5.5 A" curtailment signature with "Solar Surplus
+cannot reach the next level": `surplus_amps < get_next_level_up(current)` and
+`current < solar_max_amperage`. `tick()` then calls the new `_adopt_session()`:
+acquires control through Solar Surplus, sets `_current_target_amps` and goes
+straight to RIDING_EDGE (no probe — the running charger already proves the
+load is served with grid import low). Real, uncurtailed surplus (≥ next level)
+is left to Solar Surplus.
+
+**Bug B — at the real PV limit the edge restarted from 6 A.** With a home
+consumption sensor that includes the EV, `surplus_watts ≈ -grid_import`, so the
+`-500 W` plausibility exit in `_check_active_exit_conditions` fired before the
+RIDING_EDGE step-down could, stopping the charger and re-probing from 6 A in a
+loop. The floor now applies to PROBING only; in RIDING_EDGE a deficit is grid
+import and is handled by the step-down path.
+
+**Files**: `hybrid_inverter_mode.py` (`is_relevant` adoption branch,
+`_adopt_session`, PROBING-only surplus floor, docstring), `solar_surplus.py`
+(passes `current_amps` to `is_relevant`), `const.py` + `manifest.json`
+(VERSION), `README.md`, this file; tests: NEW
+`tests/test_v2133_hybrid_adoption.py` (5, end-to-end with a simulated
+zero-export inverter: a running 10 A session is adopted and settles on the real
+24 A edge for both consumption-sensor conventions, a probe from OFF rides the
+edge without restarting for both conventions, real uncurtailed surplus is left
+to Solar Surplus). 3 of the 5 fail on v2.13.2. `VERSION = "2.13.3"`. No schema
+/ entity / config-flow change, entity counts unchanged (74 / 60). Full suite
+green: **373 passed / 0 failed**.
+
+**Upgrade priority**: 🔴 STRONGLY RECOMMENDED for every Hybrid Inverter Mode user.
+
+---
 
 ### v2.13.2 (2026-09-28)
 **FIX: Hybrid Inverter Mode RIDING_EDGE ramp froze mid-way (~10 A) despite PV headroom**
