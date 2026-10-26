@@ -56,6 +56,8 @@ Most projects target one charger brand or assume a single-phase home. EV Smart C
 
 > **🆕 New in v2.6.0** — mass bug-fix & improvement release (issues #36–#42). Highlights: an optional **`grid_available` binary sensor** ([issue #36](https://github.com/antbald/ha-ev-smart-charger/issues/36)) stops Night Smart Charge grid mode during a **grid outage** so it doesn't drain the home battery on hybrid Battery First / UPS inverters (fail-safe: an unavailable sensor never triggers a false stop); a **customizable nighttime window** ([issue #42](https://github.com/antbald/ha-ev-smart-charger/issues/42)) via two opt-in offset numbers (start before sunset / end after sunrise); and a big **INFO log-noise reduction** ([issue #40](https://github.com/antbald/ha-ev-smart-charger/issues/40)) — idle ticks no longer flood the HA log. Also: valid day icons (#37), faster Generic-charger ramp-up (#38), a consistent Hybrid full-battery threshold (#39), and a cleaner telemetry log (#41). **All backward compatible** — the two features are opt-in.
 
+> **🔘 New in v2.14.0** — **native support for wallboxes controlled by start/stop buttons** ([issue #65](https://github.com/antbald/ha-ev-smart-charger/issues/65)) and a **car-ready deadline fix** ([issue #63](https://github.com/antbald/ha-ev-smart-charger/issues/63)). Some chargers (Growatt THOR) expose `button.*_start_charging` / `button.*_stop_charging` instead of an on/off switch: leave **Charger switch** empty and map the two buttons instead — every start/stop then presses the matching button, with no template switch needed. The fix: with `car_ready` ON and a night window that opens in the evening (e.g. 23:13 with a 06:50 deadline), the deadline was computed as *today* 06:50 — already 16 hours in the past — so the session stopped on its first check. The deadline is now anchored to the night window it belongs to. **STRONGLY RECOMMENDED for anyone whose night window starts before midnight.**
+
 > **⚡ New in v2.13.3** — **Hybrid Inverter Mode takes over a session that is already charging.** Hybrid Mode used to engage only with the charger OFF. When a session was already running as the home battery filled up and the inverter started curtailing (started by Solar Surplus, by battery support, or still running after a Home Assistant restart), the amperage froze wherever it was — typically 10 A — because the measured surplus becomes exactly the EV's own draw and Solar Surplus never sees room for the next level. Hybrid Mode now adopts that session and rides the edge from its current amperage. Also, at the real PV limit the edge now steps down one level instead of stopping the charger and restarting from 6 A when the home consumption sensor includes the EV. **STRONGLY RECOMMENDED for every Hybrid Inverter Mode user.**
 
 > **⚡ New in v2.13.2** — **Hybrid Inverter Mode no longer stalls mid-ramp.** In RIDING_EDGE the amperage only stepped up while grid import stayed below *half* of `evsc_grid_import_threshold`, and was held forever between half and the full threshold. Zero-export inverters regulate to a small residual import that grows with the load, so the ramp could freeze mid-way with PV headroom left. The ramp now climbs whenever import is within the threshold; anti-oscillation moved to the amperage domain — a level that forced a step-down is not re-tried for 10 minutes, after which the edge is probed again. **RECOMMENDED for every Hybrid Inverter Mode user.**
@@ -418,11 +420,14 @@ Choose the display name used in the Home Assistant UI.
 
 | Field | Required | Accepted Domains |
 |---|:---:|---|
-| Charger switch | Yes | `switch` |
+| Charger switch | One of the two (v2.14.0) | `switch` |
+| Start / Stop charging buttons (v2.14.0) | One of the two | `button` (both) |
 | Charging current control | Yes | `number`, `input_number`, `select`, `input_select` |
 | Charger status sensor | No (v2.2.0) | `sensor` |
 
-The charger switch entity is used as the unique ID for the config entry. Adding the same charger twice is prevented automatically.
+The charger switch entity (or the start button, in button mode) is used as the unique ID for the config entry. Adding the same charger twice is prevented automatically.
+
+**Start / Stop buttons (v2.14.0):** for chargers that expose a pair of `button` entities instead of an on/off switch (e.g. Growatt THOR). Leave **Charger switch** empty and map **both** buttons; if a switch is mapped it always takes precedence and the buttons are ignored. A button has no on/off state, so for 60 s after each press the integration trusts the command it sent; after that it follows the charging-power sensor or the status sensor. Map at least one of them — without either, the integration can only assume the last command succeeded. In button mode the Smart Charger Blocker reacts to the status sensor only (there is no switch to watch), so mapping the status sensor is strongly recommended.
 
 **Charger status sensor (v2.2.0):** now optional. It is used as a *fallback* for charging detection when no charging-power sensor is mapped (see Step 3), and as the source of plug/idle/finished lifecycle. Mapping it is still recommended — it tells "plugged in but not charging" apart from "unplugged", which measured power alone cannot.
 
@@ -1422,8 +1427,8 @@ from burning it.
 detected only from measured power / wallbox status, so a power sensor that keeps
 its last value once the charger is off left the card pinned indefinitely, and
 even in the good case it took up to 6 minutes. If you still see it, check that
-`ev_charger_switch` and (ideally) `ev_charger_status` are mapped in the
-integration options — they are the signals the fast paths key off.
+`ev_charger_switch` (or, in button mode, the charging-power sensor) and
+(ideally) `ev_charger_status` are mapped in the integration options — they are the signals the fast paths key off.
 
 **The card looks stale.** That is usually correct behaviour: charging power,
 amperage and wallbox status are display-only and refresh on the next scheduled
@@ -1473,7 +1478,8 @@ Data is stored in a private sheet accessible only to the maintainer. Aggregated 
 
 **Start with these checks:**
 
-1. Confirm the mapped charger switch can be toggled manually in **Developer Tools → Services**.
+1. Confirm the mapped charger switch can be toggled manually in **Developer Tools → Services** (in button mode: that pressing the start and stop buttons really starts and stops the charger).
+   - Button mode only: if the integration thinks the charger is on when it is not (or vice versa), map the charging-power or charger-status sensor — after 60 s from each press the state is read from those sensors.
 2. Confirm the charger status sensor returns one of the four accepted values (`charger_charging`, `charger_free`, `charger_end`, `charger_wait`). Custom or localised values will not be recognised.
 3. Confirm solar production, home consumption, and grid import sensors report values in Watts (`W`). kW-scale sensors will result in wrong surplus calculations.
 4. If EV SOC comes from a cloud integration, check `sensor.evsc_cached_ev_soc` — the source may be intermittently unavailable.

@@ -45,14 +45,14 @@ Makefile
 | `custom_components/ev_smart_charger/runtime.py` | Canonical `EVSCRuntimeData` dataclass and runtime access helpers |
 | `custom_components/ev_smart_charger/entity_base.py` | Shared entity registration, metadata, and runtime-aware base behavior |
 | `custom_components/ev_smart_charger/const.py` | Shared constants, helper suffixes, defaults, and automation priorities |
-| `custom_components/ev_smart_charger/config_flow.py` | Initial setup flow, native reconfigure flow, compatibility options wrapper |
+| `custom_components/ev_smart_charger/config_flow.py` | Initial setup flow, native reconfigure flow, compatibility options wrapper. v2.14.0: charger on/off is a switch OR a start/stop button pair (`_normalize_charger_input`, `_charger_control_id`) |
 | `custom_components/ev_smart_charger/diagnostic_manager.py` | Unified diagnostics publisher for runtime events and coordinator snapshots |
 
 ## 3. Charger control and orchestration
 
 | File | Responsibility | Notes |
 | --- | --- | --- |
-| `custom_components/ev_smart_charger/charger_controller.py` | Serialized charger start, stop, and current changes | Owns current-control adapter for `number`, `input_number`, `select`, `input_select`. v2.0.0: charger-model-aware levels + decrease sequence (tuya stop/set/start, generic live). v2.2.0: caches measured charging power for the operation diagnostic only — all control stays on the commanded switch echo / setpoint |
+| `custom_components/ev_smart_charger/charger_controller.py` | Serialized charger start, stop, and current changes | Owns current-control adapter for `number`, `input_number`, `select`, `input_select`. v2.0.0: charger-model-aware levels + decrease sequence (tuya stop/set/start, generic live). v2.2.0: caches measured charging power for the operation diagnostic only — all control stays on the commanded switch echo / setpoint. v2.14.0: button mode (`uses_charger_buttons`) — start/stop press `button` entities via `_turn_on_charger_switch` / `_turn_off_charger_switch`; commanded state for 60 s after a press, then the measured / status reading |
 | `custom_components/ev_smart_charger/power_model.py` | `ChargingModel`: phase mode (single/three) + charger model (tuya/generic) single source, **+ charging-state SSOT** (v2.2.0) | Built once in `__init__`, shared via `runtime_data.power_model`; sums per-phase power sensors, exposes effective voltage + amp levels. v2.2.0: `read_charging_power` / `is_charging` (drawing-now SSOT, kW→W normalized, tolerant status fallback) / `is_plugged_in` |
 | `custom_components/ev_smart_charger/automation_coordinator.py` | Ownership arbitration across charger-driving automations | Single control plane for Boost, Blocker, Night, and Solar |
 | `custom_components/ev_smart_charger/priority_balancer.py` | EV vs home battery decision logic | Decision-only, not a charger actuator |

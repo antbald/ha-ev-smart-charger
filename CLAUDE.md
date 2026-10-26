@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.13.3
+**Current Version:** 2.14.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -63,8 +63,9 @@ The v1.0.0+ releases introduced complete refactoring with the following key chan
 - Waits 2 seconds after platform setup for entity registration
 
 **Configuration Flow (`config_flow.py`):**
-- 3-step wizard: Name → Charger Entities → Monitoring Sensors
+- 10-step wizard: Name → Phase mode → Charger model → Charger Entities → Sensors → Hybrid Inverter → PV Forecast → Notifications → External connectors → Dashboard (reconfigure / options: 9 steps)
 - User maps existing HA entities to integration roles
+- Charger on/off control (v2.14.0): a switch OR a start/stop button pair; `_normalize_charger_input()` lets a mapped switch win and rejects an entry with neither (`charger_control_required`); the step description explains the choice in EN/IT/NL
 - Options flow allows reconfiguration
 
 ### Component Dependency Graph
@@ -144,6 +145,7 @@ All helper entities use `RestoreEntity` to persist state across restarts.
   - Decrease: stop → 5 sec → set → 1 sec → start
 - **Comprehensive Logging**: Every operation logged with EVSCLogger
 - **State Caching**: Tracks current amperage and on/off state
+- **Button mode (v2.14.0)**: when `uses_charger_buttons(config)` (switch empty, both buttons mapped) every start/stop presses the matching `button` (`_turn_on_charger_switch` / `_turn_off_charger_switch`); the on/off state is the commanded one for `CHARGER_BUTTON_STATE_SETTLE_SECONDS` (60 s) after a press, then follows `power_model.is_charging()` if a power/status sensor is mapped
 
 **Key Methods:**
 - `start_charger(target_amps, reason)` - Start charger with specified amperage
@@ -432,7 +434,8 @@ This allows automations to find helper entities regardless of entry_id.
 - `VOLTAGE_EU = 230` (European standard voltage)
 
 **User-Mapped Entities (from config flow):**
-- `CONF_EV_CHARGER_SWITCH` - Switch to control charger on/off
+- `CONF_EV_CHARGER_SWITCH` - Switch to control charger on/off (optional since v2.14.0)
+- `CONF_EV_CHARGER_START_BUTTON` / `CONF_EV_CHARGER_STOP_BUTTON` - Start/stop buttons, used instead of the switch when it is empty (v2.14.0)
 - `CONF_EV_CHARGER_CURRENT` - Number/Select for amperage (6-32A)
 - `CONF_EV_CHARGER_STATUS` - Sensor showing charger state
 - `CONF_SOC_CAR` - EV battery level (%)
@@ -756,6 +759,58 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.14.0 (2026-10-26)
+**FEATURE: native start/stop button control (issue #65) + FIX: car-ready deadline in evening night windows (issue #63)**
+
+**#63 — car-ready deadline 16 h in the past (BUG).** `_get_car_ready_time()`
+built the deadline as "today at HH:MM" with no date rollover. With a night
+window opening in the evening (e.g. `night_charge_time` 23:13, `car_ready_time`
+06:50) a car_ready=ON session evaluated at 23:14 saw a deadline of *today*
+06:50, already passed, and `_should_stop_for_deadline()` stopped it on the
+first monitor tick. Fix: new `_get_night_window_anchor()` returns the opening
+of the night window the moment belongs to (session start while a session runs,
+otherwise now; activation grace honoured), and the deadline is the first
+occurrence of `car_ready_time` at or after that anchor
+(`time_string_to_next_occurrence`). `_night_session_start` is cleared in
+`_complete_night_charge` so it never outlives its session.
+
+**#65 — chargers controlled by buttons (FEATURE).** Some wallboxes (Growatt
+THOR) expose `button.*_start_charging` / `button.*_stop_charging` instead of a
+switch. New optional config keys `CONF_EV_CHARGER_START_BUTTON` /
+`CONF_EV_CHARGER_STOP_BUTTON`; `uses_charger_buttons(config)` is True when the
+switch is unmapped and both buttons are mapped. The charger switch became
+optional in all three flows; `_normalize_charger_input()` clears empty fields,
+drops the buttons when a switch is mapped (switch wins) and returns
+`charger_control_required` when neither a switch nor both buttons are given.
+`_charger_control_id()` (switch, else start button) is the unique_id and the
+duplicate check. In `ChargerController` every on/off goes through
+`_turn_on_charger_switch()` / new `_turn_off_charger_switch()`, which press the
+matching button in button mode (also inside the Tuya decrease sequence).
+Because a button has no state, `_record_command()` tracks the commanded state:
+for `CHARGER_BUTTON_STATE_SETTLE_SECONDS = 60` after a press the commanded
+state is authoritative, then `power_model.is_charging` takes over when a power
+or status sensor is mapped (commanded state otherwise). Smart Charger Blocker
+registers its switch listeners only when a switch is mapped (button mode is
+triggered by the status sensor only — documented limitation); Night Smart
+Charge's emergency path accepts the start button as the control entity.
+
+**Files**: `const.py`, `charger_controller.py`, `config_flow.py`,
+`night_smart_charge.py`, `automations.py`, `strings.json` +
+`translations/{en,it,nl}.json`, `manifest.json`, `README.md`, this file; tests:
+`tests/test_night_smart_charge.py` (+6, #63), NEW
+`tests/test_v2140_charger_buttons.py` (8: start/stop press the buttons and
+never a switch, Tuya decrease sequence uses the buttons, commanded state within
+the settle window then measured state, commanded state without sensors, input
+normalization, config flow accepts buttons only / requires a control).
+`VERSION = "2.14.0"`. No entity change, counts unchanged (74 / 60). Full suite
+green: **387 passed / 0 failed**.
+
+**Upgrade priority**: 🔴 STRONGLY RECOMMENDED for car_ready users whose night
+window opens before midnight. 🟢 RECOMMENDED for button-controlled wallboxes
+(Growatt THOR) — drop the template-switch workaround.
+
+---
 
 ### v2.13.3 (2026-09-28)
 **FIX: charging frozen at 10 A under curtailment — Hybrid Inverter Mode now adopts a running session**

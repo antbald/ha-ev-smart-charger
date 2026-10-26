@@ -1069,6 +1069,9 @@ async def test_pv_handoff_hardcap_midnight_safe(hass, night_charge):
     hass.states.async_set("number.test_evsc_night_pv_handoff_threshold", "200")
     hass.states.async_set("sensor.fv_production", "0")
     hass.states.async_set("input_datetime.test_evsc_car_ready_time", "08:00:00")
+    # v2.14.0: the cap is anchored to the night window, so the window must
+    # actually open in the evening for an evening session to exist.
+    hass.states.async_set("input_datetime.test_evsc_night_charge_time", "23:00:00")
 
     now = dt_util.now()
     night_charge._night_session_start = now.replace(hour=23, minute=15, second=0, microsecond=0)
@@ -1113,6 +1116,90 @@ async def test_pv_handoff_ignored_when_car_ready_on(hass, night_charge):
 
     assert should_stop is False
     assert "handing off" not in reason.lower()
+
+
+# ============================================================================
+# v2.14.0 (issue #63) - car-ready deadline anchored to the night window
+# ============================================================================
+
+def _evening_window(hass, window="23:13:00", deadline="06:50:00"):
+    _set_car_ready_all(hass, "on")
+    hass.states.async_set("input_datetime.test_evsc_night_charge_time", window)
+    hass.states.async_set("input_datetime.test_evsc_car_ready_time", deadline)
+
+
+async def test_car_ready_deadline_evening_window_does_not_stop(hass, night_charge):
+    """issue #63: window 23:13, deadline 06:50 → a 23:14 check must keep charging."""
+    _evening_window(hass)
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+
+    current = dt_util.now().replace(hour=23, minute=14, second=0, microsecond=0)
+    should_stop, reason = await night_charge._should_stop_for_deadline(current)
+
+    assert should_stop is False
+    deadline = night_charge._get_car_ready_time(current)
+    assert deadline.date() == (current + timedelta(days=1)).date()
+    assert (deadline.hour, deadline.minute) == (6, 50)
+
+
+async def test_car_ready_deadline_evening_window_stops_next_morning(hass, night_charge):
+    """issue #63: the same window disarms once the next-morning deadline passed."""
+    _evening_window(hass)
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+
+    current = dt_util.now().replace(hour=7, minute=30, second=0, microsecond=0)
+    should_stop, reason = await night_charge._should_stop_for_deadline(current)
+
+    assert should_stop is True
+    assert "deadline" in reason.lower()
+
+
+async def test_car_ready_deadline_active_session_crosses_midnight(hass, night_charge):
+    """A running session started at 23:14 keeps its deadline across midnight."""
+    _evening_window(hass)
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+    now = dt_util.now()
+    night_charge._night_charge_active = True
+    night_charge._active_mode = NIGHT_CHARGE_MODE_GRID
+    night_charge._night_session_start = (now - timedelta(days=1)).replace(
+        hour=23, minute=14, second=0, microsecond=0
+    )
+
+    early = now.replace(hour=5, minute=0, second=0, microsecond=0)
+    assert (await night_charge._should_stop_for_deadline(early))[0] is False
+
+    late = now.replace(hour=6, minute=50, second=0, microsecond=0)
+    assert (await night_charge._should_stop_for_deadline(late))[0] is True
+
+
+async def test_car_ready_deadline_after_midnight_window_unchanged(hass, night_charge):
+    """Legacy window (01:00 → 08:00): deadline is today's 08:00, as before."""
+    _set_car_ready_all(hass, "on")
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+    now = dt_util.now()
+
+    before = now.replace(hour=7, minute=59, second=0, microsecond=0)
+    assert (await night_charge._should_stop_for_deadline(before))[0] is False
+
+    after = now.replace(hour=8, minute=0, second=0, microsecond=0)
+    assert (await night_charge._should_stop_for_deadline(after))[0] is True
+
+
+async def test_car_ready_deadline_grace_before_window(hass, night_charge):
+    """A check in the activation grace belongs to the upcoming window."""
+    _set_car_ready_all(hass, "on")
+    night_charge.priority_balancer.is_ev_target_reached = AsyncMock(return_value=False)
+
+    current = dt_util.now().replace(hour=0, minute=59, second=0, microsecond=0)
+    assert night_charge._get_night_window_anchor(current).hour == 1
+    assert (await night_charge._should_stop_for_deadline(current))[0] is False
+
+
+async def test_complete_night_charge_resets_session_start(hass, night_charge):
+    """The session start never outlives its session (stale-anchor guard)."""
+    night_charge._night_session_start = dt_util.now()
+    await night_charge._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
+    assert night_charge._night_session_start is None
 
 
 async def test_disabled_switch_does_not_mutate_session_state(hass, night_charge):

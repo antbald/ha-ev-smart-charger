@@ -12,6 +12,7 @@ from .const import (
     LIVE_ACTIVITY_MODE_NIGHT_GRID,
     CONF_CAR_OWNER,
     CONF_EV_CHARGER_STATUS,
+    CONF_EV_CHARGER_START_BUTTON,
     CONF_EV_CHARGER_SWITCH,
     CONF_SOC_HOME,
     CONF_PV_FORECAST,
@@ -1126,7 +1127,11 @@ class NightSmartCharge:
                 )
     
                 # Only check ABSOLUTE essentials (control entities must exist)
-                if not self._charger_switch:
+                # v2.14.0 (issue #65): a start/stop button pair replaces the switch
+                charger_control = self._charger_switch or self.config.get(
+                    CONF_EV_CHARGER_START_BUTTON
+                )
+                if not charger_control:
                     self.logger.error("❌ CRITICAL: Charger switch entity not configured - cannot charge")
                     return
     
@@ -1135,12 +1140,12 @@ class NightSmartCharge:
                     return
     
                 # Check if control entities are available (not the sensors, the control entities)
-                switch_state = self.hass.states.get(self._charger_switch)
+                switch_state = self.hass.states.get(charger_control)
                 current_state = self.hass.states.get(self._charger_current)
     
                 if not switch_state:
                     self.logger.error(
-                        f"❌ CRITICAL: Charger switch entity unavailable: {self._charger_switch}"
+                        f"❌ CRITICAL: Charger switch entity unavailable: {charger_control}"
                     )
                     return
     
@@ -2346,6 +2351,9 @@ class NightSmartCharge:
         self._grid_battery_masking_tracker.reset()
         # v2.6.0 (issue #36): same hygiene for the grid-loss debounce.
         self._grid_loss_tracker.reset()
+        # v2.14.0 (issue #63): the session start anchors the car-ready deadline
+        # and the PV-handoff hard-cap; never let it outlive its session.
+        self._night_session_start = None
 
         # Boost Charge can preempt Night Smart Charge while a monitor callback is already
         # running. In that race, this cleanup must not mark the night session as completed
@@ -2679,51 +2687,80 @@ class NightSmartCharge:
 
         return car_ready
 
-    def _get_car_ready_time(self) -> datetime:
+    def _get_car_ready_time(self, current_time: datetime | None = None) -> datetime:
         """
-        Get car ready deadline time for today (v1.3.18+).
+        Car-ready deadline for the night this check belongs to (v1.3.18+).
 
-        Returns:
-            datetime: Today at the configured car ready time
+        v2.14.0 (issue #63): the deadline used to be built as "today at HH:MM"
+        with no date rollover, so a car_ready=ON session evaluated in the
+        evening (e.g. started 23:14, deadline 06:50) saw a deadline 16 hours
+        in the past and was stopped on the first monitor tick. The deadline is
+        now the first occurrence of car_ready_time at or after the opening of
+        the night window (see ``_get_night_window_anchor``).
         """
         time_state = state_helper.get_state(self.hass, self._car_ready_time_entity)
         if not time_state or time_state in ("unknown", "unavailable"):
             time_state = DEFAULT_CAR_READY_TIME
+        anchor = self._get_night_window_anchor(current_time or dt_util.now())
+        return TimeParsingService.time_string_to_next_occurrence(time_state, anchor)
 
-        # Convert to datetime (today at specified time)
-        now = dt_util.now()
-        time_parts = time_state.split(":")
-        car_ready_time = now.replace(
-            hour=int(time_parts[0]),
-            minute=int(time_parts[1]),
-            second=int(time_parts[2]) if len(time_parts) > 2 else 0,
-            microsecond=0
-        )
-        return car_ready_time
+    def _get_night_window_anchor(self, current_time: datetime) -> datetime:
+        """
+        Opening time of the night window the given moment belongs to (v2.14.0).
+
+        Reference point: the session start while a session is running (stable
+        for its whole life, midnight-safe), otherwise ``current_time``. The
+        anchor is the most recent ``night_charge_time`` at or before the
+        reference, allowing the activation grace (a session armed at 00:58 for
+        a 01:00 window belongs to the 01:00 window, not yesterday's).
+
+        - window 23:13, now 23:14   → today 23:13   (deadline 06:50 = tomorrow)
+        - window 23:13, now 07:30   → yesterday 23:13 (deadline 06:50 = today, passed)
+        - window 01:00, now 07:30   → today 01:00   (deadline 08:00 = today, ahead)
+
+        Falls back to the reference itself when the window time is unknown.
+        """
+        reference = current_time
+        if self.is_active() and self._night_session_start:
+            reference = self._night_session_start
+
+        time_state = None
+        if self._night_charge_time_entity:
+            time_state = state_helper.get_state(
+                self.hass, self._night_charge_time_entity
+            )
+        if not time_state or time_state in ("unknown", "unavailable"):
+            return reference
+
+        try:
+            window_start = TimeParsingService.time_string_to_datetime(
+                time_state, reference
+            )
+        except (ValueError, TypeError, IndexError):
+            return reference
+
+        grace = timedelta(minutes=ACTIVATION_GRACE_BEFORE_MINUTES)
+        if window_start > reference + grace:
+            window_start -= timedelta(days=1)
+        return window_start
 
     def _get_pv_handoff_hardcap(self, current_time: datetime) -> datetime:
         """
         Absolute morning hard-cap for the PV-handoff stop (v2.3.0, issue #32).
 
-        Anchored to the SESSION START (not current_time): the cap is the first
-        occurrence of car_ready_time AT OR AFTER the session began. This is
-        midnight-safe and stable for the whole morning:
-        - session started 01:00 → cap = today 08:00; ``current >= cap`` stays
-          True for the rest of the morning (the cap genuinely bounds the draw).
-        - session started 23:15 → cap = tomorrow 08:00 (~9h away), not the
-          deadline that already passed earlier today.
+        The first occurrence of car_ready_time at or after the opening of the
+        night window (v2.14.0: shared with the car-ready deadline, issue #63).
+        This is midnight-safe and stable for the whole morning:
+        - window 01:00 → cap = today 08:00; ``current >= cap`` stays True for
+          the rest of the morning (the cap genuinely bounds the draw).
+        - window 23:15 → cap = tomorrow 08:00 (~9h away), not the deadline that
+          already passed earlier today.
 
         Anchoring to current_time instead would only ever equal car_ready_time
         in the exact tick it occurs (next-occurrence rolls to tomorrow one second
         later), so the cap could be skipped between ticks.
         """
-        time_state = state_helper.get_state(self.hass, self._car_ready_time_entity)
-        if not time_state or time_state in ("unknown", "unavailable"):
-            time_state = DEFAULT_CAR_READY_TIME
-        reference = self._night_session_start or current_time
-        return TimeParsingService.time_string_to_next_occurrence(
-            time_state, reference
-        )
+        return self._get_car_ready_time(current_time)
 
     async def _should_stop_for_deadline(self, current_time: datetime) -> tuple[bool, str]:
         """
@@ -2749,7 +2786,7 @@ class NightSmartCharge:
 
         if car_ready_today:
             # Car needed - check deadline first
-            car_ready_time = self._get_car_ready_time()
+            car_ready_time = self._get_car_ready_time(current_time)
 
             if current_time >= car_ready_time:
                 # Past deadline - stop immediately

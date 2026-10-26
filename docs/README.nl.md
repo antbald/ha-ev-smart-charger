@@ -25,7 +25,7 @@ Deze gids is de Nederlandstalige instappagina voor installatie, configuratie en 
 De configuratiewizard bestaat uit 6 stappen:
 
 1. Geef de integratie een herkenbare naam.
-2. Koppel de entiteiten van de lader: schakelaar, stroomregeling en statussensor.
+2. Koppel de entiteiten van de lader: aan/uit-bediening, stroomregeling en statussensor. De aan/uit-bediening is óf een schakelaar óf (sinds v2.14.0) een paar start- / stopknoppen, bijvoorbeeld bij een Growatt THOR: laat dan de schakelaar leeg en koppel beide knoppen.
 3. Koppel de energiesensoren: EV-SOC, thuisbatterij-SOC, zonneproductie, woningverbruik en netafname.
 4. Voeg optioneel een sensor voor de zonneverwachting toe voor Night Smart Charge.
 5. Kies optioneel mobiele notify-services en de persoonsentiteit van de auto-eigenaar.

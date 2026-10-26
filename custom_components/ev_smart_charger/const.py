@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.13.3"
+VERSION = "2.14.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -78,6 +78,10 @@ CHARGING_POWER_DRAWING_FLOOR_W = 200
 # naive ``power > floor`` would oscillate against the rate-limited command loop.
 # Within this many seconds of a start/stop command, the command wins.
 CHARGING_POWER_GRACE_SECONDS = 15
+# v2.14.0 (issue #65): a button-controlled charger has no on/off state to read
+# back. For this long after a press the commanded state is trusted; afterwards
+# the measured charging state (power sensor, else status sensor) wins.
+CHARGER_BUTTON_STATE_SETTLE_SECONDS = 60
 # Night-charge GRID mode: suppress the measured-power blind-spot stop for this
 # long after the session starts. An EV can take tens of seconds to begin drawing
 # after the wallbox reports 'charging' (cold battery, scheduled charging,
@@ -104,6 +108,11 @@ DEFAULT_CHARGER_MODEL = CHARGER_MODEL_TUYA
 # ========== CONFIGURATION FLOW KEYS ==========
 CONF_EV_CHARGER_SWITCH = "ev_charger_switch"
 CONF_EV_CHARGER_CURRENT = "ev_charger_current"
+# v2.14.0 (issue #65): some wallbox integrations (e.g. Growatt THOR) expose
+# start/stop as two `button` entities instead of an on/off switch. The switch is
+# then optional: either a switch OR both buttons must be mapped.
+CONF_EV_CHARGER_START_BUTTON = "ev_charger_start_button"
+CONF_EV_CHARGER_STOP_BUTTON = "ev_charger_stop_button"
 CONF_EV_CHARGER_STATUS = "ev_charger_status"
 # v2.13.0 (issue #58): SOC fields accept a plain helper as well as a sensor.
 # Many EVs expose no SOC at all; those users track it manually and had to wrap an
@@ -555,6 +564,17 @@ TOTAL_INTEGRATION_ENTITIES = 74
 # Hybrid Mode entities are still created in PV-only mode but stay IDLE (requires soc_home).
 # v2.13.0 (issue #57): the off-grid amperage cap is NOT battery-only → +1 → 60.
 TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 60
+
+
+def uses_charger_buttons(config: dict) -> bool:
+    """Return True when the charger is driven by start/stop buttons (issue #65).
+
+    A mapped switch always wins, so existing installs are unchanged.
+    """
+    return not config.get(CONF_EV_CHARGER_SWITCH) and bool(
+        config.get(CONF_EV_CHARGER_START_BUTTON)
+        and config.get(CONF_EV_CHARGER_STOP_BUTTON)
+    )
 
 
 def has_home_battery(config: dict) -> bool:

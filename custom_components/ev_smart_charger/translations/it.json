@@ -13,14 +13,18 @@
       },
       "entities": {
         "title": "Entita Charger - Passo {step}/{total_steps}",
-        "description": "Mappa le entita che avviano o fermano il charger, impostano la corrente di ricarica e riportano lo stato del charger.",
+        "description": "Mappa le entita che avviano o fermano il charger, impostano la corrente di ricarica e riportano lo stato del charger.\n\n**Controllo on/off del charger — scegli UNA delle due modalità:**\n- **Switch** (la maggior parte delle wallbox): mappa lo switch on/off e lascia vuoti entrambi i pulsanti.\n- **Pulsanti Start / Stop** (es. Growatt THOR): lascia vuoto lo switch e mappa ENTRAMBI i pulsanti di avvio e di arresto.\n\nSe sono mappati entrambi, viene usato lo switch. Con i pulsanti è fortemente consigliato mappare anche il sensore di potenza di ricarica o di stato del charger nel passo successivo: è così che l'integrazione sa se il charger sta davvero caricando.",
         "data": {
           "ev_charger_switch": "Switch charger",
+          "ev_charger_start_button": "Pulsante avvio ricarica",
+          "ev_charger_stop_button": "Pulsante arresto ricarica",
           "ev_charger_current": "Controllo corrente di ricarica",
           "ev_charger_status": "Sensore stato charger"
         },
         "data_description": {
-          "ev_charger_switch": "Entita switch che accende o spegne il charger.",
+          "ev_charger_switch": "Entità switch che accende o spegne il charger. Lasciala vuota se il charger espone pulsanti di avvio/arresto.",
+          "ev_charger_start_button": "Opzionale. Per i charger che espongono pulsanti di avvio/arresto invece di uno switch (es. Growatt THOR). Mappa entrambi i pulsanti e lascia vuoto lo switch.",
+          "ev_charger_stop_button": "Opzionale. Premuto per fermare la ricarica quando il charger è controllato tramite pulsanti.",
           "ev_charger_current": "Entita per la corrente. Domini supportati: `number`, `input_number`, `select`, `input_select`.",
           "ev_charger_status": "Opzionale. Riporta `charger_charging`, `charger_free`, `charger_end` o `charger_wait`. Usato come fallback per il rilevamento della ricarica quando nessun sensore di potenza è mappato, e come fonte dello stato collegato/inattivo/terminato."
         }
@@ -227,14 +231,18 @@
       },
       "reconfigure_entities": {
         "title": "Riconfigura Entita Charger - Passo {step}/{total_steps}",
-        "description": "Aggiorna le entita del charger per questa config entry.",
+        "description": "Aggiorna le entita del charger per questa config entry.\n\n**Controllo on/off del charger — scegli UNA delle due modalità:**\n- **Switch** (la maggior parte delle wallbox): mappa lo switch on/off e lascia vuoti entrambi i pulsanti.\n- **Pulsanti Start / Stop** (es. Growatt THOR): lascia vuoto lo switch e mappa ENTRAMBI i pulsanti di avvio e di arresto.\n\nSe sono mappati entrambi, viene usato lo switch. Con i pulsanti è fortemente consigliato mappare anche il sensore di potenza di ricarica o di stato del charger nel passo successivo: è così che l'integrazione sa se il charger sta davvero caricando.",
         "data": {
           "ev_charger_switch": "Switch charger",
+          "ev_charger_start_button": "Pulsante avvio ricarica",
+          "ev_charger_stop_button": "Pulsante arresto ricarica",
           "ev_charger_current": "Controllo corrente di ricarica",
           "ev_charger_status": "Sensore stato charger"
         },
         "data_description": {
-          "ev_charger_switch": "Entita switch che accende o spegne il charger.",
+          "ev_charger_switch": "Entità switch che accende o spegne il charger. Lasciala vuota se il charger espone pulsanti di avvio/arresto.",
+          "ev_charger_start_button": "Opzionale. Per i charger che espongono pulsanti di avvio/arresto invece di uno switch (es. Growatt THOR). Mappa entrambi i pulsanti e lascia vuoto lo switch.",
+          "ev_charger_stop_button": "Opzionale. Premuto per fermare la ricarica quando il charger è controllato tramite pulsanti.",
           "ev_charger_current": "Entita per la corrente. Domini supportati: `number`, `input_number`, `select`, `input_select`.",
           "ev_charger_status": "Opzionale. Riporta `charger_charging`, `charger_free`, `charger_end` o `charger_wait`. Usato come fallback per il rilevamento della ricarica quando nessun sensore di potenza è mappato, e come fonte dello stato collegato/inattivo/terminato."
         }
@@ -274,7 +282,8 @@
       "required": "Questo campo e obbligatorio.",
       "invalid_battery_capacity": "La capacita della batteria deve essere compresa tra 10 e 200 kWh.",
       "entity_not_found": "Entita non trovata.",
-      "invalid_domain": "L'entita deve appartenere al dominio `number` o `input_number`."
+      "invalid_domain": "L'entita deve appartenere al dominio `number` o `input_number`.",
+      "charger_control_required": "Mappa uno switch del charger oppure entrambi i pulsanti di avvio e arresto ricarica."
     },
     "abort": {
       "already_configured": "Un'altra istanza di EV Smart Charger usa gia questo charger switch.",
@@ -390,14 +399,18 @@
       },
       "entities": {
         "title": "Aggiorna Entita Charger - Passo {step}/{total_steps}",
-        "description": "Wrapper di compatibilita del flow canonico di reconfigure. Aggiorna le entita del charger per questa entry.",
+        "description": "Wrapper di compatibilita del flow canonico di reconfigure. Aggiorna le entita del charger per questa entry.\n\n**Controllo on/off del charger — scegli UNA delle due modalità:**\n- **Switch** (la maggior parte delle wallbox): mappa lo switch on/off e lascia vuoti entrambi i pulsanti.\n- **Pulsanti Start / Stop** (es. Growatt THOR): lascia vuoto lo switch e mappa ENTRAMBI i pulsanti di avvio e di arresto.\n\nSe sono mappati entrambi, viene usato lo switch. Con i pulsanti è fortemente consigliato mappare anche il sensore di potenza di ricarica o di stato del charger nel passo successivo: è così che l'integrazione sa se il charger sta davvero caricando.",
         "data": {
           "ev_charger_switch": "Switch charger",
+          "ev_charger_start_button": "Pulsante avvio ricarica",
+          "ev_charger_stop_button": "Pulsante arresto ricarica",
           "ev_charger_current": "Controllo corrente di ricarica",
           "ev_charger_status": "Sensore stato charger"
         },
         "data_description": {
-          "ev_charger_switch": "Entita switch che accende o spegne il charger.",
+          "ev_charger_switch": "Entità switch che accende o spegne il charger. Lasciala vuota se il charger espone pulsanti di avvio/arresto.",
+          "ev_charger_start_button": "Opzionale. Per i charger che espongono pulsanti di avvio/arresto invece di uno switch (es. Growatt THOR). Mappa entrambi i pulsanti e lascia vuoto lo switch.",
+          "ev_charger_stop_button": "Opzionale. Premuto per fermare la ricarica quando il charger è controllato tramite pulsanti.",
           "ev_charger_current": "Entita per la corrente. Domini supportati: `number`, `input_number`, `select`, `input_select`.",
           "ev_charger_status": "Opzionale. Riporta `charger_charging`, `charger_free`, `charger_end` o `charger_wait`. Usato come fallback per il rilevamento della ricarica quando nessun sensore di potenza è mappato, e come fonte dello stato collegato/inattivo/terminato."
         }
@@ -417,7 +430,8 @@
       "required": "Questo campo e obbligatorio.",
       "invalid_battery_capacity": "La capacita della batteria deve essere compresa tra 10 e 200 kWh.",
       "entity_not_found": "Entita non trovata.",
-      "invalid_domain": "L'entita deve appartenere al dominio `number` o `input_number`."
+      "invalid_domain": "L'entita deve appartenere al dominio `number` o `input_number`.",
+      "charger_control_required": "Mappa uno switch del charger oppure entrambi i pulsanti di avvio e arresto ricarica."
     }
   },
   "entity": {

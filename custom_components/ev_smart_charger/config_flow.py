@@ -20,6 +20,8 @@ from .const import (
     CONF_ENERGY_FORECAST_TARGET,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
+    CONF_EV_CHARGER_START_BUTTON,
+    CONF_EV_CHARGER_STOP_BUTTON,
     CONF_EV_CHARGER_SWITCH,
     CONF_FV_PRODUCTION,
     CONF_FV_PRODUCTION_L2,
@@ -98,9 +100,40 @@ def _is_duplicate_charger_switch(
     for entry in hass.config_entries.async_entries(DOMAIN):
         if exclude_entry_id is not None and entry.entry_id == exclude_entry_id:
             continue
-        if entry.data.get(CONF_EV_CHARGER_SWITCH) == charger_switch:
+        if _charger_control_id(entry.data) == charger_switch:
             return True
     return False
+
+
+def _charger_control_id(data: dict[str, Any]) -> str | None:
+    """Return the entity that identifies the charger: switch or start button."""
+    return data.get(CONF_EV_CHARGER_SWITCH) or data.get(CONF_EV_CHARGER_START_BUTTON)
+
+
+def _normalize_charger_input(
+    user_input: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Validate the charger on/off control: a switch or a start/stop button pair.
+
+    v2.14.0 (issue #65): unset control fields are stored as None so that a
+    reconfigure from switch to buttons (or back) really clears the old value
+    instead of keeping it through the data merge.
+    """
+    data = dict(user_input)
+    for key in (
+        CONF_EV_CHARGER_SWITCH,
+        CONF_EV_CHARGER_START_BUTTON,
+        CONF_EV_CHARGER_STOP_BUTTON,
+    ):
+        data[key] = data.get(key) or None
+
+    if data[CONF_EV_CHARGER_SWITCH]:
+        data[CONF_EV_CHARGER_START_BUTTON] = None
+        data[CONF_EV_CHARGER_STOP_BUTTON] = None
+        return data, {}
+    if data[CONF_EV_CHARGER_START_BUTTON] and data[CONF_EV_CHARGER_STOP_BUTTON]:
+        return data, {}
+    return data, {"base": "charger_control_required"}
 
 
 def _merge_entry_data(base_data: dict[str, Any], *sections: dict[str, Any]) -> dict[str, Any]:
@@ -128,10 +161,27 @@ def _charger_schema(current_data: dict[str, Any] | None = None) -> vol.Schema:
     current_data = current_data or {}
     return vol.Schema(
         {
-            vol.Required(
+            # v2.14.0 (issue #65): the on/off control is either a switch or a
+            # start/stop button pair. suggested_value (not default) so a field
+            # can be cleared when moving from one to the other.
+            vol.Optional(
                 CONF_EV_CHARGER_SWITCH,
-                **_field_config(current_data.get(CONF_EV_CHARGER_SWITCH)),
+                description={
+                    "suggested_value": current_data.get(CONF_EV_CHARGER_SWITCH)
+                },
             ): _entity_selector("switch"),
+            vol.Optional(
+                CONF_EV_CHARGER_START_BUTTON,
+                description={
+                    "suggested_value": current_data.get(CONF_EV_CHARGER_START_BUTTON)
+                },
+            ): _entity_selector("button"),
+            vol.Optional(
+                CONF_EV_CHARGER_STOP_BUTTON,
+                description={
+                    "suggested_value": current_data.get(CONF_EV_CHARGER_STOP_BUTTON)
+                },
+            ): _entity_selector("button"),
             vol.Required(
                 CONF_EV_CHARGER_CURRENT,
                 **_field_config(current_data.get(CONF_EV_CHARGER_CURRENT)),
@@ -454,14 +504,16 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            await self.async_set_unique_id(user_input[CONF_EV_CHARGER_SWITCH])
-            self._abort_if_unique_id_configured()
-            self.charger_info = user_input
-            return await self.async_step_sensors()
+            charger_info, errors = _normalize_charger_input(user_input)
+            if not errors:
+                await self.async_set_unique_id(_charger_control_id(charger_info))
+                self._abort_if_unique_id_configured()
+                self.charger_info = charger_info
+                return await self.async_step_sensors()
 
         return self.async_show_form(
             step_id="entities",
-            data_schema=_charger_schema(),
+            data_schema=_charger_schema(user_input),
             errors=errors,
             description_placeholders={"step": "4", "total_steps": "10"},
         )
@@ -594,20 +646,23 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure_entities(self, user_input: dict[str, Any] | None = None):
         """Charger entity remapping during reconfigure."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            if _is_duplicate_charger_switch(
-                self.hass,
-                user_input[CONF_EV_CHARGER_SWITCH],
-                exclude_entry_id=self._reconfigure_entry.entry_id,
-            ):
-                return self.async_abort(reason="already_configured")
-            self.charger_info = user_input
-            return await self.async_step_reconfigure_sensors()
+            charger_info, errors = _normalize_charger_input(user_input)
+            if not errors:
+                if _is_duplicate_charger_switch(
+                    self.hass,
+                    _charger_control_id(charger_info),
+                    exclude_entry_id=self._reconfigure_entry.entry_id,
+                ):
+                    return self.async_abort(reason="already_configured")
+                self.charger_info = charger_info
+                return await self.async_step_reconfigure_sensors()
 
         return self.async_show_form(
             step_id="reconfigure_entities",
-            data_schema=_charger_schema(self._reconfigure_entry.data),
-            errors={},
+            data_schema=_charger_schema(user_input or self._reconfigure_entry.data),
+            errors=errors,
             description_placeholders={"step": "3", "total_steps": "9"},
         )
 
@@ -711,7 +766,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.hass.config_entries.async_update_entry(
                 self._reconfigure_entry,
                 data=updated_data,
-                unique_id=updated_data[CONF_EV_CHARGER_SWITCH],
+                unique_id=_charger_control_id(updated_data),
             )
             return self.async_abort(reason="reconfigure_successful")
 
@@ -773,19 +828,23 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
 
     async def async_step_entities(self, user_input: dict[str, Any] | None = None):
         """Manage charger entities options."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            if _is_duplicate_charger_switch(
-                self.hass,
-                user_input[CONF_EV_CHARGER_SWITCH],
-                exclude_entry_id=self.config_entry.entry_id,
-            ):
-                return self.async_abort(reason="already_configured")
-            self.charger_info = user_input
-            return await self.async_step_sensors()
+            charger_info, errors = _normalize_charger_input(user_input)
+            if not errors:
+                if _is_duplicate_charger_switch(
+                    self.hass,
+                    _charger_control_id(charger_info),
+                    exclude_entry_id=self.config_entry.entry_id,
+                ):
+                    return self.async_abort(reason="already_configured")
+                self.charger_info = charger_info
+                return await self.async_step_sensors()
 
         return self.async_show_form(
             step_id="entities",
-            data_schema=_charger_schema(self.config_entry.data),
+            data_schema=_charger_schema(user_input or self.config_entry.data),
+            errors=errors,
             description_placeholders={"step": "3", "total_steps": "9"},
         )
 
@@ -877,7 +936,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
             self.hass.config_entries.async_update_entry(
                 self.config_entry,
                 data=updated_data,
-                unique_id=updated_data[CONF_EV_CHARGER_SWITCH],
+                unique_id=_charger_control_id(updated_data),
             )
             return self.async_create_entry(title="", data={})
 

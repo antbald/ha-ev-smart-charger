@@ -13,14 +13,18 @@
       },
       "entities": {
         "title": "Charger Entities - Step {step}/{total_steps}",
-        "description": "Map the entities that start or stop the charger, set the charging current, and report charger status.",
+        "description": "Map the entities that start or stop the charger, set the charging current, and report charger status.\n\n**Charger on/off control — pick ONE of the two:**\n- **Switch** (most wallboxes): map the on/off switch and leave both buttons empty.\n- **Start / Stop buttons** (e.g. Growatt THOR): leave the switch empty and map BOTH the start and the stop button.\n\nIf both are mapped, the switch is used. With buttons, also mapping the charging-power or charger-status sensor in the next step is strongly recommended: it is how the integration knows whether the charger is really running.",
         "data": {
           "ev_charger_switch": "Charger switch",
+          "ev_charger_start_button": "Start charging button",
+          "ev_charger_stop_button": "Stop charging button",
           "ev_charger_current": "Charging current control",
           "ev_charger_status": "Charger status sensor"
         },
         "data_description": {
-          "ev_charger_switch": "Switch entity that turns the charger on or off.",
+          "ev_charger_switch": "Switch entity that turns the charger on or off. Leave empty if your charger exposes start/stop buttons instead.",
+          "ev_charger_start_button": "Optional. For chargers that expose start/stop buttons instead of a switch (e.g. Growatt THOR). Map both buttons and leave the switch empty.",
+          "ev_charger_stop_button": "Optional. Pressed to stop charging when the charger is controlled with buttons.",
           "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
           "ev_charger_status": "Optional. Reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`. Used as the fallback for charging detection when no charging-power sensor is mapped, and as the source of plug/idle/finished status."
         }
@@ -227,14 +231,18 @@
       },
       "reconfigure_entities": {
         "title": "Reconfigure Charger Entities - Step {step}/{total_steps}",
-        "description": "Update the charger entities for this config entry.",
+        "description": "Update the charger entities for this config entry.\n\n**Charger on/off control — pick ONE of the two:**\n- **Switch** (most wallboxes): map the on/off switch and leave both buttons empty.\n- **Start / Stop buttons** (e.g. Growatt THOR): leave the switch empty and map BOTH the start and the stop button.\n\nIf both are mapped, the switch is used. With buttons, also mapping the charging-power or charger-status sensor in the next step is strongly recommended: it is how the integration knows whether the charger is really running.",
         "data": {
           "ev_charger_switch": "Charger switch",
+          "ev_charger_start_button": "Start charging button",
+          "ev_charger_stop_button": "Stop charging button",
           "ev_charger_current": "Charging current control",
           "ev_charger_status": "Charger status sensor"
         },
         "data_description": {
-          "ev_charger_switch": "Switch entity that turns the charger on or off.",
+          "ev_charger_switch": "Switch entity that turns the charger on or off. Leave empty if your charger exposes start/stop buttons instead.",
+          "ev_charger_start_button": "Optional. For chargers that expose start/stop buttons instead of a switch (e.g. Growatt THOR). Map both buttons and leave the switch empty.",
+          "ev_charger_stop_button": "Optional. Pressed to stop charging when the charger is controlled with buttons.",
           "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
           "ev_charger_status": "Optional. Reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`. Used as the fallback for charging detection when no charging-power sensor is mapped, and as the source of plug/idle/finished status."
         }
@@ -274,7 +282,8 @@
       "required": "This field is required.",
       "invalid_battery_capacity": "Battery capacity must be between 10 and 200 kWh.",
       "entity_not_found": "Entity not found.",
-      "invalid_domain": "Entity must belong to the `number` or `input_number` domain."
+      "invalid_domain": "Entity must belong to the `number` or `input_number` domain.",
+      "charger_control_required": "Map either a charger switch or both the start and stop charging buttons."
     },
     "abort": {
       "already_configured": "Another EV Smart Charger entry already uses this charger switch.",
@@ -390,14 +399,18 @@
       },
       "entities": {
         "title": "Update Charger Entities - Step {step}/{total_steps}",
-        "description": "Compatibility wrapper around the canonical reconfigure flow. Update the charger entities for this entry.",
+        "description": "Compatibility wrapper around the canonical reconfigure flow. Update the charger entities for this entry.\n\n**Charger on/off control — pick ONE of the two:**\n- **Switch** (most wallboxes): map the on/off switch and leave both buttons empty.\n- **Start / Stop buttons** (e.g. Growatt THOR): leave the switch empty and map BOTH the start and the stop button.\n\nIf both are mapped, the switch is used. With buttons, also mapping the charging-power or charger-status sensor in the next step is strongly recommended: it is how the integration knows whether the charger is really running.",
         "data": {
           "ev_charger_switch": "Charger switch",
+          "ev_charger_start_button": "Start charging button",
+          "ev_charger_stop_button": "Stop charging button",
           "ev_charger_current": "Charging current control",
           "ev_charger_status": "Charger status sensor"
         },
         "data_description": {
-          "ev_charger_switch": "Switch entity that turns the charger on or off.",
+          "ev_charger_switch": "Switch entity that turns the charger on or off. Leave empty if your charger exposes start/stop buttons instead.",
+          "ev_charger_start_button": "Optional. For chargers that expose start/stop buttons instead of a switch (e.g. Growatt THOR). Map both buttons and leave the switch empty.",
+          "ev_charger_stop_button": "Optional. Pressed to stop charging when the charger is controlled with buttons.",
           "ev_charger_current": "Current control entity. Supported domains: `number`, `input_number`, `select`, `input_select`.",
           "ev_charger_status": "Optional. Reports `charger_charging`, `charger_free`, `charger_end`, or `charger_wait`. Used as the fallback for charging detection when no charging-power sensor is mapped, and as the source of plug/idle/finished status."
         }
@@ -417,7 +430,8 @@
       "required": "This field is required.",
       "invalid_battery_capacity": "Battery capacity must be between 10 and 200 kWh.",
       "entity_not_found": "Entity not found.",
-      "invalid_domain": "Entity must belong to the `number` or `input_number` domain."
+      "invalid_domain": "Entity must belong to the `number` or `input_number` domain.",
+      "charger_control_required": "Map either a charger switch or both the start and stop charging buttons."
     }
   },
   "entity": {

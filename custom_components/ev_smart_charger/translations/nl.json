@@ -13,14 +13,18 @@
       },
       "entities": {
         "title": "Lader-entiteiten - Stap {step}/{total_steps}",
-        "description": "Koppel de entiteiten die de lader starten of stoppen, de laadstroom instellen en de laderstatus rapporteren.",
+        "description": "Koppel de entiteiten die de lader starten of stoppen, de laadstroom instellen en de laderstatus rapporteren.\n\n**Aan/uit-bediening van de lader — kies EEN van beide:**\n- **Schakelaar** (de meeste wallboxen): koppel de aan/uit-schakelaar en laat beide knoppen leeg.\n- **Start- / Stopknoppen** (bijv. Growatt THOR): laat de schakelaar leeg en koppel ZOWEL de start- als de stopknop.\n\nAls beide zijn gekoppeld, wordt de schakelaar gebruikt. Bij knoppen wordt sterk aangeraden in de volgende stap ook de laadvermogen- of laderstatussensor te koppelen: zo weet de integratie of de lader echt laadt.",
         "data": {
           "ev_charger_switch": "Lader-schakelaar",
+          "ev_charger_start_button": "Knop laden starten",
+          "ev_charger_stop_button": "Knop laden stoppen",
           "ev_charger_current": "Laadstroomregeling",
           "ev_charger_status": "Laderstatussensor"
         },
         "data_description": {
-          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
+          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt. Laat leeg als je lader start/stop-knoppen heeft.",
+          "ev_charger_start_button": "Optioneel. Voor laders met start/stop-knoppen in plaats van een schakelaar (bijv. Growatt THOR). Koppel beide knoppen en laat de schakelaar leeg.",
+          "ev_charger_stop_button": "Optioneel. Wordt ingedrukt om het laden te stoppen wanneer de lader met knoppen wordt bediend.",
           "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
           "ev_charger_status": "Optioneel. Rapporteert `charger_charging`, `charger_free`, `charger_end` of `charger_wait`. Gebruikt als fallback voor laaddetectie wanneer geen laadvermogensensor is toegewezen, en als bron voor aangesloten/inactief/voltooid-status."
         }
@@ -227,14 +231,18 @@
       },
       "reconfigure_entities": {
         "title": "Lader-entiteiten opnieuw configureren - Stap {step}/{total_steps}",
-        "description": "Werk de lader-entiteiten voor deze config entry bij.",
+        "description": "Werk de lader-entiteiten voor deze config entry bij.\n\n**Aan/uit-bediening van de lader — kies EEN van beide:**\n- **Schakelaar** (de meeste wallboxen): koppel de aan/uit-schakelaar en laat beide knoppen leeg.\n- **Start- / Stopknoppen** (bijv. Growatt THOR): laat de schakelaar leeg en koppel ZOWEL de start- als de stopknop.\n\nAls beide zijn gekoppeld, wordt de schakelaar gebruikt. Bij knoppen wordt sterk aangeraden in de volgende stap ook de laadvermogen- of laderstatussensor te koppelen: zo weet de integratie of de lader echt laadt.",
         "data": {
           "ev_charger_switch": "Lader-schakelaar",
+          "ev_charger_start_button": "Knop laden starten",
+          "ev_charger_stop_button": "Knop laden stoppen",
           "ev_charger_current": "Laadstroomregeling",
           "ev_charger_status": "Laderstatussensor"
         },
         "data_description": {
-          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
+          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt. Laat leeg als je lader start/stop-knoppen heeft.",
+          "ev_charger_start_button": "Optioneel. Voor laders met start/stop-knoppen in plaats van een schakelaar (bijv. Growatt THOR). Koppel beide knoppen en laat de schakelaar leeg.",
+          "ev_charger_stop_button": "Optioneel. Wordt ingedrukt om het laden te stoppen wanneer de lader met knoppen wordt bediend.",
           "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
           "ev_charger_status": "Optioneel. Rapporteert `charger_charging`, `charger_free`, `charger_end` of `charger_wait`. Gebruikt als fallback voor laaddetectie wanneer geen laadvermogensensor is toegewezen, en als bron voor aangesloten/inactief/voltooid-status."
         }
@@ -274,7 +282,8 @@
       "required": "Dit veld is verplicht.",
       "invalid_battery_capacity": "De batterijcapaciteit moet tussen 10 en 200 kWh liggen.",
       "entity_not_found": "Entiteit niet gevonden.",
-      "invalid_domain": "De entiteit moet tot het domein `number` of `input_number` behoren."
+      "invalid_domain": "De entiteit moet tot het domein `number` of `input_number` behoren.",
+      "charger_control_required": "Koppel een lader-schakelaar of zowel de start- als de stopknop."
     },
     "abort": {
       "already_configured": "Een andere EV Smart Charger-configuratie gebruikt deze laderschakelaar al.",
@@ -390,14 +399,18 @@
       },
       "entities": {
         "title": "Lader-entiteiten bijwerken - Stap {step}/{total_steps}",
-        "description": "Compatibiliteitslaag rond de canonieke herconfiguratiestroom. Werk de lader-entiteiten voor deze entry bij.",
+        "description": "Compatibiliteitslaag rond de canonieke herconfiguratiestroom. Werk de lader-entiteiten voor deze entry bij.\n\n**Aan/uit-bediening van de lader — kies EEN van beide:**\n- **Schakelaar** (de meeste wallboxen): koppel de aan/uit-schakelaar en laat beide knoppen leeg.\n- **Start- / Stopknoppen** (bijv. Growatt THOR): laat de schakelaar leeg en koppel ZOWEL de start- als de stopknop.\n\nAls beide zijn gekoppeld, wordt de schakelaar gebruikt. Bij knoppen wordt sterk aangeraden in de volgende stap ook de laadvermogen- of laderstatussensor te koppelen: zo weet de integratie of de lader echt laadt.",
         "data": {
           "ev_charger_switch": "Lader-schakelaar",
+          "ev_charger_start_button": "Knop laden starten",
+          "ev_charger_stop_button": "Knop laden stoppen",
           "ev_charger_current": "Laadstroomregeling",
           "ev_charger_status": "Laderstatussensor"
         },
         "data_description": {
-          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt.",
+          "ev_charger_switch": "Schakelaar-entiteit die de lader in- of uitschakelt. Laat leeg als je lader start/stop-knoppen heeft.",
+          "ev_charger_start_button": "Optioneel. Voor laders met start/stop-knoppen in plaats van een schakelaar (bijv. Growatt THOR). Koppel beide knoppen en laat de schakelaar leeg.",
+          "ev_charger_stop_button": "Optioneel. Wordt ingedrukt om het laden te stoppen wanneer de lader met knoppen wordt bediend.",
           "ev_charger_current": "Entiteit voor stroomregeling. Ondersteunde domeinen: `number`, `input_number`, `select`, `input_select`.",
           "ev_charger_status": "Optioneel. Rapporteert `charger_charging`, `charger_free`, `charger_end` of `charger_wait`. Gebruikt als fallback voor laaddetectie wanneer geen laadvermogensensor is toegewezen, en als bron voor aangesloten/inactief/voltooid-status."
         }
@@ -417,7 +430,8 @@
       "required": "Dit veld is verplicht.",
       "invalid_battery_capacity": "De batterijcapaciteit moet tussen 10 en 200 kWh liggen.",
       "entity_not_found": "Entiteit niet gevonden.",
-      "invalid_domain": "De entiteit moet tot het domein `number` of `input_number` behoren."
+      "invalid_domain": "De entiteit moet tot het domein `number` of `input_number` behoren.",
+      "charger_control_required": "Koppel een lader-schakelaar of zowel de start- als de stopknop."
     }
   },
   "entity": {

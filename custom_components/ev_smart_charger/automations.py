@@ -221,10 +221,13 @@ class SmartChargerBlocker:
                 self.hass, charger_status_entity, self._async_charger_status_changed
             )
 
-        # Listen for charger switch turning ON (off -> on)
-        self._unsub_switch = async_track_state_change_event(
-            self.hass, charger_switch_entity, self._async_charger_switch_changed
-        )
+        # Listen for charger switch turning ON (off -> on). v2.14.0 (issue #65):
+        # button-controlled chargers have no switch, so the status listener
+        # above is the only trigger there.
+        if charger_switch_entity:
+            self._unsub_switch = async_track_state_change_event(
+                self.hass, charger_switch_entity, self._async_charger_switch_changed
+            )
 
         # Listen for blocker being enabled (check immediately if charger is already on)
         if self._blocker_enabled_entity:
@@ -233,9 +236,10 @@ class SmartChargerBlocker:
             )
 
         # Listen for charger switch state changes during enforcement
-        self._unsub_enforcement = async_track_state_change_event(
-            self.hass, charger_switch_entity, self._async_enforcement_monitor
-        )
+        if charger_switch_entity:
+            self._unsub_enforcement = async_track_state_change_event(
+                self.hass, charger_switch_entity, self._async_enforcement_monitor
+            )
         self._unsub_periodic_check = async_track_time_interval(
             self.hass,
             self._async_periodic_enforcement_check,

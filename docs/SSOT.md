@@ -103,6 +103,25 @@ and shared via `runtime_data.power_model` (a `ChargingModel`):
   sequence (Tuya/`select` chargers misbehave on a live current change); `generic`
   sets the lower value live, without toggling the switch.
 
+Charger on/off actuator (v2.14.0, issue #65) — resolved once from the config entry
+by `const.uses_charger_buttons(config)`:
+
+- **Switch mode** (default): `CONF_EV_CHARGER_SWITCH` mapped → `switch.turn_on` /
+  `switch.turn_off`; the switch echo is the commanded state.
+- **Button mode**: switch empty and BOTH `CONF_EV_CHARGER_START_BUTTON` and
+  `CONF_EV_CHARGER_STOP_BUTTON` mapped → every start/stop (including the Tuya
+  decrease sequence) is a `button.press` through `_turn_on_charger_switch()` /
+  `_turn_off_charger_switch()`. A button has no state, so the controller records
+  the last command (`_record_command`): for `CHARGER_BUTTON_STATE_SETTLE_SECONDS`
+  (60 s) after a press `is_charging()` returns the commanded state; afterwards it
+  follows `power_model.is_charging()` when a charging-power or status sensor is
+  mapped, and the commanded state otherwise.
+- A mapped switch always wins: the config flow (`_normalize_charger_input`) clears
+  the buttons when a switch is present, and rejects an entry with neither a switch
+  nor both buttons (`charger_control_required`).
+- The Smart Charger Blocker subscribes to the switch only when one is mapped; in
+  button mode it is triggered by the status sensor alone.
+
 ### 4.1 Charging-state SSOT (v2.2.0)
 
 "Is the EV drawing current right now?" (`drawing_now`) has a single source of
@@ -233,8 +252,13 @@ The new default is re-applied to existing installs exactly once through
 for ending an overnight session, called from the periodic check (60 s) and both
 mode monitors (15 s).
 
-- **`car_ready` ON** day: stop at EV target or `evsc_car_ready_time` deadline
-  (unchanged). The PV-handoff path never runs here.
+- **`car_ready` ON** day: stop at EV target or `evsc_car_ready_time` deadline.
+  The PV-handoff path never runs here. Since v2.14.0 (issue #63) the deadline is
+  the first occurrence of `evsc_car_ready_time` after the night window opens
+  (`_get_night_window_anchor()`: the session start when one is running, otherwise
+  the window opening minus the activation grace), so a window that opens before
+  midnight (e.g. 23:13 → deadline 06:50) targets the next morning instead of a
+  deadline already in the past.
 - **`car_ready` OFF** day: stop at **astronomical sunrise** (legacy) UNLESS
   `evsc_night_pv_handoff_threshold > 0` (opt-in). When enabled, the sunrise stop
   is **replaced** by a PV-production handoff: continue past sunrise and stop once
@@ -400,7 +424,9 @@ Missing `phase_mode` / `charger_model` / charging-power / status keys resolve to
 their defaults via `.get`, so existing config entries are byte-for-byte unchanged
 with no migration.
 
-The canonical unique ID is `ev_charger_switch`. Duplicate charger-switch mappings abort immediately.
+The canonical unique ID is the charger control entity: `ev_charger_switch`, or `ev_charger_start_button` in button mode (v2.14.0, `config_flow._charger_control_id`). Duplicate charger mappings abort immediately.
+
+v2.14.0 config changes (additive, no migration, step counts unchanged): `CONF_EV_CHARGER_SWITCH` changed **Required → Optional**; `CONF_EV_CHARGER_START_BUTTON` / `CONF_EV_CHARGER_STOP_BUTTON` added as Optional `button` selectors to the entities step of all three flows. The step description explains the switch-or-buttons choice.
 
 Helper tuning values remain helper entities. They are not migrated into `entry.options`.
 
