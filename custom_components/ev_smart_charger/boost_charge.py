@@ -27,10 +27,26 @@ from .const import (
     HELPER_BOOST_SCHEDULE_START_TIME_SUFFIX,
     HELPER_BOOST_SCHEDULE_END_TIME_SUFFIX,
     PRIORITY_BOOST_CHARGE,
+    CONF_SOC_HOME,
+    DEFAULT_BOOST_HOME_BATTERY_PROTECTION,
+    DEFAULT_BOOST_STALE_SOC_MINUTES,
+    DEFAULT_GRID_IMPORT_DELAY,
+    DEFAULT_GRID_IMPORT_THRESHOLD,
+    DEFAULT_HOME_BATTERY_MIN_SOC,
+    GRID_RESTORE_STABLE_SECONDS,
+    HELPER_BOOST_HOME_BATTERY_PROTECTION_SUFFIX,
+    HELPER_BOOST_STALE_SOC_GUARD_SUFFIX,
+    HELPER_BOOST_STALE_SOC_MINUTES_SUFFIX,
+    HELPER_BOOST_STOP_ON_GRID_LOSS_SUFFIX,
+    HELPER_GRID_IMPORT_DELAY_SUFFIX,
+    HELPER_GRID_IMPORT_THRESHOLD_SUFFIX,
+    HELPER_HOME_BATTERY_MIN_SOC_SUFFIX,
+    has_home_battery,
 )
 from .localization import translate_runtime
 from .runtime import EVSCRuntimeData
 from .utils import state_helper
+from .utils.amperage_helper import StabilityTracker
 from .utils.logging_helper import EVSCLogger
 from .utils.mobile_notification_service import MobileNotificationService
 from .utils.notification_service import NotificationService
@@ -84,6 +100,15 @@ class BoostCharge:
         self._monitor_unsub = None
         self._boost_switch_unsub = None
         self._soc_read_failures = 0
+
+        # v2.15.0 (issue #68): session protections.
+        self._home_soc_read_failures = 0
+        self._home_floor_tracker = StabilityTracker()
+        self._grid_loss_tracker = StabilityTracker()
+        self._grid_restore_tracker = StabilityTracker()
+        self._waiting_for_grid = False
+        self._soc_last_value: float | None = None
+        self._soc_last_change = None
 
         # Schedule Boost Charge
         self._boost_schedule_enabled_entity = None
@@ -340,6 +365,7 @@ class BoostCharge:
 
         self._boost_active = True
         self._soc_read_failures = 0
+        self._reset_protection_state()
 
         if self._monitor_unsub:
             self._monitor_unsub()
@@ -403,6 +429,14 @@ class BoostCharge:
             )
             return
 
+        # v2.15.0 (issue #68): grid-loss pause/resume, then the home-battery
+        # floor. Both run before the amperage sync so a paused / stopped
+        # session never re-sends a current to the wallbox.
+        if await self._handle_grid_loss(target_amps):
+            return
+        if await self._check_home_battery_protection():
+            return
+
         current_amps = await self.charger_controller.get_current_amperage()
         if current_amps is not None and current_amps != target_amps:
             await self.charger_controller.set_amperage(
@@ -426,6 +460,8 @@ class BoostCharge:
             return
 
         self._soc_read_failures = 0
+        if await self._check_stale_soc(current_soc):
+            return
         await self._mobile_notifier.send_ev_charging_live_activity(
             mode=LIVE_ACTIVITY_MODE_BOOST,
             amperage=target_amps,
@@ -447,6 +483,241 @@ class BoostCharge:
                 end_soc=current_soc,
             )
 
+    # ========== SESSION PROTECTIONS (v2.15.0, issue #68) ==========
+
+    def _reset_protection_state(self) -> None:
+        """Clear every protection debounce / latch (session start and end)."""
+        self._home_soc_read_failures = 0
+        self._home_floor_tracker.reset()
+        self._grid_loss_tracker.reset()
+        self._grid_restore_tracker.reset()
+        self._waiting_for_grid = False
+        self._soc_last_value = None
+        self._soc_last_change = None
+
+    def _helper_on(self, suffix: str, default: bool) -> bool:
+        entity_id = self._resolve_entity(suffix)
+        if not entity_id:
+            return default
+        return state_helper.get_bool(self.hass, entity_id, default)
+
+    def _helper_float(self, suffix: str, default: float) -> float:
+        entity_id = self._resolve_entity(suffix)
+        if not entity_id:
+            return default
+        state = state_helper.get_state(self.hass, entity_id)
+        if state in (None, "unknown", "unavailable"):
+            return default
+        try:
+            return float(state)
+        except (TypeError, ValueError):
+            return default
+
+    @property
+    def _power_model(self):
+        return self._runtime_data.power_model if self._runtime_data else None
+
+    def is_waiting_for_grid(self) -> bool:
+        """True while a Boost session is paused by a grid outage."""
+        return self._boost_active and self._waiting_for_grid
+
+    async def _handle_grid_loss(self, target_amps: int) -> bool:
+        """Optional grid-loss stop / resume (switch, default OFF).
+
+        Returns True when the monitor tick must end here (paused or resumed).
+        """
+        if not self._helper_on(HELPER_BOOST_STOP_ON_GRID_LOSS_SUFFIX, False):
+            if self._waiting_for_grid:
+                # Switch turned OFF while paused: grid loss is ignored again.
+                self._waiting_for_grid = False
+                self._grid_restore_tracker.reset()
+                await self.charger_controller.start_charger(
+                    target_amps, "Boost charge - grid-loss stop disabled"
+                )
+            self._grid_loss_tracker.reset()
+            return False
+
+        model = self._power_model
+        grid_available = model.is_grid_available(self.hass) if model else None
+
+        if self._waiting_for_grid:
+            if grid_available is not True:
+                self._grid_restore_tracker.reset()
+                self.logger.debug("Boost paused - waiting for the grid to return")
+                return True
+            self._grid_restore_tracker.start_tracking()
+            if not self._grid_restore_tracker.is_stable(GRID_RESTORE_STABLE_SECONDS):
+                self.logger.info(
+                    f"Grid back - confirming stability for {GRID_RESTORE_STABLE_SECONDS}s "
+                    "before resuming Boost"
+                )
+                return True
+            result = await self.charger_controller.start_charger(
+                target_amps, "Boost charge - grid restored"
+            )
+            if not self._operation_succeeded(result):
+                self.logger.warning("Grid restored but Boost restart failed - retrying")
+                self._grid_restore_tracker.reset()
+                return True
+            self._waiting_for_grid = False
+            self._grid_restore_tracker.reset()
+            self._soc_last_value = None
+            self._soc_last_change = None
+            self.logger.success(f"Grid stable - Boost resumed at {target_amps}A")
+            await self._emit_diagnostic(
+                event="boost_grid_resumed",
+                result="started",
+                reason_code="grid_restored",
+                reason_detail="Grid stable again - Boost charging resumed",
+                raw_values={"target_amps": target_amps},
+            )
+            return True
+
+        if grid_available is False:
+            sustain = self._helper_float(
+                HELPER_GRID_IMPORT_DELAY_SUFFIX, DEFAULT_GRID_IMPORT_DELAY
+            )
+            self._grid_loss_tracker.start_tracking()
+            if not self._grid_loss_tracker.is_stable(sustain):
+                self.logger.warning(
+                    f"Grid reported unavailable - confirming for {sustain:.0f}s before pausing Boost"
+                )
+                return False
+            reason = "Boost Charge: grid lost - pausing until the grid returns"
+            self.logger.warning(reason)
+            await self.charger_controller.stop_charger(reason)
+            self._waiting_for_grid = True
+            self._grid_loss_tracker.reset()
+            self._grid_restore_tracker.reset()
+            await self._mobile_notifier.clear_ev_charging_live_activity()
+            await self._emit_diagnostic(
+                event="boost_grid_paused",
+                result="waiting",
+                reason_code="grid_loss",
+                reason_detail=reason,
+                severity="warning",
+            )
+            return True
+
+        self._grid_loss_tracker.reset()
+        return False
+
+    async def _check_home_battery_protection(self) -> bool:
+        """Stop Boost at the home-battery floor (switch, default ON).
+
+        Fires when the home battery SOC is at/below ``evsc_home_battery_min_soc``
+        while the grid is NOT supplying the charge (grid import below the
+        threshold and, when a battery-power sensor is mapped, the battery
+        discharging above it), sustained for the grid-import delay. Returns
+        True when the session was ended.
+        """
+        if not has_home_battery(self.config) or not self._helper_on(
+            HELPER_BOOST_HOME_BATTERY_PROTECTION_SUFFIX,
+            DEFAULT_BOOST_HOME_BATTERY_PROTECTION,
+        ):
+            self._home_floor_tracker.reset()
+            self._home_soc_read_failures = 0
+            return False
+
+        soc_state = state_helper.get_state(self.hass, self.config.get(CONF_SOC_HOME))
+        try:
+            home_soc = (
+                None if soc_state in (None, "unknown", "unavailable") else float(soc_state)
+            )
+        except (TypeError, ValueError):
+            home_soc = None
+
+        if home_soc is None:
+            self._home_soc_read_failures += 1
+            self.logger.warning(
+                "Home battery SOC unavailable during Boost Charge "
+                f"({self._home_soc_read_failures}/{BOOST_MAX_SOC_READ_FAILURES})"
+            )
+            if self._home_soc_read_failures >= BOOST_MAX_SOC_READ_FAILURES:
+                await self._complete_boost(
+                    translate_runtime(self.hass, "boost.reason.home_soc_missing"),
+                    stop_charger=True,
+                    notify=True,
+                    success=False,
+                )
+                return True
+            return False
+        self._home_soc_read_failures = 0
+
+        home_min = self._helper_float(
+            HELPER_HOME_BATTERY_MIN_SOC_SUFFIX, DEFAULT_HOME_BATTERY_MIN_SOC
+        )
+        threshold = self._helper_float(
+            HELPER_GRID_IMPORT_THRESHOLD_SUFFIX, DEFAULT_GRID_IMPORT_THRESHOLD
+        )
+        model = self._power_model
+        grid_import = model.read_grid_import(self.hass) if model else None
+        discharge = model.read_battery_discharge(self.hass) if model else None
+
+        # An unreadable grid sensor never proves the grid is supplying the
+        # load, so it counts as "not supplying" (battery-protective side).
+        grid_supplying = grid_import is not None and grid_import >= threshold
+        battery_draining = discharge is None or discharge > threshold
+
+        if home_soc > home_min or grid_supplying or not battery_draining:
+            self._home_floor_tracker.reset()
+            return False
+
+        sustain = self._helper_float(
+            HELPER_GRID_IMPORT_DELAY_SUFFIX, DEFAULT_GRID_IMPORT_DELAY
+        )
+        self._home_floor_tracker.start_tracking()
+        if not self._home_floor_tracker.is_stable(sustain):
+            self.logger.warning(
+                f"Home battery at {home_soc:.0f}% <= {home_min:.0f}% with the grid not "
+                f"supplying the charge - confirming for {sustain:.0f}s"
+            )
+            return False
+
+        await self._complete_boost(
+            translate_runtime(
+                self.hass,
+                "boost.reason.home_battery_floor",
+                home_soc=f"{home_soc:.0f}",
+                home_min=f"{home_min:.0f}",
+            ),
+            stop_charger=True,
+            notify=True,
+            success=False,
+        )
+        return True
+
+    async def _check_stale_soc(self, current_soc: float) -> bool:
+        """Stop Boost when the EV SOC is frozen while charging (switch, default OFF)."""
+        now = dt_util.now()
+        if self._soc_last_value is None or current_soc != self._soc_last_value:
+            self._soc_last_value = current_soc
+            self._soc_last_change = now
+            return False
+        if not self._helper_on(HELPER_BOOST_STALE_SOC_GUARD_SUFFIX, False):
+            return False
+        if not await self.charger_controller.is_charging():
+            # Not drawing (paused/off): restart the window, a frozen SOC is expected.
+            self._soc_last_change = now
+            return False
+        minutes = self._helper_float(
+            HELPER_BOOST_STALE_SOC_MINUTES_SUFFIX, DEFAULT_BOOST_STALE_SOC_MINUTES
+        )
+        if (now - self._soc_last_change).total_seconds() < minutes * 60:
+            return False
+        await self._complete_boost(
+            translate_runtime(
+                self.hass,
+                "boost.reason.ev_soc_stale",
+                minutes=f"{minutes:.0f}",
+                soc=f"{current_soc:.0f}",
+            ),
+            stop_charger=True,
+            notify=True,
+            success=False,
+        )
+        return True
+
     async def _complete_boost(
         self,
         reason: str,
@@ -466,6 +737,7 @@ class BoostCharge:
         self._boost_active = False
         self._scheduled_session_active = False
         self._soc_read_failures = 0
+        self._reset_protection_state()
 
         if stop_charger and was_active:
             await self.charger_controller.stop_charger(f"Boost Charge: {reason}")

@@ -45,6 +45,7 @@ from .const import (
     DEFAULT_OFFGRID_MAX_AMPERAGE,
     SURPLUS_START_THRESHOLD,
     SURPLUS_STOP_THRESHOLD,
+    SOLAR_DISCONNECT_RELEASE_SECONDS,
     SURPLUS_DEADBAND_START_DELAY,
     SURPLUS_INCREASE_DELAY,
     NIGHT_CHARGE_COOLDOWN_SECONDS,
@@ -162,6 +163,9 @@ class SolarSurplusAutomation:
         # State tracking
         self._last_grid_import_high = None  # Timestamp when grid import exceeded threshold
         self._last_surplus_sufficient = None  # Timestamp when surplus was last sufficient
+        # v2.15.0 (issue #67): when the status sensor first reported
+        # "disconnected" while the charger was still ON (glitch debounce).
+        self._disconnected_since = None
         self._battery_support_active = False  # Flag for home battery support mode
         self._surplus_stable_since = None  # Timestamp when surplus became stable (for hysteresis)
         self._deadband_start_time = None  # Timestamp when dead band first detected (opportunistic start)
@@ -376,6 +380,20 @@ class SolarSurplusAutomation:
             return None  # 32A = cap disabled
         valid = [level for level in self._amp_levels if level <= max_amps]
         return valid[-1] if valid else self._amp_levels[0]
+
+    async def _is_disconnect_glitch(self) -> bool:
+        """True while a "disconnected" status must be ignored (issue #67).
+
+        Only a charger that is still ON can be in a glitch: an OFF charger with
+        a disconnected status is a genuine unplug and is released at once, as
+        before. The debounce clock starts on the first disconnected reading.
+        """
+        if not await self.charger_controller.is_charging():
+            return False
+        now = time.monotonic()
+        if self._disconnected_since is None:
+            self._disconnected_since = now
+        return (now - self._disconnected_since) < SOLAR_DISCONNECT_RELEASE_SECONDS
 
     async def _offgrid_overload_guard(
         self, charger_is_on: bool, current_amps: int
@@ -991,7 +1009,19 @@ class SolarSurplusAutomation:
             # empty plug. is_disconnected_status() covers 'charger_free' plus
             # the unambiguous disconnected synonyms; unknown strings still
             # default to "connected" (safe failure mode, unchanged).
-            if is_disconnected_status(charger_status):
+            disconnected = is_disconnected_status(charger_status)
+            if disconnected and await self._is_disconnect_glitch():
+                # v2.15.0 (issue #67): the charger is still ON and the
+                # "disconnected" status is younger than the release window —
+                # a status flicker (charger_end/free/wait) on many wallboxes.
+                # Keep ownership and keep deciding; releasing here left the
+                # charger running with no owner and restarted the ramp delay.
+                self.logger.warning(
+                    f"Charger status '{charger_status}' reads disconnected but the "
+                    "charger is still ON - treating as a status glitch, keeping control"
+                )
+            elif disconnected:
+                self._disconnected_since = None
                 if self._hybrid_mode is not None:
                     await self._hybrid_mode.async_force_exit("Charger disconnected")
                 if self._has_control():
@@ -1006,8 +1036,9 @@ class SolarSurplusAutomation:
                     external_cause="charger_disconnected",
                 )
                 return
-
-            self.logger.info(f"Charger status: '{charger_status}' - proceeding")
+            else:
+                self._disconnected_since = None
+                self.logger.info(f"Charger status: '{charger_status}' - proceeding")
         else:
             self.logger.info("No charger status sensor - proceeding (status optional)")
         charger_is_on = await self.charger_controller.is_charging()
@@ -2043,8 +2074,26 @@ class SolarSurplusAutomation:
             self.logger.info(f"Surplus drop delay: {elapsed:.1f}s / {surplus_drop_delay}s")
             return
 
-        self.logger.warning("Surplus drop delay ELAPSED - Starting gradual ramp-down")
         self._last_surplus_sufficient = None
+
+        # v2.15.0 (issue #67): islanded (grid_available explicitly OFF) with no
+        # usable surplus left. The source is a generator / the home battery with
+        # a fixed budget, so the one-level-per-tick walk-down (17A -> 6A took
+        # ~15 minutes with 1 A levels) is the wrong tool: stop in one action.
+        if (
+            target_amps == 0
+            and current_amps > 0
+            and self._power_model.is_grid_available(self.hass) is False
+        ):
+            reason = "Off-grid with no solar surplus - stopping immediately"
+            self.logger.warning(f"Surplus drop delay ELAPSED - {reason} ({current_amps}A -> OFF)")
+            if await self._acquire_control("turn_off", reason):
+                await self.charger_controller.stop_charger(reason)
+                self._release_control("Off-grid surplus stop")
+                self._handle_control_loss("Off-grid surplus stop")
+            return
+
+        self.logger.warning("Surplus drop delay ELAPSED - Starting gradual ramp-down")
 
         # Gradual ramp down: one level at a time via AmperageCalculator
         next_amps = AmperageCalculator.get_next_level_down(current_amps, self._amp_levels)

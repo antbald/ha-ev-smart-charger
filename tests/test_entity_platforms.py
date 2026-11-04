@@ -80,7 +80,7 @@ async def test_number_platform_setup_and_restore(hass, runtime_data):
     await number_platform.async_setup_entry(hass, entry, async_add_entities)
 
     # 23 always-created + 11 home-battery-only numbers (see _mock_entry).
-    assert len(entities) == 36  # v2.13.0: +1 off-grid max amperage (issue #57)
+    assert len(entities) == 37  # v2.15.0: +1 boost stale SOC minutes (issue #68)
 
     entity = entities[0]
     assert entity.entity_id == "number.ev_smart_charger_entry_123_evsc_check_interval"
@@ -117,7 +117,7 @@ async def test_switch_platform_setup_restore_and_toggle(hass, runtime_data):
     # 21 always-created + 2 home-battery-only switches (use/preserve home battery).
     # v2.10.0 (issue #55): +1 always-created switch (evsc_stop_charging).
     # v2.11.0: +1 always-created switch (evsc_force_charge_auto_disarm).
-    assert len(entities) == 24
+    assert len(entities) == 27  # v2.15.0: +3 boost protection switches (#68)
 
     restored_switch = next(
         entity for entity in entities if entity.entity_id.endswith("evsc_forza_ricarica")

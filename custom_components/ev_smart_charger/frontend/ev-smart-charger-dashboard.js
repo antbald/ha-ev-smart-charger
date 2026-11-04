@@ -79,6 +79,11 @@ const DOMAIN_SUFFIXES = {
   manualStop: ["switch", "evsc_stop_charging"],
   // v2.11.0: opt-in — unplugging the EV disarms Force Charge.
   forceChargeAutoDisarm: ["switch", "evsc_force_charge_auto_disarm"],
+  // v2.15.0 (issue #68): Boost Charge protections.
+  boostHomeBatteryProtection: ["switch", "evsc_boost_home_battery_protection"],
+  boostStopOnGridLoss: ["switch", "evsc_boost_stop_on_grid_loss"],
+  boostStaleSocGuard: ["switch", "evsc_boost_stale_soc_guard"],
+  boostStaleSocMinutes: ["number", "evsc_boost_stale_soc_minutes"],
   chargingProfile: ["select", "evsc_charging_profile"],
 
   // ── Boost Charge (manual + scheduled)
@@ -483,6 +488,38 @@ const SETTINGS_CATALOG = [
           it: "Default off · Richiede il sensore di stato del wallbox",
           nl: "Standaard uit · Vereist de laadstatus-sensor",
         } },
+      { entityKey: "boostHomeBatteryProtection", kind: "toggle", optional: true,
+        name: { en: "Boost: home battery protection", it: "Boost: protezione batteria casa", nl: "Boost: thuisbatterijbeveiliging" },
+        desc: {
+          en: "Stop Boost Charge when the home battery reaches its minimum SOC while the grid is not supplying the charge (outage, battery masking).",
+          it: "Ferma Boost Charge quando la batteria di casa raggiunge il SOC minimo mentre la rete non alimenta la ricarica (blackout, mascheramento batteria).",
+          nl: "Stopt Boost Charge wanneer de thuisbatterij haar minimum-SOC bereikt terwijl het net de lading niet levert (stroomuitval, batterijmaskering).",
+        },
+        hint: { en: "Default on · Uses Home Battery Min SOC", it: "Default on · Usa SOC minimo batteria casa", nl: "Standaard aan · Gebruikt minimum-SOC thuisbatterij" } },
+      { entityKey: "boostStopOnGridLoss", kind: "toggle",
+        name: { en: "Boost: pause on grid loss", it: "Boost: pausa se manca la rete", nl: "Boost: pauzeren bij netuitval" },
+        desc: {
+          en: "Pause Boost Charge while the grid-available sensor reads off and resume once the grid has been stable for 3 minutes.",
+          it: "Mette in pausa Boost Charge mentre il sensore rete disponibile è off e riprende quando la rete è stabile da 3 minuti.",
+          nl: "Pauzeert Boost Charge zolang de net-beschikbaar sensor uit staat en hervat zodra het net 3 minuten stabiel is.",
+        },
+        hint: { en: "Default off · Requires the grid-available sensor", it: "Default off · Richiede il sensore rete disponibile", nl: "Standaard uit · Vereist de net-beschikbaar sensor" } },
+      { entityKey: "boostStaleSocGuard", kind: "toggle",
+        name: { en: "Boost: stale EV SOC guard", it: "Boost: controllo SOC EV bloccato", nl: "Boost: bewaking vastgelopen EV-SOC" },
+        desc: {
+          en: "Stop Boost Charge when the EV SOC has not changed for the configured time while charging (frozen car integration).",
+          it: "Ferma Boost Charge quando il SOC dell'auto non cambia per il tempo configurato durante la ricarica (integrazione auto bloccata).",
+          nl: "Stopt Boost Charge wanneer de EV-SOC tijdens het laden de ingestelde tijd niet verandert (vastgelopen auto-integratie).",
+        },
+        hint: { en: "Default off", it: "Default off", nl: "Standaard uit" } },
+      { entityKey: "boostStaleSocMinutes", kind: "stepper",
+        name: { en: "Boost: stale SOC period", it: "Boost: periodo SOC bloccato", nl: "Boost: periode vastgelopen SOC" },
+        desc: {
+          en: "Minutes without an EV SOC change before the stale SOC guard stops Boost.",
+          it: "Minuti senza variazione del SOC EV prima che il controllo SOC bloccato fermi Boost.",
+          nl: "Minuten zonder verandering van de EV-SOC voordat de bewaking Boost stopt.",
+        },
+        hint: { en: "Default 60 min", it: "Default 60 min", nl: "Standaard 60 min" } },
       { entityKey: "smartBlocker", kind: "toggle",
         name: { en: "Smart Charger Blocker", it: "Smart Charger Blocker", nl: "Smart Charger Blocker" },
         desc: {
@@ -2549,6 +2586,8 @@ class EvSmartChargerDashboard extends HTMLElement {
 
   _renderSettingItemFromCatalog(item) {
     const entityId = this._entityId(item.entityKey);
+    // v2.15.0: battery-only helpers are not created in PV-only mode.
+    if (item.optional && !this._stateObj(entityId)) return "";
     const suffix = DOMAIN_SUFFIXES[item.entityKey]?.[1] || "";
     let control = "";
     if (item.kind === "toggle") {

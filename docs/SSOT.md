@@ -323,10 +323,43 @@ Driven by an optional user-mapped `grid_available` binary_sensor read through
 - **Debounced**: requires OFF sustained for `evsc_grid_import_delay` (default
   30 s) via a `StabilityTracker`, reset on grid-present/None, on grid-session
   start and in `_complete_night_charge`.
-- **Terminal** (`STOP_REASON_GRID_LOSS`, severity warning): grid mode has
-  nothing to draw from; recovery is left to the day (Solar Surplus / PV-handoff).
+- **Pause, not terminal** (v2.15.0, issue #66): the charger is stopped, the
+  session stays active with coordinator ownership kept (`_waiting_for_grid`),
+  and Check 0 (deadline / sunrise / target) keeps running. Charging resumes when
+  `is_grid_available()` reads `True` continuously for
+  `GRID_RESTORE_STABLE_SECONDS` (180 s); an OFF or `None` reading restarts that
+  window. Before v2.15.0 the stop was terminal and forfeited the whole night.
+- **Midnight-safe window** (v2.15.0): `_resolve_night_window_start()` maps a
+  moment after midnight to yesterday's scheduled start while that night has not
+  reached its sunrise, and the `completed_today` latch follows the night the
+  stop belongs to (`_completion_in_current_night()`), not the calendar date.
 - **Scope**: only Night Smart Charge grid mode. Solar Surplus and Hybrid Mode
   key off PV surplus and need no change. Unmapped → byte-for-byte legacy.
+
+#### 4.2.3 Boost Charge protections (v2.15.0, issue #68)
+
+Evaluated by the Boost monitor (15 s) before the amperage sync, each behind its
+own switch:
+
+- `evsc_boost_stop_on_grid_loss` (default OFF): `grid_available` OFF sustained
+  for `evsc_grid_import_delay` → charger stopped, session armed
+  (`_waiting_for_grid`); resume after `GRID_RESTORE_STABLE_SECONDS` of ON.
+- `evsc_boost_home_battery_protection` (default ON, battery-only helper): home
+  SOC <= `evsc_home_battery_min_soc` with grid import below
+  `evsc_grid_import_threshold` and (if mapped) battery discharge above it,
+  sustained for `evsc_grid_import_delay` → Boost completes (no auto-restart).
+  Home SOC unreadable for `BOOST_MAX_SOC_READ_FAILURES` ticks → Boost completes.
+- `evsc_boost_stale_soc_guard` (default OFF): EV SOC unchanged for
+  `evsc_boost_stale_soc_minutes` while `charger_controller.is_charging()` →
+  Boost completes.
+
+#### 4.2.4 Solar Surplus off-grid stop and status glitch (v2.15.0, issue #67)
+
+- With `grid_available` explicitly OFF and target 0 A, once the surplus drop
+  delay elapses the charger is stopped in one action (no level-by-level ramp).
+- A "disconnected" status while the charger is still ON is ignored for
+  `SOLAR_DISCONNECT_RELEASE_SECONDS` (90 s): ownership is kept and the tick
+  continues. An OFF charger with a disconnected status is released at once.
 
 ### 4.3 Consumption-spike fast response (v2.8.0)
 

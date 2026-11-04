@@ -501,6 +501,15 @@
       },
       "evsc_car_ready_sunday": {
         "name": "Car ready Sunday"
+      },
+      "evsc_boost_home_battery_protection": {
+        "name": "Boost home battery protection"
+      },
+      "evsc_boost_stop_on_grid_loss": {
+        "name": "Boost pause on grid loss"
+      },
+      "evsc_boost_stale_soc_guard": {
+        "name": "Boost stale EV SOC guard"
       }
     },
     "number": {
@@ -593,6 +602,9 @@
       },
       "evsc_max_battery_discharge_for_ev": {
         "name": "Max battery discharge for EV"
+      },
+      "evsc_boost_stale_soc_minutes": {
+        "name": "Boost stale SOC period"
       }
     },
     "select": {

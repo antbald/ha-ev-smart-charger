@@ -25,6 +25,12 @@ from .const import (
     HELPER_TRACE_LOGGING_ENABLED_SUFFIX,
     HELPER_USE_HOME_BATTERY_SUFFIX,
     has_home_battery,
+    HELPER_BOOST_HOME_BATTERY_PROTECTION_SUFFIX,
+    HELPER_BOOST_STOP_ON_GRID_LOSS_SUFFIX,
+    HELPER_BOOST_STALE_SOC_GUARD_SUFFIX,
+    DEFAULT_BOOST_HOME_BATTERY_PROTECTION,
+    DEFAULT_BOOST_STOP_ON_GRID_LOSS,
+    DEFAULT_BOOST_STALE_SOC_GUARD,
 )
 from .entity_base import EVSCEntityMixin
 from .runtime import get_runtime_data
@@ -62,6 +68,13 @@ async def async_setup_entry(
         (HELPER_FORCE_CHARGE_AUTO_DISARM_SUFFIX, "Auto-disarm Force Charge", "mdi:power-plug-off-outline", False),
         ("evsc_boost_charge_enabled", "Boost Charge", "mdi:flash", False),
         ("evsc_boost_schedule_enabled", "Schedule Boost Charge", "mdi:calendar-clock", False),
+        # v2.15.0 (issue #68): Boost Charge protections.
+        (HELPER_BOOST_HOME_BATTERY_PROTECTION_SUFFIX, "Boost Home Battery Protection",
+         "mdi:home-battery-outline", DEFAULT_BOOST_HOME_BATTERY_PROTECTION),
+        (HELPER_BOOST_STOP_ON_GRID_LOSS_SUFFIX, "Boost Stop On Grid Loss",
+         "mdi:transmission-tower-off", DEFAULT_BOOST_STOP_ON_GRID_LOSS),
+        (HELPER_BOOST_STALE_SOC_GUARD_SUFFIX, "Boost Stale SOC Guard",
+         "mdi:battery-clock-outline", DEFAULT_BOOST_STALE_SOC_GUARD),
         ("evsc_smart_charger_blocker_enabled", "Smart Charger Blocker", "mdi:solar-power", False),
         (HELPER_USE_HOME_BATTERY_SUFFIX, "Use Home Battery", "mdi:home-battery", False),
         ("evsc_priority_balancer_enabled", "Priority Balancer", "mdi:scale-balance", False),
@@ -87,6 +100,7 @@ async def async_setup_entry(
     _BATTERY_ONLY_SWITCHES = {
         HELPER_USE_HOME_BATTERY_SUFFIX,
         HELPER_PRESERVE_HOME_BATTERY_SUFFIX,
+        HELPER_BOOST_HOME_BATTERY_PROTECTION_SUFFIX,
     }
     if not battery_configured:
         _SWITCH_DEFS = [d for d in _SWITCH_DEFS if d[0] not in _BATTERY_ONLY_SWITCHES]

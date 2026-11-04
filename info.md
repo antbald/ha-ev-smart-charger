@@ -1,6 +1,8 @@
 **EV Smart Charger — MVP**  
 Sensore di stato + select per la modalità. Base per strategie di ricarica.
 
+**v2.15.0** — Protezioni per blackout e batteria di casa (issue #66, #67, #68). Night Smart Charge non perde più l'intera notte per un breve blackout: in modalità rete si mette in pausa e riprende quando la rete è stabile da 3 minuti, e una finestra serale (es. 23:15) resta valida dopo mezzanotte. Solar Surplus senza rete e senza surplus ferma il charger in un colpo solo. Boost Charge ha tre protezioni con switch dedicati: soglia minima della batteria di casa (attiva di default), pausa opzionale senza rete e controllo opzionale del SOC EV bloccato.
+
 **v2.14.0** — Supporto nativo per le wallbox comandate da **pulsanti Start / Stop** invece che da uno switch (es. Growatt THOR, issue #65): nel wizard lascia vuoto lo switch del charger e mappa entrambi i pulsanti. Si consiglia di mappare anche il sensore di potenza o di stato, così l'integrazione sa se il charger sta davvero caricando. Corretto anche il calcolo della scadenza "auto pronta" quando la finestra notturna inizia prima di mezzanotte (issue #63).
 
 **v2.3.0** — Night Smart Charge: nuovo stop **opt-in** basato sulla **produzione FV reale** (issue #32). Ad alte latitudini l'alba astronomica può precedere di ore la produzione solare utilizzabile, lasciando l'auto ferma. Imposta `evsc_night_pv_handoff_threshold` sopra 0 W (consigliato ~200 W) per far proseguire la ricarica notturna oltre l'alba nei giorni in cui l'auto non è "pronta", fermandola e passando a Solar Surplus solo quando il FV supera la soglia per 5 minuti (con cap di sicurezza all'orario "Auto pronta"). Default 0 = comportamento invariato.

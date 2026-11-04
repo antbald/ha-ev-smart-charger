@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.14.0
+**Current Version:** 2.15.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -759,6 +759,56 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.15.0 (2026-11-04)
+**FIX: grid outages and home-battery drain — Night Charge grid-loss pause (#66), Solar Surplus off-grid stop (#67), Boost Charge protections (#68)**
+
+**#66 — a brief grid outage cancelled the whole night (BUG).** The v2.6.0
+grid-availability stop was terminal (`completed_today` + 1 h cooldown), and an
+evening window (23:15) evaluated after midnight read as "not started", so one
+3-minute flap forfeited the night. Grid loss is now a **pause**:
+`_handle_grid_availability()` stops the charger, keeps ownership and sets
+`_waiting_for_grid`; Check 0 (deadline / sunrise / target) keeps running;
+`_resume_after_grid_restore()` restarts at the night amperage once
+`grid_available` has read ON for `GRID_RESTORE_STABLE_SECONDS = 180` (OFF or
+unknown restarts the window). The window survives midnight via
+`_resolve_night_window_start()` (yesterday's start while that night is before
+its sunrise), and the `completed_today` latch now follows the night the stop
+belongs to (`_completion_in_current_night()`, date rule as fallback) — which also
+stops a 06:50 deadline stop from blocking that evening's 23:13 window.
+
+**#67 — off-grid Solar Surplus kept a 17 A charger on for 10+ min (BUG).** With
+`grid_available` OFF and target 0 A, `_handle_surplus_decrease()` now stops in
+one action after the drop delay instead of one level per cycle. A "disconnected"
+status while the charger is still ON is treated as a glitch for
+`SOLAR_DISCONNECT_RELEASE_SECONDS = 90` (`_is_disconnect_glitch()`): ownership is
+kept and the tick continues, instead of releasing control and orphaning a
+running charger.
+
+**#68 — Boost Charge could drain the home battery to 0 % (BUG).** Three
+protections in the Boost monitor, each with its own switch:
+`evsc_boost_home_battery_protection` (default **ON**, battery-only) stops Boost
+at `evsc_home_battery_min_soc` when grid import is below the threshold (and the
+battery discharges above it, if mapped), debounced by `evsc_grid_import_delay`,
+and after 4 unreadable home-SOC ticks; `evsc_boost_stop_on_grid_loss` (default
+OFF) pauses / resumes on `grid_available` with the same 180 s restore window;
+`evsc_boost_stale_soc_guard` (default OFF) stops Boost when the EV SOC is
+unchanged for `evsc_boost_stale_soc_minutes` (default 60) while charging.
+Entity counts 74→**78**, 60→**63**. Dashboard Safety accordion gained the four
+entities (EN/IT/NL); `optional: true` hides the battery-only one in PV-only mode.
+
+**Files**: `night_smart_charge.py`, `solar_surplus.py`, `boost_charge.py`,
+`const.py`, `switch.py`, `number.py`, `localization.py`, `strings.json` +
+`translations/{en,it,nl}.json`, `frontend/ev-smart-charger-dashboard.js`,
+`manifest.json`, `README.md`, `info.md`, `docs/SSOT.md`, `docs/CODEBASE_MAP.md`,
+`docs/README.nl.md`, this file; tests: NEW `tests/test_v2150_fixes.py` (23),
+count updates in `test_config_flow.py` / `test_entity_platforms.py`.
+`VERSION = "2.15.0"`. Full suite green: **410 passed / 0 failed**.
+
+**Upgrade priority**: 🔴 STRONGLY RECOMMENDED for hybrid-inverter / backup-battery
+installs and anyone using `grid_available`.
+
+---
 
 ### v2.14.0 (2026-10-26)
 **FEATURE: native start/stop button control (issue #65) + FIX: car-ready deadline in evening night windows (issue #63)**

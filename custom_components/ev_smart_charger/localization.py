@@ -102,6 +102,9 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "Boost configuration became unavailable during the session."
         ),
         "boost.reason.session_soc_missing": "EV SOC unavailable for 60 seconds.",
+        "boost.reason.home_battery_floor": "Home battery protection: home battery at {home_soc}% (minimum {home_min}%) while the grid was not supplying the charge.",
+        "boost.reason.home_soc_missing": "Home battery protection: home battery SOC unavailable for 60 seconds.",
+        "boost.reason.ev_soc_stale": "EV SOC has not changed for {minutes} minutes while charging (stuck at {soc}%).",
         "boost.reason.target_reached": "SOC target reached ({current_soc:.1f}% >= {target_soc}%)",
         "boost.title.not_started": "Boost Charge not started",
         "boost.title.completed": "Boost Charge completed",
@@ -241,6 +244,9 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "Configurazione Boost non disponibile durante la sessione."
         ),
         "boost.reason.session_soc_missing": "SOC EV non disponibile per 60 secondi.",
+        "boost.reason.home_battery_floor": "Protezione batteria casa: batteria al {home_soc}% (minimo {home_min}%) mentre la rete non alimentava la ricarica.",
+        "boost.reason.home_soc_missing": "Protezione batteria casa: SOC della batteria di casa non disponibile per 60 secondi.",
+        "boost.reason.ev_soc_stale": "Il SOC EV non è cambiato per {minutes} minuti durante la ricarica (fermo al {soc}%).",
         "boost.reason.target_reached": "Target SOC raggiunto ({current_soc:.1f}% >= {target_soc}%)",
         "boost.title.not_started": "Boost Charge non avviato",
         "boost.title.completed": "Boost Charge completato",
@@ -381,6 +387,9 @@ RUNTIME_TRANSLATIONS: dict[str, dict[str, str]] = {
             "De boostconfiguratie werd tijdens de sessie onbeschikbaar."
         ),
         "boost.reason.session_soc_missing": "EV-SOC 60 seconden niet beschikbaar.",
+        "boost.reason.home_battery_floor": "Thuisbatterijbeveiliging: thuisbatterij op {home_soc}% (minimum {home_min}%) terwijl het net de lading niet leverde.",
+        "boost.reason.home_soc_missing": "Thuisbatterijbeveiliging: SOC van de thuisbatterij 60 seconden niet beschikbaar.",
+        "boost.reason.ev_soc_stale": "EV-SOC is {minutes} minuten niet veranderd tijdens het laden (vast op {soc}%).",
         "boost.reason.target_reached": "SOC-doel bereikt ({current_soc:.1f}% >= {target_soc}%)",
         "boost.title.not_started": "Boost Charge niet gestart",
         "boost.title.completed": "Boost Charge voltooid",

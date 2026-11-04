@@ -25,6 +25,7 @@ from .const import (
     CHARGING_POWER_DRAWING_FLOOR_W,
     CHARGING_POWER_GRACE_SECONDS,
     NIGHT_GRID_DRAW_START_GRACE_SECONDS,
+    GRID_RESTORE_STABLE_SECONDS,
     NIGHT_CHARGE_MODE_BATTERY,
     NIGHT_CHARGE_MODE_GRID,
     NIGHT_CHARGE_MODE_IDLE,
@@ -183,6 +184,12 @@ class NightSmartCharge:
         # the grid-import delay, default 30s) before the terminal stop — so a
         # 1-tick glitch on a noisy binary sensor never kills a night session.
         self._grid_loss_tracker = StabilityTracker()
+        # v2.15.0 (issue #66): a sustained grid loss no longer ends the night.
+        # The charger is stopped but the session stays armed and bound to its
+        # night window ("waiting for grid"); charging resumes once the grid has
+        # been back for GRID_RESTORE_STABLE_SECONDS (anti-flap).
+        self._waiting_for_grid = False
+        self._grid_restore_tracker = StabilityTracker()
         self._night_charge_active = False
         # v1.11.9: `_active_mode` is now a property — assignments are
         # automatically published to sensor.evsc_night_session_state so the
@@ -372,6 +379,7 @@ class NightSmartCharge:
 
         self._night_charge_active = False
         self._active_mode = NIGHT_CHARGE_MODE_IDLE
+        self._waiting_for_grid = False
         self._session_state = "completed_today"
         self._last_completion_time = dt_util.now()
         self._last_completion_date = dt_util.now().date()
@@ -900,7 +908,16 @@ class NightSmartCharge:
         """
         # === STEP 1: State-based protection ===
         if self._session_state == "completed_today":
-            if self._last_completion_date != now.date():
+            # v2.15.0 (issue #66): the latch follows the NIGHT the stop belongs
+            # to, not the calendar date — an evening window keeps its latch
+            # across midnight, and a morning deadline stop no longer blocks
+            # the same evening's window. Unknown time entity → legacy date rule.
+            in_night = self._completion_in_current_night(now)
+            latched = (
+                in_night if in_night is not None
+                else self._last_completion_date == now.date()
+            )
+            if not latched:
                 # New day - reset to ready
                 self._session_state = "ready"
                 self.logger.info("🔄 New day detected - reset to ready state")
@@ -962,9 +979,13 @@ class NightSmartCharge:
             self.logger.warning("Time entity unavailable for window check")
             return False
 
-        # Get scheduled time for TODAY (not next occurrence)
+        # Get the start of the night window ``now`` belongs to. v2.15.0 (issue
+        # #66): an evening window (e.g. 23:15) evaluated after midnight resolves
+        # to YESTERDAY's 23:15 while that night is still running (before its
+        # sunrise), so the window survives midnight instead of reading as
+        # "not yet started".
         try:
-            scheduled_time = self._get_scheduled_time_for_today(now, time_state)
+            scheduled_time = self._resolve_night_window_start(now, time_state)
         except (ValueError, TypeError, IndexError) as e:
             self.logger.error(f"Invalid time configuration: {time_state} - {e}")
             return False
@@ -1753,6 +1774,106 @@ class NightSmartCharge:
         self.logger.info("Monitoring will continue...")
         self.logger.separator()
 
+    async def _handle_grid_availability(self, current_time: datetime) -> bool:
+        """Grid-loss stop / resume state machine for grid mode (v2.15.0, #66).
+
+        Returns True when the caller must end this monitor tick (charger
+        stopped, waiting for the grid, or just resumed).
+        """
+        grid_available = self._power_model.is_grid_available(self.hass)
+
+        if self._waiting_for_grid:
+            if grid_available is True:
+                self._grid_restore_tracker.start_tracking()
+                elapsed = self._grid_restore_tracker.get_elapsed()
+                if not self._grid_restore_tracker.is_stable(GRID_RESTORE_STABLE_SECONDS):
+                    self.logger.info(
+                        f"{self.logger.GRID} Grid back - confirming stability "
+                        f"({elapsed:.0f}s / {GRID_RESTORE_STABLE_SECONDS}s) before resuming"
+                    )
+                    return True
+                await self._resume_after_grid_restore()
+                return True
+            # Grid still off, or unknown/unmapped: keep waiting, restart the
+            # stability window (an 'unknown' reading never counts as stable).
+            self._grid_restore_tracker.reset()
+            self.logger.debug("Waiting for grid to return (night session armed)")
+            return True
+
+        if grid_available is False:
+            sustain = self._get_grid_import_delay()
+            self._grid_loss_tracker.start_tracking()
+            elapsed = self._grid_loss_tracker.get_elapsed()
+            if self._grid_loss_tracker.is_stable(sustain):
+                reason = (
+                    "Grid lost (grid_available = off) - pausing grid mode to "
+                    "preserve home battery until the grid returns"
+                )
+                self.logger.warning(
+                    f"{self.logger.GRID} {self.logger.STOP} {reason} "
+                    f"(sustained {elapsed:.0f}s)"
+                )
+                if await self._stop_charger_with_control(reason):
+                    self._waiting_for_grid = True
+                    self._grid_loss_tracker.reset()
+                    self._grid_restore_tracker.reset()
+                    self._grid_drawing_low_since = None
+                    await self._mobile_notifier.clear_ev_charging_live_activity()
+                    await self._emit_diagnostic(
+                        event="grid_loss_paused",
+                        result="waiting",
+                        reason_code=STOP_REASON_GRID_LOSS,
+                        reason_detail=reason,
+                        raw_values={"sustained_s": round(elapsed)},
+                        severity="warning",
+                    )
+                return True
+            self.logger.warning(
+                f"{self.logger.GRID} Grid reported unavailable (grid_available = off) "
+                f"- confirming for {sustain}s ({elapsed:.0f}s elapsed)"
+            )
+            return False
+
+        # Grid present (True) or unknown/unmapped (None) → clear debounce.
+        self._grid_loss_tracker.reset()
+        return False
+
+    async def _resume_after_grid_restore(self) -> None:
+        """Restart grid-mode charging once the grid is stably back (#66)."""
+        if await self.priority_balancer.is_ev_target_reached():
+            self.logger.info("Grid restored but EV target already reached - completing session")
+            self._waiting_for_grid = False
+            await self._complete_night_charge(STOP_REASON_EV_TARGET, terminal=True)
+            return
+
+        amperage = self._get_night_charge_amperage()
+        reason = "Night charge - Grid restored"
+        if not await self._acquire_control("turn_on", reason):
+            self.logger.warning("Grid restored but coordinator denied the restart - still waiting")
+            return
+        result = await self._start_charger_with_retry(amperage, reason)
+        if not self._operation_succeeded(result):
+            self.logger.warning("Grid restored but charger restart failed - will retry next tick")
+            self._grid_restore_tracker.reset()
+            return
+
+        self.logger.success(
+            f"{self.logger.GRID} Grid stable for {GRID_RESTORE_STABLE_SECONDS}s - "
+            f"grid-mode charging resumed at {amperage}A"
+        )
+        self._waiting_for_grid = False
+        self._grid_restore_tracker.reset()
+        # Fresh draw debounce + startup ramp grace for the resumed session.
+        self._grid_drawing_low_since = None
+        self._grid_session_start = dt_util.now()
+        await self._emit_diagnostic(
+            event="grid_restored_resumed",
+            result="started",
+            reason_code="command_executed",
+            reason_detail=reason,
+            raw_values={"amperage": amperage},
+        )
+
     @callback
     async def _async_monitor_grid_charge(self, now) -> None:
         """
@@ -1794,30 +1915,15 @@ class NightSmartCharge:
         # mode has nothing to draw from. Fail-safe: is_grid_available() returns
         # None when the sensor is unmapped OR unavailable/unknown → no action
         # (a boot-time 'unavailable' never spuriously kills the session).
-        grid_available = self._power_model.is_grid_available(self.hass)
-        if grid_available is False:
-            sustain = self._get_grid_import_delay()
-            self._grid_loss_tracker.start_tracking()
-            elapsed = self._grid_loss_tracker.get_elapsed()
-            if self._grid_loss_tracker.is_stable(sustain):
-                reason = (
-                    "Grid lost (grid_available = off) - stopping grid mode to "
-                    "preserve home battery during the outage"
-                )
-                self.logger.warning(
-                    f"{self.logger.GRID} {self.logger.STOP} {reason} "
-                    f"(sustained {elapsed:.0f}s)"
-                )
-                if await self._stop_charger_with_control(reason):
-                    await self._complete_night_charge(STOP_REASON_GRID_LOSS, terminal=True)
-                return
-            self.logger.warning(
-                f"{self.logger.GRID} Grid reported unavailable (grid_available = off) "
-                f"- confirming for {sustain}s ({elapsed:.0f}s elapsed)"
-            )
-        else:
-            # Grid present (True) or unknown/unmapped (None) → clear debounce.
-            self._grid_loss_tracker.reset()
+        #
+        # v2.15.0 (issue #66): the stop is NO LONGER terminal. A grid outage is
+        # transient by nature; latching completed_today forfeited the whole
+        # night on a single 3-minute flap. The charger is stopped, ownership is
+        # kept (Solar Surplus / Smart Blocker stay out), and the session waits
+        # for the grid — still bound to its night window, because Check 0
+        # (deadline / sunrise / target) above keeps running every tick.
+        if await self._handle_grid_availability(current_time):
+            return
 
         # Check 1: EV target SOC reached
         ev_target_reached = await self.priority_balancer.is_ev_target_reached()
@@ -2095,6 +2201,9 @@ class NightSmartCharge:
             self._grid_battery_masking_tracker.reset()
             # v2.6.0 (issue #36): same for the grid-loss debounce.
             self._grid_loss_tracker.reset()
+            # v2.15.0 (issue #66): a fresh session never starts "waiting".
+            self._waiting_for_grid = False
+            self._grid_restore_tracker.reset()
             # v2.3.0 (issue #32): start each session with a clean PV-handoff debounce
             # and stamp the session start for the handoff hard-cap anchor.
             self._pv_handoff_tracker.reset()
@@ -2351,6 +2460,9 @@ class NightSmartCharge:
         self._grid_battery_masking_tracker.reset()
         # v2.6.0 (issue #36): same hygiene for the grid-loss debounce.
         self._grid_loss_tracker.reset()
+        # v2.15.0 (issue #66): the waiting-for-grid pause ends with its session.
+        self._waiting_for_grid = False
+        self._grid_restore_tracker.reset()
         # v2.14.0 (issue #63): the session start anchors the car-ready deadline
         # and the PV-handoff hard-cap; never let it outlive its session.
         self._night_session_start = None
@@ -2638,6 +2750,45 @@ class NightSmartCharge:
             - NOT: 2025-11-21 01:00:00 (tomorrow)
         """
         return TimeParsingService.time_string_to_datetime(time_str, now)
+
+    def _resolve_night_window_start(self, now: datetime, time_str: str) -> datetime:
+        """Return the scheduled start of the night window ``now`` belongs to (#66).
+
+        Today's occurrence, unless ``now`` is before it and yesterday's
+        occurrence still opens a night that has not reached its sunrise yet.
+        A 01:00 window at 00:30 keeps today's 01:00 (yesterday's night already
+        ended at yesterday's sunrise); a 23:15 window at 01:30 resolves to
+        yesterday 23:15.
+        """
+        scheduled = self._get_scheduled_time_for_today(now, time_str)
+        grace_start = scheduled - timedelta(minutes=ACTIVATION_GRACE_BEFORE_MINUTES)
+        if now < grace_start:
+            previous = scheduled - timedelta(days=1)
+            sunrise = self._astral_service.get_next_sunrise_after(previous)
+            if sunrise and now < sunrise:
+                return previous
+        return scheduled
+
+    def _completion_in_current_night(self, now: datetime) -> bool | None:
+        """True when the last terminal stop happened in the night still running.
+
+        Keeps the completed_today latch across midnight for evening windows
+        (a 23:50 EV-target stop must not re-arm at 00:00) and releases it for
+        the next night (a 06:50 deadline stop must not block tonight's 23:13
+        window). Returns None when it cannot tell (no completion time, time
+        entity unavailable) — the caller then falls back to the date rule.
+        """
+        if self._last_completion_time is None or not self._night_charge_time_entity:
+            return None
+        time_state = state_helper.get_state(self.hass, self._night_charge_time_entity)
+        if not time_state or time_state in ("unknown", "unavailable"):
+            return None
+        try:
+            start = self._resolve_night_window_start(now, time_state)
+        except (ValueError, TypeError, IndexError):
+            return None
+        grace_start = start - timedelta(minutes=ACTIVATION_GRACE_BEFORE_MINUTES)
+        return start <= now and self._last_completion_time >= grace_start
 
     def _cooldown_expired(self, now: datetime) -> bool:
         """

@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.14.0"
+VERSION = "2.15.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -88,6 +88,16 @@ CHARGER_BUTTON_STATE_SETTLE_SECONDS = 60
 # preconditioning, contactor delay); without this window the 15 s low-draw
 # debounce would false-terminate a legitimate session ~30 s in.
 NIGHT_GRID_DRAW_START_GRACE_SECONDS = 90
+# v2.15.0 (issues #66 / #68): after a sustained grid loss the charger is
+# stopped but the session stays armed ("waiting for grid"). Charging resumes
+# only once grid_available has read ON continuously for this long, so a
+# flapping grid never produces a start/stop storm.
+GRID_RESTORE_STABLE_SECONDS = 180
+# v2.15.0 (issue #67): Solar Surplus keeps ownership of a RUNNING charger when
+# the status sensor briefly reports "disconnected" (charger_end/free/wait
+# flicker). Control is released only once the disconnected status has held for
+# this long — a glitch no longer leaves the charger running with no owner.
+SOLAR_DISCONNECT_RELEASE_SECONDS = 90
 
 # ========== PHASE MODE & CHARGER MODEL (v2.0.0, opt-in) ==========
 # Phase mode: single-phase (default, unchanged behaviour) or three-phase.
@@ -324,6 +334,11 @@ HELPER_NIGHT_PV_HANDOFF_THRESHOLD_SUFFIX = "evsc_night_pv_handoff_threshold"
 # Numbers - Boost Charge
 HELPER_BOOST_CHARGE_AMPERAGE_SUFFIX = "evsc_boost_charge_amperage"
 HELPER_BOOST_TARGET_SOC_SUFFIX = "evsc_boost_target_soc"
+# v2.15.0 (issue #68): Boost Charge protections, each with its own switch.
+HELPER_BOOST_HOME_BATTERY_PROTECTION_SUFFIX = "evsc_boost_home_battery_protection"
+HELPER_BOOST_STOP_ON_GRID_LOSS_SUFFIX = "evsc_boost_stop_on_grid_loss"
+HELPER_BOOST_STALE_SOC_GUARD_SUFFIX = "evsc_boost_stale_soc_guard"
+HELPER_BOOST_STALE_SOC_MINUTES_SUFFIX = "evsc_boost_stale_soc_minutes"
 
 # Switches - Schedule Boost Charge
 HELPER_BOOST_SCHEDULE_ENABLED_SUFFIX = "evsc_boost_schedule_enabled"
@@ -451,6 +466,11 @@ NIGHT_CHARGE_START_RETRY_DELAYS = [5, 15, 30]  # Seconds between retry attempts 
 # ========== DEFAULT VALUES - BOOST CHARGE ==========
 DEFAULT_BOOST_CHARGE_AMPERAGE = 16  # amps
 DEFAULT_BOOST_TARGET_SOC = 80  # percent
+# v2.15.0 (issue #68): only the home-battery floor is ON by default.
+DEFAULT_BOOST_HOME_BATTERY_PROTECTION = True
+DEFAULT_BOOST_STOP_ON_GRID_LOSS = False
+DEFAULT_BOOST_STALE_SOC_GUARD = False
+DEFAULT_BOOST_STALE_SOC_MINUTES = 60  # minutes without an EV SOC change
 DEFAULT_BOOST_SCHEDULE_START_TIME = "07:00:00"
 DEFAULT_BOOST_SCHEDULE_END_TIME = "08:00:00"
 
@@ -549,7 +569,8 @@ HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 # reality (cf. v1.6.20), a single user-disabled entity turns the tolerant
 # startup path back into a hard ConfigEntryNotReady. Keep this in sync.
 # v2.13.0 adds 1 always-created number (evsc_offgrid_max_amperage) → 74.
-TOTAL_INTEGRATION_ENTITIES = 74
+# v2.15.0 (issue #68) adds 3 Boost protection switches + 1 number → 78.
+TOTAL_INTEGRATION_ENTITIES = 78
 # Verified count (v2.3.0): 53 entities when running in PV-only mode.
 # Unchanged in v2.1.0: the discharge number is battery-only (skipped in PV-only mode).
 # v2.3.0 (issue #32): evsc_night_pv_handoff_threshold is NOT battery-only → +1 → 53.
@@ -563,7 +584,9 @@ TOTAL_INTEGRATION_ENTITIES = 74
 # 7 daily home min SOC numbers (Monday–Sunday), 1 sensor (today_home_target).
 # Hybrid Mode entities are still created in PV-only mode but stay IDLE (requires soc_home).
 # v2.13.0 (issue #57): the off-grid amperage cap is NOT battery-only → +1 → 60.
-TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 60
+# v2.15.0 (issue #68): grid-loss + stale-SOC switches and the stale-SOC minutes
+# number are NOT battery-only (+3); the home-battery protection switch is → 63.
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 63
 
 
 def uses_charger_buttons(config: dict) -> bool:

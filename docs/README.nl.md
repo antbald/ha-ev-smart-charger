@@ -63,7 +63,7 @@ Geen automatisering. Je regelt laden volledig zelf.
 
 ### Solar Surplus
 
-Laadt alleen met overtollige zonne-energie en verlaagt of stopt laden wanneer netafname optreedt.
+Laadt alleen met overtollige zonne-energie en verlaagt of stopt laden wanneer netafname optreedt. Zonder net (`grid_available` uit) en zonder overschot stopt de lader sinds v2.15.0 in één keer.
 
 ### Night Smart Charge
 
@@ -74,9 +74,13 @@ Controleert op het ingestelde tijdstip de zonneverwachting voor de volgende dag 
 
 Car Ready-flags per weekdag bepalen of de auto de volgende ochtend echt klaar moet zijn.
 
+Sinds v2.15.0 beëindigt een korte netuitval de nacht niet meer: in Grid-modus pauzeert het laden en het hervat zodra het net 3 minuten stabiel is.
+
 ### Boost Charge
 
 Start een handmatige laadsessie met vaste stroom en stopt automatisch zodra het ingestelde EV-SOC is bereikt.
+
+Sinds v2.15.0 heeft Boost drie beveiligingen, elk met een eigen schakelaar: thuisbatterijbeveiliging (standaard aan, stopt op de minimum-SOC als het net de lading niet levert), pauzeren bij netuitval (standaard uit) en bewaking van een vastgelopen EV-SOC (standaard uit).
 
 ### Smart Charger Blocker
 

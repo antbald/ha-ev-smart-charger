@@ -501,6 +501,15 @@
       },
       "evsc_car_ready_sunday": {
         "name": "Auto klaar zondag"
+      },
+      "evsc_boost_home_battery_protection": {
+        "name": "Boost thuisbatterijbeveiliging"
+      },
+      "evsc_boost_stop_on_grid_loss": {
+        "name": "Boost pauzeren bij netuitval"
+      },
+      "evsc_boost_stale_soc_guard": {
+        "name": "Boost bewaking vastgelopen EV-SOC"
       }
     },
     "number": {
@@ -593,6 +602,9 @@
       },
       "evsc_max_battery_discharge_for_ev": {
         "name": "Max. batterijontlading voor EV"
+      },
+      "evsc_boost_stale_soc_minutes": {
+        "name": "Boost periode vastgelopen SOC"
       }
     },
     "select": {
