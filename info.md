@@ -1,6 +1,8 @@
 **EV Smart Charger — MVP**  
 Sensore di stato + select per la modalità. Base per strategie di ricarica.
 
+**v2.16.1** — Nessuna modifica al codice (release rigenerata dopo la validazione CI).
+
 **v2.16.0** — La telemetria anonima è ora solo opt-in e disattivata di default (si abilita nel wizard o in Configura). Nessun altro cambiamento.
 
 **v2.15.0** — Protezioni per blackout e batteria di casa (issue #66, #67, #68). Night Smart Charge non perde più l'intera notte per un breve blackout: in modalità rete si mette in pausa e riprende quando la rete è stabile da 3 minuti, e una finestra serale (es. 23:15) resta valida dopo mezzanotte. Solar Surplus senza rete e senza surplus ferma il charger in un colpo solo. Boost Charge ha tre protezioni con switch dedicati: soglia minima della batteria di casa (attiva di default), pausa opzionale senza rete e controllo opzionale del SOC EV bloccato.
