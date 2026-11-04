@@ -5,8 +5,10 @@ distribution, and approximate geographic spread. No personal data is
 collected: only an anonymous UUID, integration version, HA version,
 and timezone (used to derive a country code).
 
-Opt-out: set the environment variable EVSC_DISABLE_TELEMETRY=true on
-the Home Assistant host.
+Strictly opt-in (v2.16.0+): nothing is sent unless the user enables
+"Share anonymous usage statistics" in the integration's configuration.
+The environment variable EVSC_DISABLE_TELEMETRY=true remains as an
+additional kill switch.
 """
 from __future__ import annotations
 

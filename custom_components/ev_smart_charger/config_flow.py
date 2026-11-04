@@ -17,6 +17,8 @@ from .const import (
     CONF_CHARGING_POWER_L2,
     CONF_CHARGING_POWER_L3,
     CONF_CREATE_DASHBOARD,
+    CONF_TELEMETRY_ENABLED,
+    DEFAULT_TELEMETRY_ENABLED,
     CONF_ENERGY_FORECAST_TARGET,
     CONF_EV_CHARGER_CURRENT,
     CONF_EV_CHARGER_STATUS,
@@ -438,6 +440,12 @@ def _dashboard_schema(current_data: dict[str, Any] | None = None) -> vol.Schema:
             vol.Optional(
                 CONF_CREATE_DASHBOARD,
                 default=current_value,
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_TELEMETRY_ENABLED,
+                default=current_data.get(
+                    CONF_TELEMETRY_ENABLED, DEFAULT_TELEMETRY_ENABLED
+                ),
             ): selector.BooleanSelector(),
         }
     )

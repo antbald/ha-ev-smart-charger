@@ -166,6 +166,80 @@ async def test_async_setup_entry_populates_runtime_data_and_component_refs(hass)
     log_manager.async_setup.assert_awaited_once()
 
 
+@pytest.mark.parametrize("telemetry_enabled", [None, False, True])
+async def test_telemetry_is_opt_in(hass, telemetry_enabled) -> None:
+    """v2.16.0: no telemetry timer is scheduled unless the user opted in."""
+    entry = MockConfigEntry(domain=DOMAIN, data={**_entry_data(), **({"telemetry_enabled": True} if telemetry_enabled is True else ({} if telemetry_enabled is None else {"telemetry_enabled": False}))}, entry_id="entry-1")
+    entry.add_to_hass(hass)
+    _stub_http(hass)
+
+    charger_controller = _component("charger")
+    ev_soc_monitor = _component("soc")
+    priority_balancer = _component("priority")
+    night_smart_charge = _component("night")
+    boost_charge = _component("boost")
+    smart_blocker = _component("blocker")
+    solar_surplus = _component("solar")
+    log_manager = _component("log")
+    diagnostic_manager = _component("diagnostic")
+    coordinator = SimpleNamespace()
+
+    async def forward_setups(config_entry, platforms):
+        assert platforms == PLATFORMS
+        runtime_data = config_entry.runtime_data
+        runtime_data.registered_entity_count = TOTAL_INTEGRATION_ENTITIES
+        runtime_data.registration_event.set()
+
+    with patch.object(
+        hass.config_entries,
+        "async_forward_entry_setups",
+        side_effect=forward_setups,
+        autospec=True,
+    ), patch(
+        "custom_components.ev_smart_charger.ChargerController",
+        return_value=charger_controller,
+    ), patch(
+        "custom_components.ev_smart_charger.EVSOCMonitor",
+        return_value=ev_soc_monitor,
+    ), patch(
+        "custom_components.ev_smart_charger.AutomationCoordinator",
+        return_value=coordinator,
+    ), patch(
+        "custom_components.ev_smart_charger.DiagnosticManager",
+        return_value=diagnostic_manager,
+    ), patch(
+        "custom_components.ev_smart_charger.PriorityBalancer",
+        return_value=priority_balancer,
+    ), patch(
+        "custom_components.ev_smart_charger.NightSmartCharge",
+        return_value=night_smart_charge,
+    ), patch(
+        "custom_components.ev_smart_charger.BoostCharge",
+        return_value=boost_charge,
+    ), patch(
+        "custom_components.ev_smart_charger.SmartChargerBlocker",
+        return_value=smart_blocker,
+    ), patch(
+        "custom_components.ev_smart_charger.SolarSurplusAutomation",
+        return_value=solar_surplus,
+    ), patch(
+        "custom_components.ev_smart_charger.LogManager",
+        return_value=log_manager,
+    ):
+        with patch("custom_components.ev_smart_charger.async_call_later") as call_later, patch(
+            "custom_components.ev_smart_charger.async_track_time_interval"
+        ) as track_interval:
+            result = await async_setup_entry(hass, entry)
+
+    assert result is True
+    if telemetry_enabled is True:
+        call_later.assert_called_once()
+        track_interval.assert_called_once()
+    else:
+        call_later.assert_not_called()
+        track_interval.assert_not_called()
+
+
 async def test_async_setup_entry_raises_not_ready_on_registration_timeout(hass) -> None:
     """Registration timeout raises ConfigEntryNotReady before component creation."""
     entry = MockConfigEntry(domain=DOMAIN, data=_entry_data(), entry_id="entry-1")

@@ -156,6 +156,8 @@ async def test_form(hass: HomeAssistant):
         assert result9["data"][CONF_EV_CHARGER_SWITCH] == "switch.charger"
         assert result9["data"][CONF_PHASE_MODE] == PHASE_MODE_SINGLE
         assert result9["data"][CONF_CHARGER_MODEL] == CHARGER_MODEL_TUYA
+        # v2.16.0: telemetry is strictly opt-in, off by default
+        assert result9["data"]["telemetry_enabled"] is False
         # v2.1.0 (issue #29): hybrid step values round-trip into entry.data
         assert result9["data"][CONF_HYBRID_INVERTER_MODE] is True
         assert result9["data"][CONF_BATTERY_POWER] == "sensor.battery_power"

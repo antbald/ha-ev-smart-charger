@@ -22,6 +22,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_CREATE_DASHBOARD,
+    CONF_TELEMETRY_ENABLED,
+    DEFAULT_TELEMETRY_ENABLED,
     DEFAULT_CREATE_DASHBOARD,
     DEFAULT_NAME,
     DOMAIN,
@@ -619,6 +621,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     #   2. telemetry.py has 5 retries × 60s delay, so even if the network isn't
     #      ready at t=30s the ping survives up to ~5 minutes.
     #   3. Daily timer runs every TELEMETRY_PING_INTERVAL_HOURS regardless.
+    if not entry.data.get(CONF_TELEMETRY_ENABLED, DEFAULT_TELEMETRY_ENABLED):
+        _LOGGER.info(
+            "📊 Phase 9: Telemetry disabled (opt-in, default off) — nothing is sent"
+        )
+        _LOGGER.info("=" * 64)
+        _LOGGER.info(f"✅ EV Smart Charger v{VERSION} - Setup completed successfully!")
+        _LOGGER.info("=" * 64)
+        return True
+
     _LOGGER.info("📊 Phase 9: Scheduling telemetry ping")
     telemetry_logger.info(f"📊 Phase 9 reached — hass.state={hass.state}")
 

@@ -119,10 +119,12 @@
         "title": "Kant-en-klaar dashboard - Stap {step}/{total_steps}",
         "description": "Genereer automatisch een Lovelace-dashboard met alle helper-entiteiten van deze integratie. Het dashboard verschijnt in de zijbalk als 'EV Smart Charger' met een glass-stijl UI geïnspireerd op iOS 18. Geen YAML, geen configuratie nodig.",
         "data": {
-          "create_dashboard": "Automatisch zijbalkdashboard genereren"
+          "create_dashboard": "Automatisch zijbalkdashboard genereren",
+          "telemetry_enabled": "Anonieme gebruiksstatistieken delen"
         },
         "data_description": {
-          "create_dashboard": "Indien ingeschakeld wordt een toegewijd Lovelace panel-mode dashboard aangemaakt op /ev-smart-charger en als zijbalkvermelding geregistreerd."
+          "create_dashboard": "Indien ingeschakeld wordt een toegewijd Lovelace panel-mode dashboard aangemaakt op /ev-smart-charger en als zijbalkvermelding geregistreerd.",
+          "telemetry_enabled": "Indien ingeschakeld wordt elke 24 uur een anonieme ping (willekeurig installatie-ID, versie, tijdzone, land) verzonden om de ontwikkeling te helpen prioriteren. Standaard uitgeschakeld; er worden geen persoonlijke gegevens verzameld."
         }
       },
       "reconfigure": {
@@ -223,10 +225,12 @@
         "title": "Dashboard opnieuw configureren - Stap {step}/{total_steps}",
         "description": "Schakel het automatisch gegenereerde Lovelace-dashboard in of uit. Uitschakelen verwijdert het uit de zijbalk; opnieuw inschakelen maakt het opnieuw aan.",
         "data": {
-          "create_dashboard": "Automatisch zijbalkdashboard genereren"
+          "create_dashboard": "Automatisch zijbalkdashboard genereren",
+          "telemetry_enabled": "Anonieme gebruiksstatistieken delen"
         },
         "data_description": {
-          "create_dashboard": "Schakelen om het toegewijde EV Smart Charger Lovelace-dashboard aan te maken of te verwijderen."
+          "create_dashboard": "Schakelen om het toegewijde EV Smart Charger Lovelace-dashboard aan te maken of te verwijderen.",
+          "telemetry_enabled": "Indien ingeschakeld wordt elke 24 uur een anonieme ping (willekeurig installatie-ID, versie, tijdzone, land) verzonden om de ontwikkeling te helpen prioriteren. Standaard uitgeschakeld; er worden geen persoonlijke gegevens verzameld."
         }
       },
       "reconfigure_entities": {
@@ -391,10 +395,12 @@
         "title": "Dashboard bijwerken - Stap {step}/{total_steps}",
         "description": "Schakel het automatisch gegenereerde Lovelace-dashboard in of uit. Uitschakelen verwijdert het uit de zijbalk.",
         "data": {
-          "create_dashboard": "Automatisch zijbalkdashboard genereren"
+          "create_dashboard": "Automatisch zijbalkdashboard genereren",
+          "telemetry_enabled": "Anonieme gebruiksstatistieken delen"
         },
         "data_description": {
-          "create_dashboard": "Indien ingeschakeld wordt een Lovelace-dashboard met alle integratie-entiteiten toegevoegd aan de zijbalk op /ev-smart-charger."
+          "create_dashboard": "Indien ingeschakeld wordt een Lovelace-dashboard met alle integratie-entiteiten toegevoegd aan de zijbalk op /ev-smart-charger.",
+          "telemetry_enabled": "Indien ingeschakeld wordt elke 24 uur een anonieme ping (willekeurig installatie-ID, versie, tijdzone, land) verzonden om de ontwikkeling te helpen prioriteren. Standaard uitgeschakeld; er worden geen persoonlijke gegevens verzameld."
         }
       },
       "entities": {

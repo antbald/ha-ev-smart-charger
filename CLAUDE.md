@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.15.0
+**Current Version:** 2.16.0
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -759,6 +759,24 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.16.0 (2026-11-04)
+**CHANGE: anonymous telemetry is strictly opt-in, default OFF (HACS default-catalog requirement)**
+
+HACS maintainers rejected the default-catalog submission because the daily
+telemetry ping was on by default with only an environment-variable opt-out. New
+boolean `telemetry_enabled` (`CONF_TELEMETRY_ENABLED`, `DEFAULT_TELEMETRY_ENABLED
+= False`) is a field of the `dashboard` step in all three flows, so it is editable
+at any time; Phase 9 of `__init__.py` returns before registering the 30 s startup
+ping and the daily interval unless it is true. `EVSC_DISABLE_TELEMETRY` stays as
+an extra kill switch. No entity change (78 / 63), step counts unchanged.
+
+**Files**: `const.py`, `config_flow.py`, `__init__.py`, `telemetry.py`,
+`strings.json` + `translations/{en,it,nl}.json`, `manifest.json`, `README.md`,
+this file; tests: `test_integration_setup.py`, `test_config_flow.py`.
+`VERSION = "2.16.0"`. Full suite green: **413 passed / 0 failed**.
+
+---
 
 ### v2.15.0 (2026-11-04)
 **FIX: grid outages and home-battery drain — Night Charge grid-loss pause (#66), Solar Surplus off-grid stop (#67), Boost Charge protections (#68)**

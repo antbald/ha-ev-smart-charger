@@ -119,10 +119,12 @@
         "title": "Ready-to-go Dashboard - Step {step}/{total_steps}",
         "description": "Auto-generate a Lovelace dashboard preloaded with every helper entity from this integration. The dashboard will appear in the sidebar as 'EV Smart Charger' with a glass-style UI inspired by iOS 18. Zero YAML, zero configuration.",
         "data": {
-          "create_dashboard": "Auto-generate sidebar dashboard"
+          "create_dashboard": "Auto-generate sidebar dashboard",
+          "telemetry_enabled": "Share anonymous usage statistics"
         },
         "data_description": {
-          "create_dashboard": "When enabled, a dedicated Lovelace panel-mode dashboard is created at /ev-smart-charger and registered as a sidebar entry."
+          "create_dashboard": "When enabled, a dedicated Lovelace panel-mode dashboard is created at /ev-smart-charger and registered as a sidebar entry.",
+          "telemetry_enabled": "When enabled, an anonymous ping (random installation ID, integration version, timezone, country) is sent once every 24 hours to help prioritise development. Disabled by default; no personal data is collected."
         }
       },
       "reconfigure": {
@@ -223,10 +225,12 @@
         "title": "Reconfigure Dashboard - Step {step}/{total_steps}",
         "description": "Enable or disable the auto-generated Lovelace dashboard. Disabling removes it from the sidebar; re-enabling recreates it.",
         "data": {
-          "create_dashboard": "Auto-generate sidebar dashboard"
+          "create_dashboard": "Auto-generate sidebar dashboard",
+          "telemetry_enabled": "Share anonymous usage statistics"
         },
         "data_description": {
-          "create_dashboard": "Toggle to create or remove the EV Smart Charger Lovelace dashboard."
+          "create_dashboard": "Toggle to create or remove the EV Smart Charger Lovelace dashboard.",
+          "telemetry_enabled": "When enabled, an anonymous ping (random installation ID, integration version, timezone, country) is sent once every 24 hours to help prioritise development. Disabled by default; no personal data is collected."
         }
       },
       "reconfigure_entities": {
@@ -391,10 +395,12 @@
         "title": "Update Dashboard - Step {step}/{total_steps}",
         "description": "Toggle the auto-generated Lovelace dashboard. Disabling removes it from the sidebar.",
         "data": {
-          "create_dashboard": "Auto-generate sidebar dashboard"
+          "create_dashboard": "Auto-generate sidebar dashboard",
+          "telemetry_enabled": "Share anonymous usage statistics"
         },
         "data_description": {
-          "create_dashboard": "When enabled, a Lovelace dashboard preloaded with all integration entities is added to the sidebar at /ev-smart-charger."
+          "create_dashboard": "When enabled, a Lovelace dashboard preloaded with all integration entities is added to the sidebar at /ev-smart-charger.",
+          "telemetry_enabled": "When enabled, an anonymous ping (random installation ID, integration version, timezone, country) is sent once every 24 hours to help prioritise development. Disabled by default; no personal data is collected."
         }
       },
       "entities": {

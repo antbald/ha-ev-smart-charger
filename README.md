@@ -56,6 +56,8 @@ Most projects target one charger brand or assume a single-phase home. EV Smart C
 
 > **🆕 New in v2.6.0** — mass bug-fix & improvement release (issues #36–#42). Highlights: an optional **`grid_available` binary sensor** ([issue #36](https://github.com/antbald/ha-ev-smart-charger/issues/36)) stops Night Smart Charge grid mode during a **grid outage** so it doesn't drain the home battery on hybrid Battery First / UPS inverters (fail-safe: an unavailable sensor never triggers a false stop); a **customizable nighttime window** ([issue #42](https://github.com/antbald/ha-ev-smart-charger/issues/42)) via two opt-in offset numbers (start before sunset / end after sunrise); and a big **INFO log-noise reduction** ([issue #40](https://github.com/antbald/ha-ev-smart-charger/issues/40)) — idle ticks no longer flood the HA log. Also: valid day icons (#37), faster Generic-charger ramp-up (#38), a consistent Hybrid full-battery threshold (#39), and a cleaner telemetry log (#41). **All backward compatible** — the two features are opt-in.
 
+> **🔒 New in v2.16.0** — **telemetry is now strictly opt-in.** The anonymous usage ping is **disabled by default**; nothing is sent unless you enable *Share anonymous usage statistics* in the setup wizard or in *Configure*. No other behaviour changed. See Analytics & Privacy.
+
 > **🛡️ New in v2.15.0** — **grid-outage and home-battery protection fixes** ([#66](https://github.com/antbald/ha-ev-smart-charger/issues/66), [#67](https://github.com/antbald/ha-ev-smart-charger/issues/67), [#68](https://github.com/antbald/ha-ev-smart-charger/issues/68)). **Night Smart Charge** no longer gives up the whole night on a short grid outage: with `grid_available` mapped, grid mode pauses and resumes once the grid has been back for 3 minutes, and an evening night window (e.g. 23:15) now stays valid after midnight. **Solar Surplus** off-grid with no surplus now stops the charger in one action instead of stepping down one level at a time, and a flickering status sensor no longer leaves a running charger without an owner. **Boost Charge** gets three protections, each with its own switch: a **home-battery floor** (ON by default), an optional **pause on grid loss**, and an optional **stale EV SOC guard**. **STRONGLY RECOMMENDED for hybrid-inverter / backup-battery installs.**
 
 > **🔘 New in v2.14.0** — **native support for wallboxes controlled by start/stop buttons** ([issue #65](https://github.com/antbald/ha-ev-smart-charger/issues/65)) and a **car-ready deadline fix** ([issue #63](https://github.com/antbald/ha-ev-smart-charger/issues/63)). Some chargers (Growatt THOR) expose `button.*_start_charging` / `button.*_stop_charging` instead of an on/off switch: leave **Charger switch** empty and map the two buttons instead — every start/stop then presses the matching button, with no template switch needed. The fix: with `car_ready` ON and a night window that opens in the evening (e.g. 23:13 with a 06:50 deadline), the deadline was computed as *today* 06:50 — already 16 hours in the past — so the session stopped on its first check. The deadline is now anchored to the night window it belongs to. **STRONGLY RECOMMENDED for anyone whose night window starts before midnight.**
@@ -1465,7 +1467,7 @@ sensor — see the `charging_power_w` diagnostic attribute.
 
 ## Analytics & Privacy
 
-EV Smart Charger sends one anonymous ping per day to help the maintainer track active installations, version adoption, and approximate geographic distribution.
+EV Smart Charger can send one anonymous ping per day to help the maintainer track active installations, version adoption, and approximate geographic distribution. **This is strictly opt-in and disabled by default (v2.16.0+): nothing is ever sent unless you enable it.**
 
 **What is sent:**
 
@@ -1482,7 +1484,7 @@ EV Smart Charger sends one anonymous ping per day to help the maintainer track a
 
 Data is stored in a private sheet accessible only to the maintainer. Aggregated statistics may be published publicly.
 
-**Opt-out:** Set the environment variable `EVSC_DISABLE_TELEMETRY=true` on your Home Assistant host (e.g., in `/etc/environment` or your Docker Compose file).
+**Opt-in:** enable **Share anonymous usage statistics** in the last step of the setup wizard or later via *Configure* / *Reconfigure*. Disable it the same way at any time. As an extra kill switch, the environment variable `EVSC_DISABLE_TELEMETRY=true` on the Home Assistant host disables it regardless of the setting.
 
 ---
 

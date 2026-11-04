@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.15.0"
+VERSION = "2.16.0"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -192,6 +192,10 @@ CONF_ENERGY_FORECAST_TARGET = "energy_forecast_target"
 # Auto-generated Dashboard (v1.9.0+)
 CONF_CREATE_DASHBOARD = "create_dashboard"
 DEFAULT_CREATE_DASHBOARD = True
+
+# Anonymous telemetry — strictly opt-in (v2.16.0+), default OFF
+CONF_TELEMETRY_ENABLED = "telemetry_enabled"
+DEFAULT_TELEMETRY_ENABLED = False
 
 # Energy Forecast Defaults
 DEFAULT_BATTERY_CAPACITY = 50.0  # kWh
@@ -642,7 +646,9 @@ def get_amp_levels(config: dict) -> list[int]:
 
 # ========== ANONYMOUS TELEMETRY ==========
 # Google Apps Script Web App endpoint (insert-only, no personal data).
-# Opt-out: set env var EVSC_DISABLE_TELEMETRY=true on the HA host.
+# Strictly opt-in since v2.16.0: nothing is sent unless the user enables the
+# "Share anonymous usage statistics" toggle in the config flow (default OFF).
+# The EVSC_DISABLE_TELEMETRY env var remains as an additional hard kill switch.
 TELEMETRY_ENDPOINT = (
     "https://script.google.com/macros/s/"
     "AKfycbyMG7ALlmvOC1ao2WTTpuLvFgiinapPtJPFwDUGYuMdHdImhunJjQ3GjXFe-wOsXpR-"
