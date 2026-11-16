@@ -163,12 +163,13 @@ async def test_clear_is_a_no_op_when_no_activity_is_open(hass) -> None:
     hass.services.async_call.assert_not_awaited()
 
 
-async def test_amperage_power_and_status_do_not_trigger_updates(hass) -> None:
-    """Display-only values never schedule a push of their own (v2.12.0).
+async def test_display_only_changes_refresh_on_a_slow_floor(hass) -> None:
+    """Display-only values never push immediately, but refresh slowly (#70).
 
     The Tuya safe-decrease sequence flaps the status on every amperage step and
-    solar surplus moves the wattage continuously; before v2.12.0 both were part
-    of the trigger set, which produced roughly one push per minute.
+    solar surplus moves the wattage continuously, so they must not push on
+    their own (v2.12.0). Yet a card whose text never refreshed stayed stale for
+    hours (v2.16.3): a changed message is pushed once the display floor elapsed.
     """
     hass.services.async_call = AsyncMock()
     _charging_states(hass, soc="60")
@@ -179,8 +180,8 @@ async def test_amperage_power_and_status_do_not_trigger_updates(hass) -> None:
     await service.send_ev_charging_live_activity(mode=LIVE_ACTIVITY_MODE_BOOST)
     assert hass.services.async_call.call_count == 1
 
-    # Pretend plenty of time has passed, then churn every display-only value.
-    runtime_data.live_activity.last_update = dt_util.utcnow() - timedelta(hours=1)
+    # Inside the floor: churn every display-only value, no push.
+    runtime_data.live_activity.last_update = dt_util.utcnow() - timedelta(seconds=60)
     for amps, watts, status in (
         ("13", 3000.0, "charger_wait"),
         ("10", 2300.0, "charger_charging"),
@@ -190,8 +191,17 @@ async def test_amperage_power_and_status_do_not_trigger_updates(hass) -> None:
         hass.states.async_set("sensor.wallbox_status", status)
         runtime_data.power_model.read_charging_power.return_value = watts
         await service.send_ev_charging_live_activity(mode=LIVE_ACTIVITY_MODE_BOOST)
-
     assert hass.services.async_call.call_count == 1
+
+    # Floor elapsed with a changed display: exactly one refresh.
+    runtime_data.live_activity.last_update = dt_util.utcnow() - timedelta(hours=1)
+    await service.send_ev_charging_live_activity(mode=LIVE_ACTIVITY_MODE_BOOST)
+    assert hass.services.async_call.call_count == 2
+
+    # Same display again, even after the floor: nothing to refresh.
+    runtime_data.live_activity.last_update = dt_util.utcnow() - timedelta(hours=1)
+    await service.send_ev_charging_live_activity(mode=LIVE_ACTIVITY_MODE_BOOST)
+    assert hass.services.async_call.call_count == 2
 
 
 async def test_soc_update_needs_both_a_full_step_and_the_min_interval(hass) -> None:

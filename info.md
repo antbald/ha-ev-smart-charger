@@ -1,6 +1,8 @@
 **EV Smart Charger — MVP**  
 Sensore di stato + select per la modalità. Base per strategie di ricarica.
 
+**v2.16.3** — Correzioni (issue #69, #70). Hybrid Inverter Mode rispetta ora i limiti di amperaggio massimo solare e off-grid. Night Smart Charge in modalità rete non parte senza rete e, al ritorno della rete, attende 3 minuti di stabilità. Il testo della Live Activity (potenza, amperaggio, stato) si aggiorna ogni 5 minuti al massimo.
+
 **v2.16.1** — Nessuna modifica al codice (release rigenerata dopo la validazione CI).
 
 **v2.16.0** — La telemetria anonima è ora solo opt-in e disattivata di default (si abilita nel wizard o in Configura). Nessun altro cambiamento.

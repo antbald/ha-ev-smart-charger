@@ -14,6 +14,7 @@ from ..const import (
     HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX,
     HELPER_TODAY_EV_TARGET_SUFFIX,
     LIVE_ACTIVITY_MIN_TRANSITION_SECONDS,
+    LIVE_ACTIVITY_MIN_DISPLAY_REFRESH_SECONDS,
     LIVE_ACTIVITY_MIN_UPDATE_SECONDS,
     LIVE_ACTIVITY_MODE_BOOST,
     LIVE_ACTIVITY_MODE_CHARGING,
@@ -417,6 +418,7 @@ class MobileNotificationService:
         state.last_update = dt_util.utcnow()
         state.signature = snapshot["signature"]
         state.last_pushed_soc = snapshot["soc"]
+        state.last_message = snapshot["message"]
 
     async def clear_ev_charging_live_activity(self, *, force: bool = False) -> None:
         """End the EV charging Live Activity / Live Update.
@@ -438,6 +440,7 @@ class MobileNotificationService:
         state.signature = None
         state.last_update = None
         state.last_pushed_soc = None
+        state.last_message = None
         state.ended_at = dt_util.utcnow()
 
     def _build_live_activity_snapshot(
@@ -523,16 +526,24 @@ class MobileNotificationService:
         if snapshot["signature"] != state.signature:
             return elapsed >= LIVE_ACTIVITY_MIN_TRANSITION_SECONDS
 
+        # Displayed text (status / power / amperage) changed: refresh on a slow
+        # floor so the card never stays stale for hours (issue #70).
+        display_changed = snapshot["message"] != state.last_message
+        display_due = (
+            display_changed
+            and elapsed >= LIVE_ACTIVITY_MIN_DISPLAY_REFRESH_SECONDS
+        )
+
         soc = snapshot["soc"]
         if soc is None:
-            return False
+            return display_due
         if state.last_pushed_soc is None:
             # The activity opened while the SOC sensor was unavailable, so the
             # card shows no percentage. The first readable value is worth a
             # refresh; without this the hysteresis below could never arm.
             return elapsed >= LIVE_ACTIVITY_MIN_UPDATE_SECONDS
         if abs(soc - state.last_pushed_soc) < LIVE_ACTIVITY_SOC_STEP_PERCENT:
-            return False
+            return display_due
         return elapsed >= LIVE_ACTIVITY_MIN_UPDATE_SECONDS
 
     def _format_mode(self, mode: str) -> str:

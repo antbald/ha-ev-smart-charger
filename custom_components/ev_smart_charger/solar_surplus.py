@@ -381,6 +381,44 @@ class SolarSurplusAutomation:
         valid = [level for level in self._amp_levels if level <= max_amps]
         return valid[-1] if valid else self._amp_levels[0]
 
+    def get_effective_cap_amps(self) -> int:
+        """Stricter of the solar-max cap and the off-grid ceiling (v2.16.3, #69)."""
+        max_amps = int(
+            get_float(
+                self.hass, self._solar_max_amperage_entity, DEFAULT_SOLAR_MAX_AMPERAGE
+            )
+        )
+        valid = [lvl for lvl in self._amp_levels if lvl <= max_amps]
+        cap = valid[-1] if valid else self._amp_levels[0]
+        offgrid = self._get_offgrid_cap_amps()
+        if offgrid is not None:
+            cap = min(cap, offgrid)
+        return cap
+
+    async def _clamp_to_caps_for_hybrid(
+        self, charger_is_on: bool, current_amps: int
+    ) -> bool:
+        """Clamp a running session above the caps before Hybrid Mode runs (#69).
+
+        Hybrid Mode returns early from the tick, which used to skip both the
+        solar-max and the off-grid caps. Returns True when it acted.
+        """
+        if not charger_is_on or current_amps <= 0:
+            return False
+        cap = self.get_effective_cap_amps()
+        if current_amps <= cap:
+            return False
+        self.logger.warning(
+            f"Amperage cap: {current_amps}A > cap {cap}A - clamping (Hybrid path)"
+        )
+        if await self._ensure_control("Amperage cap enforcement"):
+            await self.charger_controller.set_amperage(
+                cap, "Amperage cap enforcement"
+            )
+            if self._hybrid_mode is not None:
+                self._hybrid_mode.sync_target_amps(cap)
+        return True
+
     async def _is_disconnect_glitch(self) -> bool:
         """True while a "disconnected" status must be ignored (issue #67).
 
@@ -1190,6 +1228,10 @@ class SolarSurplusAutomation:
             current_amps_for_hybrid = (
                 await self.charger_controller.get_current_amperage() or 0
             ) if charger_is_on else 0
+            if await self._clamp_to_caps_for_hybrid(
+                charger_is_on, current_amps_for_hybrid
+            ):
+                return
             if await self._hybrid_mode.is_relevant(
                 surplus_amps=surplus_amps,
                 surplus_watts=surplus_watts,

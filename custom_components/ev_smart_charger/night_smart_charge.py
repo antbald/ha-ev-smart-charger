@@ -190,6 +190,9 @@ class NightSmartCharge:
         # been back for GRID_RESTORE_STABLE_SECONDS (anti-flap).
         self._waiting_for_grid = False
         self._grid_restore_tracker = StabilityTracker()
+        # v2.16.3 (#69): start-time hold while the grid is absent
+        self._start_grid_hold = False
+        self._start_grid_tracker = StabilityTracker()
         self._night_charge_active = False
         # v1.11.9: `_active_mode` is now a property — assignments are
         # automatically published to sensor.evsc_night_session_state so the
@@ -2111,8 +2114,38 @@ class NightSmartCharge:
 
     # ========== GRID CHARGE MODE ==========
 
+    def _grid_start_blocked(self) -> bool:
+        """v2.16.3 (#69): hold a grid-mode start while the grid is absent.
+
+        Blocks while grid_available is explicitly OFF, then until it has read
+        ON for GRID_RESTORE_STABLE_SECONDS. Unmapped sensor -> never blocks.
+        """
+        grid_available = self._power_model.is_grid_available(self.hass)
+        if grid_available is False:
+            self._start_grid_hold = True
+            self._start_grid_tracker.reset()
+            return True
+        if self._start_grid_hold:
+            if grid_available is True:
+                self._start_grid_tracker.start_tracking()
+                if self._start_grid_tracker.is_stable(GRID_RESTORE_STABLE_SECONDS):
+                    self._start_grid_hold = False
+                    self._start_grid_tracker.reset()
+                    return False
+            else:
+                self._start_grid_tracker.reset()
+            return True
+        return False
+
     async def _start_grid_charge(self, pv_forecast: float) -> None:
         """Start charging from grid at configured amperage."""
+        if self._grid_start_blocked():
+            self.logger.warning(
+                f"{self.logger.GRID} Grid absent or not yet stable - "
+                "night grid charge start held"
+            )
+            return
+
         self.logger.separator()
         self.logger.start(f"{self.logger.GRID} Grid charge mode")
 

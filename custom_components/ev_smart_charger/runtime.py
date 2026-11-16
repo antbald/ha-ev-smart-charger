@@ -24,6 +24,7 @@ class LiveActivityState:
     signature: tuple | None = None
     last_update: datetime | None = None
     last_pushed_soc: float | None = None
+    last_message: str | None = None
     ended_at: datetime | None = None
 
 

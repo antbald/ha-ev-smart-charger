@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.16.1"
+VERSION = "2.16.3"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -233,8 +233,9 @@ HELPER_LIVE_ACTIVITIES_ENABLED_SUFFIX = "evsc_live_activities_enabled"
 # exhausted by repeated start/end cycles. So the tag is driven by *discrete
 # state changes*, never by polling:
 #   • Only mode, EV target and a 5-point EV SOC step schedule a push.
-#   • Amperage, charging power and charger status are DISPLAY-ONLY: they are
-#     refreshed on the next scheduled push but never trigger one on their own.
+#   • Amperage, charging power and charger status are DISPLAY-ONLY: they never
+#     trigger a push immediately, but a changed message is refreshed at most
+#     every LIVE_ACTIVITY_MIN_DISPLAY_REFRESH_SECONDS (v2.16.3, issue #70).
 #     (The Tuya safe-decrease sequence flaps charger_charging→wait→charging on
 #     every amperage step, and solar surplus moves the wattage continuously —
 #     letting either drive the tag produced an update per minute.)
@@ -247,6 +248,10 @@ DEFAULT_LIVE_ACTIVITIES_ENABLED = True
 LIVE_ACTIVITIES_DEFAULT_GENERATION = 1
 # Floor between two SOC-driven refreshes of the open activity.
 LIVE_ACTIVITY_MIN_UPDATE_SECONDS = 300
+# Floor between two refreshes that only carry changed display text (wallbox
+# status / power / amperage). 300 s caps this at 288 pushes/day, well inside
+# the Companion App's 500/day budget (issue #70: card stuck on stale status).
+LIVE_ACTIVITY_MIN_DISPLAY_REFRESH_SECONDS = 300
 # Floor between two transition-driven pushes (mode / target changed).
 LIVE_ACTIVITY_MIN_TRANSITION_SECONDS = 30
 # EV SOC hysteresis: push only after the SOC moved this many points away from

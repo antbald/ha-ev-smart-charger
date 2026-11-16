@@ -336,6 +336,15 @@ Driven by an optional user-mapped `grid_available` binary_sensor read through
 - **Scope**: only Night Smart Charge grid mode. Solar Surplus and Hybrid Mode
   key off PV surplus and need no change. Unmapped → byte-for-byte legacy.
 
+#### 4.2.2b Grid-start hold after an outage (v2.16.3, issue #69)
+
+`_grid_start_blocked()` holds the Night Charge grid-mode start while `grid_available`
+is OFF and, once it returns, until it has read ON for `GRID_RESTORE_STABLE_SECONDS`
+(180 s). Unmapped / unavailable sensors never block. Hybrid Inverter Mode and Solar
+Surplus share `get_effective_cap_amps()` (solar-max cap min off-grid cap); a running
+charger above it is clamped immediately. Live Activity display text refreshes at most
+every `LIVE_ACTIVITY_MIN_DISPLAY_REFRESH_SECONDS` (300 s) when only display values changed.
+
 #### 4.2.3 Boost Charge protections (v2.15.0, issue #68)
 
 Evaluated by the Boost monitor (15 s) before the amperage sync, each behind its

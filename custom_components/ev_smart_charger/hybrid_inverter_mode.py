@@ -294,6 +294,22 @@ class HybridInverterMode:
         self.logger.success("Hybrid Inverter Mode setup complete (state=IDLE)")
         self.logger.separator()
 
+    def sync_target_amps(self, amps: int) -> None:
+        """Align the internal target with an externally enforced amperage."""
+        if self._current_target_amps:
+            self._current_target_amps = amps
+
+    def _apply_caps(self, solar_max_amperage: int) -> int:
+        """Bound the solar-max ceiling by the off-grid cap too (#69)."""
+        owner = getattr(self, "_solar_surplus", None)
+        getter = getattr(owner, "get_effective_cap_amps", None)
+        if getter is None:
+            return solar_max_amperage
+        try:
+            return min(solar_max_amperage, int(getter()))
+        except (TypeError, ValueError):
+            return solar_max_amperage
+
     def set_solar_surplus_owner(self, solar_surplus: Any) -> None:
         """Inject the Solar Surplus reference for control acquisition.
 
@@ -398,6 +414,7 @@ class HybridInverterMode:
                 self._solar_max_amperage_entity,
                 default=DEFAULT_SOLAR_MAX_AMPERAGE,
             )
+            solar_max_amperage = self._apply_caps(solar_max_amperage)
             if current_amps <= 0 or current_amps >= solar_max_amperage:
                 self._grid_import_below_threshold_since = None
                 return False
@@ -863,6 +880,7 @@ class HybridInverterMode:
             self._solar_max_amperage_entity,
             default=DEFAULT_SOLAR_MAX_AMPERAGE,
         )
+        solar_max_amperage = self._apply_caps(solar_max_amperage)
 
         # Sync with reality — cached current_amps may be stale (e.g., charger
         # adjusted by a previous decrease sequence).

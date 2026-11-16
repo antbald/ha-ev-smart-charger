@@ -74,7 +74,7 @@ Controleert op het ingestelde tijdstip de zonneverwachting voor de volgende dag 
 
 Car Ready-flags per weekdag bepalen of de auto de volgende ochtend echt klaar moet zijn.
 
-Sinds v2.15.0 beëindigt een korte netuitval de nacht niet meer: in Grid-modus pauzeert het laden en het hervat zodra het net 3 minuten stabiel is.
+Sinds v2.16.3 start Grid-modus niet zolang het net ontbreekt en wacht het na terugkeer 3 minuten stabiel net; Hybrid-modus respecteert de maximale ampèrage-limieten. Sinds v2.15.0 beëindigt een korte netuitval de nacht niet meer: in Grid-modus pauzeert het laden en het hervat zodra het net 3 minuten stabiel is.
 
 ### Boost Charge
 

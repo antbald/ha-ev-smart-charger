@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **Home Assistant custom integration** for intelligent EV charging control. It manages EV charger automation based on solar production, time of day, battery levels, grid import protection, and intelligent priority balancing between EV and home battery charging.
 
 **Domain:** `ev_smart_charger`
-**Current Version:** 2.16.1
+**Current Version:** 2.16.3
 **Installation:** HACS custom repository or manual installation to `custom_components/ev_smart_charger`
 
 ## Development Commands
@@ -759,6 +759,31 @@ async def _set_amperage(self, target_amperage: int):
 - **Sensor Unavailability:** When amperage sensor returns None/unavailable (e.g., charger offline), `get_int(entity, default=None)` returns None without warnings (v1.3.7+). The system maintains current state until sensor becomes available again.
 
 ## Version History
+
+### v2.16.3 (2026-11-16)
+**FIX: Hybrid Mode ignored amperage caps (#69a), Night grid start during outage (#69b), stale Live Activity text (#70)**
+
+**#69a.** Hybrid Inverter Mode returned early from the Solar Surplus tick, skipping the
+solar-max and off-grid caps. `SolarSurplusAutomation.get_effective_cap_amps()` now returns
+the min of the snapped solar-max cap and the off-grid cap (applied only when
+`grid_available` is explicitly False); `_clamp_to_caps_for_hybrid()` clamps a running
+charger above the cap before `hybrid_mode.is_relevant()`, and
+`HybridInverterMode._apply_caps()` / `sync_target_amps()` keep the state machine within it.
+
+**#69b.** `NightSmartCharge._grid_start_blocked()` holds the grid-mode start while
+`grid_available` is OFF; after it returns, a `StabilityTracker` requires
+`GRID_RESTORE_STABLE_SECONDS` (180 s) of stable ON. Unmapped/unknown sensor never blocks.
+
+**#70.** Display-only Live Activity changes (power, amperage, status) refresh the card text
+after `LIVE_ACTIVITY_MIN_DISPLAY_REFRESH_SECONDS = 300`; `LiveActivityState.last_message`
+tracks the last pushed text.
+
+**Files**: `solar_surplus.py`, `hybrid_inverter_mode.py`, `night_smart_charge.py`, `runtime.py`,
+`const.py`, `utils/mobile_notification_service.py`, `manifest.json`, docs; tests: NEW
+`tests/test_v2162_fixes.py` (10), updated `tests/test_live_activity_notifications.py`.
+`VERSION = "2.16.3"`. No entity / config-flow change (78 / 63).
+
+---
 
 ### v2.16.1 (2026-11-04)
 **RELEASE: re-cut of v2.16.0 after CI validation (HACS default-catalog submission)**
