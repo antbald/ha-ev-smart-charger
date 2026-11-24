@@ -13,8 +13,10 @@ This directory is the canonical documentation entrypoint for the integration int
 
 ## Ownership
 
-- `README.md`
-  - User-facing install, setup, and dashboard guidance.
+- [Project overview](../README.md)
+  - Quick-start and installation.
+- [User guide](user-guide.md)
+  - Full setup, entity reference, dashboard, and troubleshooting guidance.
 - `docs/SSOT.md`
   - Source of truth for runtime behavior.
 - `docs/CODEBASE_MAP.md`

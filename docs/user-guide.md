@@ -1,0 +1,1550 @@
+<div align="center">
+
+# ⚡ EV Smart Charger
+
+### The universal EV charging solution for Home Assistant — *any* electrical system, *any* wallbox
+
+**One integration for every setup.** Single-phase or three-phase. Tuya or any other wallbox. Cloud-connected or local. If your charger has a Home Assistant integration — cloud *or* local — and exposes its current as a `number`, `select`, `input_number` or `input_select` entity, **this works with it.** Maximise solar self-consumption · balance EV vs home battery · automate overnight charging · ride curtailment on zero-export inverters — all from a single Liquid Glass dashboard.
+
+[![GitHub Release](https://img.shields.io/github/v/release/antbald/ha-ev-smart-charger?style=for-the-badge&logo=github&color=007AFF)](https://github.com/antbald/ha-ev-smart-charger/releases)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-FF6F00?style=for-the-badge&logo=home-assistant&logoColor=white)](https://github.com/custom-components/hacs)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.4+-41BDF5?style=for-the-badge&logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-34C759?style=for-the-badge)](../LICENSE)
+[![Maintainer](https://img.shields.io/badge/maintainer-%40antbald-AF52DE?style=for-the-badge&logo=github)](https://github.com/antbald)
+
+<br/>
+
+![EV Smart Charger Dashboard](screenshots/dashboard.png)
+
+<sub>The auto-generated Lovelace dashboard, rendered in Liquid Glass iOS 18 style — auto-detects light / dark mode and your HA profile language.</sub>
+
+</div>
+
+---
+
+## ✨ Why this integration?
+
+Most "smart charging" integrations stop at "use solar surplus". This one orchestrates a complete strategy:
+
+- 🌞 **Solar Surplus** — dynamic amperage control (6 → 32 A) with grid-import protection, surplus-drop hysteresis and a per-wallbox ceiling.
+- ⚖️ **Priority Balancer** — daily SOC targets per day-of-week for both EV *and* home battery, automatically arbitrated. EV at 50% on weekdays, 80% on weekends? Done.
+- 🌙 **Night Smart Charge** — overnight session driven by *tomorrow's* PV forecast. Battery mode if forecast is good, grid fallback otherwise, skipped entirely on days you don't need the car. *(v2.4.0+)* on hybrid inverters with a mapped **battery-power sensor**, grid mode honours `home_battery_min_soc` as an effective floor — it won't let the inverter silently drain the home battery to power the EV. Solves [issue #33](https://github.com/antbald/ha-ev-smart-charger/issues/33).
+- ⚡ **Boost Charge** — manual or scheduled high-priority session with automatic SOC stop.
+- 🛡️ **Smart Charger Blocker** — prevents charging outside your allowed window (sunset → night-charge time, or sunset → sunrise).
+- ⚡ **Hybrid Inverter Mode** *(v1.8.0+)* — empirically probes for hidden PV capacity in zero-export hybrid systems (Deye, Sunsynk, Solis, Growatt, Goodwe…). Solves [issue #20](https://github.com/antbald/ha-ev-smart-charger/issues/20). *(v2.1.0+)* optional **battery-power sensor** lets the probe tell real solar headroom apart from the home battery silently covering the load, and a configurable **max battery discharge for EV** smooths Solar-Surplus stop-start cycling. Solves [issue #29](https://github.com/antbald/ha-ev-smart-charger/issues/29).
+- 🔌 **Three-phase + charger model** *(v2.0.0+)* — opt-in three-phase support (three production/consumption/grid sensors, speed balanced across phases) and a Tuya / generic wallbox selector (generic = 1 A steps + live current decrease). Defaults keep single-phase + Tuya unchanged. Solves [discussion #18](https://github.com/antbald/ha-ev-smart-charger/discussions/18).
+- 💾 **Cached EV SOC** — reliable fallback for flaky cloud-based car integrations.
+
+### 🌍 Universal by design
+
+Most projects target one charger brand or assume a single-phase home. EV Smart Charger is built to be the **one integration that fits every installation**:
+
+| Dimension | What's supported |
+|---|---|
+| **Electrical system** | ✅ Single-phase **and** three-phase (opt-in; speed balanced across all three phases) |
+| **Wallbox brand** | ✅ Tuya **and** any other — no brand lock-in. The logic drives whatever entities your charger's HA integration exposes |
+| **Connectivity** | ✅ Cloud **or** local Home Assistant integration — if HA can see your charger, this can drive it |
+| **Current control** | ✅ `number`, `input_number`, `select`, `input_select` — discrete Tuya levels **or** 1 A fine steps (generic) |
+| **Home battery** | ✅ With **or** without — full PV-only mode when you have no battery |
+| **Inverter** | ✅ Standard **and** hybrid zero-export (Deye, Sunsynk, Solis, Growatt, Goodwe…) |
+
+> **🎉 New in v2.0.0** — Universal compatibility lands: opt-in **three-phase** support and a **Tuya / generic wallbox** selector mean EV Smart Charger now adapts to *any* solar + EV setup on the market. **Upgrading changes nothing for existing users** — defaults stay single-phase + Tuya, with no migration. [Jump to the setup ↓](#three-phase-support--charger-model--v200)
+
+> **🔋 New in v2.1.0** — Hybrid Inverter Mode now detects **battery-discharge masking**: map an optional **signed battery-power sensor** (negative = discharging) in the new "Hybrid Inverter Mode" setup step, and the probe will no longer mistake the home battery covering the EV for real solar headroom. Set **Max Battery Discharge for EV** (0 = off) to also let Solar Surplus ride out brief PV dips without stop-start cycling. **No-op for everyone who leaves it at 0 / unmapped.** Solves [issue #29](https://github.com/antbald/ha-ev-smart-charger/issues/29).
+
+> **🔋 New in v2.4.0** — the same **battery-power sensor** now also protects **Night Smart Charge grid mode**. On hybrid "Battery First" inverters, grid-mode charging can silently drain the home battery (grid stays ≈ 0 W) instead of pulling from the grid; v2.4.0 stops the session once the battery is being drained *and* has reached `home_battery_min_soc`, making that floor effective in grid mode just like it already is in battery mode. **No-op without the sensor.** Solves [issue #33](https://github.com/antbald/ha-ev-smart-charger/issues/33).
+
+> **🆕 New in v2.6.0** — mass bug-fix & improvement release (issues #36–#42). Highlights: an optional **`grid_available` binary sensor** ([issue #36](https://github.com/antbald/ha-ev-smart-charger/issues/36)) stops Night Smart Charge grid mode during a **grid outage** so it doesn't drain the home battery on hybrid Battery First / UPS inverters (fail-safe: an unavailable sensor never triggers a false stop); a **customizable nighttime window** ([issue #42](https://github.com/antbald/ha-ev-smart-charger/issues/42)) via two opt-in offset numbers (start before sunset / end after sunrise); and a big **INFO log-noise reduction** ([issue #40](https://github.com/antbald/ha-ev-smart-charger/issues/40)) — idle ticks no longer flood the HA log. Also: valid day icons (#37), faster Generic-charger ramp-up (#38), a consistent Hybrid full-battery threshold (#39), and a cleaner telemetry log (#41). **All backward compatible** — the two features are opt-in.
+
+> **🔧 New in v2.16.3** — fixes for [#69](https://github.com/antbald/ha-ev-smart-charger/issues/69) and [#70](https://github.com/antbald/ha-ev-smart-charger/issues/70). **Hybrid Inverter Mode** now respects the *Solar Max Amperage* and *Off-Grid Max Amperage* ceilings (a running session above the cap is clamped immediately). **Night Smart Charge grid mode** no longer starts while the grid is absent, and after the grid returns it waits until `grid_available` has been ON for 3 minutes. **Live Activity** text (power, amperage, status) now refreshes on a slow 5-minute floor so the Lock Screen card no longer shows stale values.
+>
+> **v2.16.1** — no code changes; re-released after the validation workflows passed.
+>
+> **🔒 New in v2.16.0** — **telemetry is now strictly opt-in.** The anonymous usage ping is **disabled by default**; nothing is sent unless you enable *Share anonymous usage statistics* in the setup wizard or in *Configure*. No other behaviour changed. See Analytics & Privacy.
+
+> **🛡️ New in v2.15.0** — **grid-outage and home-battery protection fixes** ([#66](https://github.com/antbald/ha-ev-smart-charger/issues/66), [#67](https://github.com/antbald/ha-ev-smart-charger/issues/67), [#68](https://github.com/antbald/ha-ev-smart-charger/issues/68)). **Night Smart Charge** no longer gives up the whole night on a short grid outage: with `grid_available` mapped, grid mode pauses and resumes once the grid has been back for 3 minutes, and an evening night window (e.g. 23:15) now stays valid after midnight. **Solar Surplus** off-grid with no surplus now stops the charger in one action instead of stepping down one level at a time, and a flickering status sensor no longer leaves a running charger without an owner. **Boost Charge** gets three protections, each with its own switch: a **home-battery floor** (ON by default), an optional **pause on grid loss**, and an optional **stale EV SOC guard**. **STRONGLY RECOMMENDED for hybrid-inverter / backup-battery installs.**
+
+> **🔘 New in v2.14.0** — **native support for wallboxes controlled by start/stop buttons** ([issue #65](https://github.com/antbald/ha-ev-smart-charger/issues/65)) and a **car-ready deadline fix** ([issue #63](https://github.com/antbald/ha-ev-smart-charger/issues/63)). Some chargers (Growatt THOR) expose `button.*_start_charging` / `button.*_stop_charging` instead of an on/off switch: leave **Charger switch** empty and map the two buttons instead — every start/stop then presses the matching button, with no template switch needed. The fix: with `car_ready` ON and a night window that opens in the evening (e.g. 23:13 with a 06:50 deadline), the deadline was computed as *today* 06:50 — already 16 hours in the past — so the session stopped on its first check. The deadline is now anchored to the night window it belongs to. **STRONGLY RECOMMENDED for anyone whose night window starts before midnight.**
+
+> **⚡ New in v2.13.3** — **Hybrid Inverter Mode takes over a session that is already charging.** Hybrid Mode used to engage only with the charger OFF. When a session was already running as the home battery filled up and the inverter started curtailing (started by Solar Surplus, by battery support, or still running after a Home Assistant restart), the amperage froze wherever it was — typically 10 A — because the measured surplus becomes exactly the EV's own draw and Solar Surplus never sees room for the next level. Hybrid Mode now adopts that session and rides the edge from its current amperage. Also, at the real PV limit the edge now steps down one level instead of stopping the charger and restarting from 6 A when the home consumption sensor includes the EV. **STRONGLY RECOMMENDED for every Hybrid Inverter Mode user.**
+
+> **⚡ New in v2.13.2** — **Hybrid Inverter Mode no longer stalls mid-ramp.** In RIDING_EDGE the amperage only stepped up while grid import stayed below *half* of `evsc_grid_import_threshold`, and was held forever between half and the full threshold. Zero-export inverters regulate to a small residual import that grows with the load, so the ramp could freeze mid-way with PV headroom left. The ramp now climbs whenever import is within the threshold; anti-oscillation moved to the amperage domain — a level that forced a step-down is not re-tried for 10 minutes, after which the edge is probed again. **RECOMMENDED for every Hybrid Inverter Mode user.**
+
+> **📱 New in v2.12.0 — full iOS Live Activities support.** Now that the Companion App renders Live Activities on the iPhone Lock Screen and Dynamic Island, EV charging Live Activities are **ON by default** and their update policy has been rewritten around Apple's real constraints: a single `evsc_ev_charging` activity is pushed only on discrete state changes (mode switch, EV target change, every 5 points of EV SOC), never on the continuously moving charging power, amperage or wallbox status — so the card moves when something actually happens instead of once a minute. Covers Boost Charge, Night Smart Charge, Solar Surplus, Force Charge, and normal charging. Requires HA Core 2026.7+ and iOS 17.2+ (Android 16+ for Live Updates), plus allowing Live Activities in **iOS Settings → Home Assistant**.
+
+> **🔌 New in v2.11.0** — **auto-disarm Force Charge on unplug** (opt-in). Force Charge means "charge now, whatever the automations think" — an intent that ends with that session, except the switch stays ON. Enable `evsc_force_charge_auto_disarm` (Dashboard → Settings → 🛡 Safety) and unplugging the EV turns Force Charge OFF automatically, so the next plug-in starts from the normal automation state instead of a forgotten override. Acts on the unplug **edge** only, and an `unknown`/`unavailable` status never counts as a disconnect — a sensor glitch must not cancel a Force Charge you are relying on. **Default OFF**; requires the charger status sensor.
+
+> **⛔ New in v2.10.0** — a **manual "Stop Charging" control** ([issue #55](https://github.com/antbald/ha-ev-smart-charger/issues/55)) and a **critical Smart Charger Blocker fix** ([issue #54](https://github.com/antbald/ha-ev-smart-charger/issues/54)). The new `switch.evsc_stop_charging` is the mirror image of Force Charge: turning it ON stops the charger within the same second and holds it stopped — every automation `turn_on` is denied by the coordinator (manual stop deliberately outranks Force Charge), and a 1-minute hold re-stops charging that restarts outside the integration (wallbox auto-resume). Turning it OFF simply resumes normal arbitration. Stop Charging and Force Charge are **mutually exclusive** — engaging either one automatically turns the other OFF (v2.10.2). Surfaced on the dashboard as a red hero banner + red toggle next to Force Charging. The blocker fix: its own periodic re-check mistook a **legitimate in-progress block** for stale coordinator ownership and released it on the very next 1-minute tick (~30–60 s), silently defeating the 30-minute enforcement window in every release since v1.5.8. **STRONGLY RECOMMENDED for anyone relying on the Smart Charger Blocker for overnight protection.**
+
+> **🌅 New in v2.9.2** — **armed-night-window disarm + Solar Surplus disconnect gate**. Two fixes from a live incident (2026-07-21): (1) a Night Smart Charge window armed at its scheduled time with **no EV connected** stayed "active" all day via hysteresis — a morning plug-in then launched a phantom daylight battery session that was killed 3 seconds later, latching `completed_today` + the 1-hour cooldown and **freezing Solar Surplus with full sun available**. The armed-but-idle window now disarms cleanly (back to `ready`, no completion latch, no cooldown) once its own stop condition — sunrise, deadline, or PV handoff — has passed, so a morning plug-in is handled by Solar Surplus as it should be. A genuinely running session keeps the legacy hysteresis untouched. (2) Solar Surplus's plug gate now uses the v2.9.1 `is_disconnected_status()` classifier, so OCPP `available` (= no EV connected) skips the tick like `charger_free` instead of driving an endless battery-support start loop against an empty plug.
+
+> **🔌 New in v2.9.1** — **brand-vocabulary status classifiers**. "Is the cable disconnected?" and "has the charge completed?" are now answered by two centralized, case-insensitive classifiers in `power_model.py` (`is_disconnected_status` / `is_charge_complete_status`) instead of exact Tuya-string comparisons. This fixes the remaining v2.9.0 blind spot: on wallboxes reporting OCPP-style statuses (`available` = no EV connected, `charged` = session done), Night Smart Charge could start a session **with no car plugged** (the connect gate only rejected `charger_free`) and the plug-in *late-arrival* detection never fired (it compared against `charger_free` exactly). The classifiers are conservative allowlists of unambiguous synonyms — an unknown brand string still defaults to "connected", so no existing setup can lose night charging. Applied to the night-charge connect gates, late-arrival detection, and the grid-monitor lifecycle stops; `power_model.is_charging` / `is_plugged_in` now share the same vocabulary.
+
+> **🛠️ New in v2.9.0** — two Night Smart Charge reliability fixes. **(1)** The grid-mode monitor no longer terminates a session because your wallbox reports a brand-specific status string: the old check accepted only the Tuya vocabulary (`charger_charging` / `charger_wait`), so a wallbox reporting e.g. `charging` had its grid session killed ~15 s after the battery→grid fallback — leaving the EV under target for the rest of the night. The check is now the same tolerant blocklist used everywhere since v2.2.0 (only the explicit `charger_free` / `charger_end` lifecycle statuses stop the session; the measured-power blind-spot check keeps protecting against a genuinely idle charger). **(2)** Changing **today's** EV SOC target or turning on **today's** *car ready* switch after a session already ended now **re-arms Night Smart Charge**: the "completed today" latch (and its 1-hour cooldown) is cleared and the session restarts within a minute if the night window is still open. Previously those changes were silently ignored until the next day. **STRONGLY RECOMMENDED for non-Tuya wallboxes.**
+
+---
+
+## 📸 Preview
+
+The integration can create a Liquid Glass Lovelace dashboard after you opt in during setup or press **Build Custom Dashboard** later. Both lead to a one-time creation screen in your signed-in Home Assistant session. Two tabs at the top split operational controls from configuration knobs — and the whole UI is **fully responsive**, reflowing into a single column on phones with no functional loss.
+
+### 🖥 Desktop
+
+<table>
+<tr>
+<td width="50%" align="center"><strong>Dashboard tab — operational</strong></td>
+<td width="50%" align="center"><strong>Settings tab — configuration</strong></td>
+</tr>
+<tr>
+<td>
+
+![Dashboard view](screenshots/dashboard.png)
+
+</td>
+<td>
+
+![Settings view](screenshots/settings.png)
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+Hero ring with dual concentric arcs (EV outer, home battery inner). Live charging pill below the ring shows amperage + power. Priority engine state, live metrics (solar / grid / current / power), Override + Boost stack, 7-day Weekly Planner with per-day EV + Home SOC targets and Car Ready toggles, bento-style Night Smart Charge card, Charging Profile chips.
+
+</td>
+<td valign="top">
+
+Seven expandable categories with gradient icons: ☀ Solar Surplus, 🌙 Night Smart Charge, 🔋 Home Battery Support, ⚡ Hybrid Inverter, ⏱ Boost Schedule, 🔔 Notifications, 📊 Logging. Click a category to expand inline; each parameter shows title, entity key, description, and default/range — all in the language detected from your Home Assistant profile.
+
+</td>
+</tr>
+</table>
+
+### 📱 Mobile
+
+The dashboard reflows automatically when viewed in the Home Assistant Companion app or on a narrow browser window. The hero stacks vertically (ring on top, body below), the two-column grid collapses into a single stack, and the weekly planner keeps its 7-day grid with tighter cells. No horizontal scroll, no hidden controls.
+
+<table>
+<tr>
+<td width="50%" align="center"><strong>Dashboard — mobile</strong></td>
+<td width="50%" align="center"><strong>Settings — mobile</strong></td>
+</tr>
+<tr>
+<td align="center">
+
+<img src="screenshots/dashboard-mobile.png" alt="Dashboard mobile view" width="320"/>
+
+</td>
+<td align="center">
+
+<img src="screenshots/settings-mobile.png" alt="Settings mobile view" width="320"/>
+
+</td>
+</tr>
+</table>
+
+<details>
+<summary><strong>🎨 Visual language — Liquid Glass iOS 18</strong></summary>
+
+- **Activity-style dual SOC ring** — outer arc tracks EV SOC, inner arc tracks home battery SOC (hidden in PV-only mode). Center shows EV percentage with an `EV` label inside; a dedicated **CHARGING · 16 A · 3.68 kW** pill appears below the ring when a session is active.
+- **Liquid Glass surfaces** — every card uses `backdrop-filter: saturate(180%) blur(40px)` over a layered aurora background.
+- **Apple System Colors** throughout — system green for EV SOC, system blue for selected profile, system purple for home battery and `EV_Free` priority state.
+- **iOS-spec toggles** (51 × 31 px pill, 27 px thumb) with 280 ms spring transitions.
+- **SF Pro typography stack** with tabular numerals on metric values.
+- **Native dark / light mode** — switches automatically via `prefers-color-scheme`.
+- **Accessible motion** — respects `prefers-reduced-motion`.
+
+</details>
+
+---
+
+## 🚀 Quick start
+
+```text
+HACS → Integrations → ⋮ → Custom repositories
+URL:  https://github.com/antbald/ha-ev-smart-charger
+Type: Integration
+
+→ Install · Restart Home Assistant
+→ Settings · Devices & Services · Add Integration · "EV Smart Charger"
+→ Walk through the 7-step config wizard
+→ Optional: select dashboard setup now, or use Build Custom Dashboard later
+```
+
+The wizard asks for your wallbox switch, current entity, status entity, SOC sensors (EV + optional home battery), solar production, grid import, home consumption, and a PV-forecast sensor. The helper entities and priority engine are created automatically; the sidebar dashboard requires an explicit opt-in.
+
+[📖 Full installation guide →](#installation) · [⚙️ Configuration wizard →](#configuration) · [🧠 How it works →](#how-it-works)
+
+---
+
+## Table of Contents
+
+- [✨ Why this integration?](#-why-this-integration)
+- [📸 Preview](#-preview)
+- [🚀 Quick start](#-quick-start)
+- [How It Works](#how-it-works)
+  - [Automation Priority System](#automation-priority-system)
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [HACS (Recommended)](#hacs-recommended)
+  - [Manual](#manual)
+- [Configuration](#configuration)
+  - [Step 1 — Name](#step-1--name)
+  - [Step 2 — Charger Entities](#step-2--charger-entities)
+  - [Step 3 — Energy Sensors](#step-3--energy-sensors)
+  - [Step 4 — PV Forecast](#step-4--pv-forecast)
+  - [Step 5 — Notifications](#step-5--notifications)
+  - [Step 6 — External Connectors](#step-6--external-connectors)
+  - [Step 7 — Auto-generated Dashboard](#step-7--auto-generated-dashboard)
+  - [Reconfigure](#reconfigure)
+- [Created Entities](#created-entities)
+  - [Charging Profile](#charging-profile)
+  - [Switches — Control](#switches--control)
+  - [Switches — Notifications](#switches--notifications)
+  - [Switches — Car Ready (daily)](#switches--car-ready-daily)
+  - [Numbers — Solar Surplus](#numbers--solar-surplus)
+  - [Numbers — Night Smart Charge](#numbers--night-smart-charge)
+  - [Numbers — Boost Charge](#numbers--boost-charge)
+  - [Numbers — Hybrid Inverter Mode](#numbers--hybrid-inverter-mode)
+  - [Numbers — Daily EV SOC Targets](#numbers--daily-ev-soc-targets)
+  - [Numbers — Daily Home Battery SOC Targets](#numbers--daily-home-battery-soc-targets)
+  - [Time Controls](#time-controls)
+  - [Sensors — Diagnostics](#sensors--diagnostics)
+- [Automation Details](#automation-details)
+  - [Solar Surplus](#solar-surplus)
+  - [Priority Balancer](#priority-balancer)
+  - [Night Smart Charge](#night-smart-charge)
+  - [Boost Charge](#boost-charge)
+  - [Smart Charger Blocker](#smart-charger-blocker)
+  - [Manual overrides — Force Charge & Stop Charging](#manual-overrides--force-charge--stop-charging)
+  - [Hybrid Inverter Mode](#hybrid-inverter-mode-zero-export-systems)
+  - [Cached EV SOC](#cached-ev-soc)
+- [Auto-generated Dashboard](#auto-generated-dashboard)
+  - [Look — Liquid Glass iOS 18](#look--liquid-glass-ios-18)
+  - [Split-view organisation (v1.10.0+)](#split-view-organisation-v1100)
+  - [Manual usage on your own dashboards](#manual-usage-on-your-own-dashboards)
+- [Logging & Diagnostics](#logging--diagnostics)
+- [Notifications & Presence](#notifications--presence)
+- [Analytics & Privacy](#analytics--privacy)
+- [Troubleshooting](#troubleshooting)
+- [Supported Languages](#supported-languages)
+- [Documentation](#documentation)
+- [License](#license)
+
+---
+
+## How It Works
+
+EV Smart Charger sits between your hardware (charger, inverter, home battery) and Home Assistant. You map your existing sensor and switch entities during setup; the integration then creates ~60 helper entities that drive all automation logic.
+
+Only two charging profiles are selectable by the user: **`manual`** (no automation) and **`solar_surplus`** (automatic). All other features — Night Smart Charge, Boost Charge, Smart Charger Blocker, Priority Balancer — are independent modules that activate on top of the selected profile according to a fixed priority hierarchy.
+
+```mermaid
+graph TD
+    subgraph inputs["Your Home Assistant Entities (you map these)"]
+        S1[☀️ Solar Production]
+        S2[🏠 Home Consumption]
+        S3[⚡ Grid Import]
+        S4[🔋 Home Battery SOC]
+        S5[🚗 EV Battery SOC]
+    end
+
+    subgraph integration["EV Smart Charger Integration"]
+        direction TB
+        PB["⚖️ Priority Balancer\n(EV vs Home targets)"]
+        NSC["🌙 Night Smart Charge\n(forecast-driven)"]
+        BC["⚡ Boost Charge\n(manual / scheduled)"]
+        SCB["🛡️ Smart Charger Blocker\n(time window guard)"]
+        SS["☀️ Solar Surplus\n(dynamic amperage)"]
+        FC["🔴 Force Charge\n(override)"]
+        CC["🎛️ Charger Controller\n(rate-limited, queued)"]
+
+        FC -->|priority 1| CC
+        BC -->|priority 2| CC
+        SCB -->|priority 3| CC
+        NSC -->|priority 4| CC
+        PB -.->|informs| NSC
+        PB -.->|informs| SS
+        SS -->|priority 6| CC
+    end
+
+    subgraph charger["Your Wallbox"]
+        SW["switch: on/off"]
+        AMP["number/select: amperage"]
+    end
+
+    inputs --> integration
+    CC --> SW
+    CC --> AMP
+```
+
+### Automation Priority System
+
+When multiple automations could act on the charger simultaneously, the integration resolves conflicts using this execution order:
+
+| Priority | Component | Activation Condition |
+|:---:|---|---|
+| **0** | Stop Charging (`evsc_stop_charging`) | Switch turned ON — stops the charger and blocks every automation `turn_on`. Mutually exclusive with Force Charge: engaging one automatically turns the other OFF |
+| **1** | Force Charge (`evsc_forza_ricarica`) | Switch turned ON — overrides everything else |
+| **2** | Boost Charge | `evsc_boost_charge_enabled` ON or scheduled window active |
+| **3** | Smart Charger Blocker | Charger starts outside allowed time window |
+| **4** | Night Smart Charge | Current time ≥ `evsc_night_charge_time`, before sunrise |
+| **5** | Priority Balancer | Evaluated inside Solar Surplus and Night Charge |
+| **6** | Solar Surplus | Profile = `solar_surplus`, daytime hours |
+
+Lower-priority automations only act when none of the higher-priority ones hold ownership of the charger.
+
+```mermaid
+flowchart TD
+    START([Charger event / periodic tick]) --> P1{Force Charge ON?}
+    P1 -->|Yes| ACT1[Keep charger ON\nat configured amps]
+    P1 -->|No| P2{Boost Charge\nactive?}
+    P2 -->|Yes| ACT2[Charge at boost amperage\nStop at target SOC]
+    P2 -->|No| P3{Smart Charger\nBlocker triggered?}
+    P3 -->|Yes| ACT3[Stop charger\nSend notification]
+    P3 -->|No| P4{Night Smart\nCharge window?}
+    P4 -->|Yes| ACT4[Battery or Grid mode\nat night amperage]
+    P4 -->|No| P5{Profile =\nsolar_surplus?}
+    P5 -->|No| ACT5[No action\nmanual mode]
+    P5 -->|Yes| P6{Priority\nBalancer state?}
+    P6 -->|Home| ACT6[Pause charger\nHome battery charges itself]
+    P6 -->|EV or EV_Free| ACT7[Solar Surplus\ndynamic amperage control]
+
+    style ACT1 fill:#e74c3c,color:#fff
+    style ACT2 fill:#e67e22,color:#fff
+    style ACT3 fill:#8e44ad,color:#fff
+    style ACT4 fill:#2980b9,color:#fff
+    style ACT5 fill:#7f8c8d,color:#fff
+    style ACT6 fill:#27ae60,color:#fff
+    style ACT7 fill:#f39c12,color:#fff
+```
+
+---
+
+## Requirements
+
+**Mandatory — Charger:**
+
+- A `switch` entity to turn the charger on/off
+- A current control entity in one of: `number`, `input_number`, `select`, `input_select` (range `6–32 A`)
+- A status sensor that reports one of the four accepted values:
+
+  | Status Value | Meaning |
+  |---|---|
+  | `charger_charging` | Actively charging |
+  | `charger_free` | Connected and idle / unplugged |
+  | `charger_end` | Session finished |
+  | `charger_wait` | Paused / waiting |
+
+**Mandatory — Energy Sensors:**
+
+- EV battery SOC (`%`)
+- Solar production (`W`)
+- Home consumption (`W`)
+- Grid import (`W`, positive = importing, negative = exporting)
+
+**Optional energy sensors:**
+
+- Home battery SOC (`%`) — leave empty if you do not have a home battery. The integration will run in **PV-only mode** (see below).
+
+**Optional but recommended:**
+
+- A PV forecast sensor (`kWh`) for Night Smart Charge decision logic
+- One or more `notify.mobile_app_*` services for push notifications
+- A `person` entity for presence-aware notification filtering
+- A `number` or `input_number` helper to receive the calculated nightly energy target
+
+### PV-only mode (no home battery) — v1.7.0+
+
+If you do not have a home battery installed, leave the **Home battery SOC** field empty during setup. The integration will automatically switch to **PV-only mode**:
+
+- 13 helper entities related to the home battery are not created (51 entities total in v1.8.0; was 45 in v1.7.0 before Hybrid Inverter Mode added 6 helpers).
+- Priority Balancer only returns `EV` or `EV_Free` — never `Home`.
+- Solar Surplus charges the EV directly from solar surplus, without any home-battery support fallback.
+- Night Smart Charge always uses **GRID MODE** (BATTERY MODE is disabled).
+- Hybrid Inverter Mode (v1.8.0+) is technically available but stays IDLE in PV-only mode — its entry conditions require a home battery SOC sensor.
+
+**Reconfigure restriction**: once a home battery sensor has been configured, the field stays required in the reconfigure / options flow. This prevents orphan helper entities from accumulating in the Home Assistant entity registry. To remove a home battery from an existing setup, delete the integration and add it again.
+
+---
+
+### Three-phase support + charger model — v2.0.0+
+
+Two opt-in choices appear in the first config-flow steps (and in Reconfigure / Options, so existing users can switch). Both default to the previous behaviour — **single-phase + Tuya** — so if you do nothing, nothing changes.
+
+**Phase mode**
+- **Single-phase** (default): one sensor each for solar production, home consumption and grid import; charging speed computed at 230 V. Identical to all previous versions.
+- **Three-phase**: you map **three sensors each** (one per phase L1/L2/L3) for production, consumption and grid import. The integration sums them and balances the charging speed across the three phases (conversion at 3 × 230 = 690 V). SOC sensors stay single.
+
+⚠️ **Power on three-phase**: every amperage setting is **per phase**, so it draws ~3× the power of single-phase. `16 A` ≈ **11 kW**, and the minimum a three-phase charger can draw is ~**4.1 kW** (6 A/phase). This matters for `evsc_battery_support_amperage` and `evsc_night_charge_amperage` — make sure your home-battery inverter can sustain the chosen power, otherwise the deficit is pulled from the grid and grid-import protection will throttle the session.
+
+**Charger model**
+- **Tuya** (default): current is set only to fixed levels `6/8/10/13/16/20/24/32 A`; to lower it the charger is switched off then back on (a few seconds' pause).
+- **Generic (1 A steps)**: for non-Tuya wallboxes that expose the current as a `number` entity. Any integer ampere (6–32) is allowed, and **lowering the current happens live without interrupting the session**. The amperage controls switch to 1 A steps.
+
+No data migration: existing config entries keep working unchanged. To enable three-phase or generic mode on an existing install, open the integration and run **Reconfigure** (or Configure / Options).
+
+---
+
+## Installation
+
+### HACS (Recommended)
+
+1. Open **HACS → Integrations** and search for **EV Smart Charger**.
+2. If it is not listed, use **⋮ → Custom repositories** and add `https://github.com/antbald/ha-ev-smart-charger` as category **Integration**.
+3. Install it and restart Home Assistant.
+
+### Manual
+
+1. Download the [latest release](https://github.com/antbald/ha-ev-smart-charger/releases).
+2. Extract `custom_components/ev_smart_charger`.
+3. Copy the folder to:
+
+```
+/config/custom_components/ev_smart_charger/
+```
+
+4. Restart Home Assistant.
+
+---
+
+## Configuration
+
+Add the integration from **Settings → Devices & Services → Add Integration** and search for `EV Smart Charger`. The setup wizard has **7 steps**.
+
+### Step 1 — Name
+
+| Field | Required | Default |
+|---|:---:|---|
+| Integration name | No | `EV Smart Charger` |
+
+Choose the display name used in the Home Assistant UI.
+
+### Step 2 — Charger Entities
+
+| Field | Required | Accepted Domains |
+|---|:---:|---|
+| Charger switch | One of the two (v2.14.0) | `switch` |
+| Start / Stop charging buttons (v2.14.0) | One of the two | `button` (both) |
+| Charging current control | Yes | `number`, `input_number`, `select`, `input_select` |
+| Charger status sensor | No (v2.2.0) | `sensor` |
+
+The charger switch entity (or the start button, in button mode) is used as the unique ID for the config entry. Adding the same charger twice is prevented automatically.
+
+**Start / Stop buttons (v2.14.0):** for chargers that expose a pair of `button` entities instead of an on/off switch (e.g. Growatt THOR). Leave **Charger switch** empty and map **both** buttons; if a switch is mapped it always takes precedence and the buttons are ignored. A button has no on/off state, so for 60 s after each press the integration trusts the command it sent; after that it follows the charging-power sensor or the status sensor. Map at least one of them — without either, the integration can only assume the last command succeeded. In button mode the Smart Charger Blocker reacts to the status sensor only (there is no switch to watch), so mapping the status sensor is strongly recommended.
+
+**Charger status sensor (v2.2.0):** now optional. It is used as a *fallback* for charging detection when no charging-power sensor is mapped (see Step 3), and as the source of plug/idle/finished lifecycle. Mapping it is still recommended — it tells "plugged in but not charging" apart from "unplugged", which measured power alone cannot.
+
+### Step 3 — Energy Sensors
+
+| Field | Required | Unit |
+|---|:---:|---|
+| EV battery SOC | Yes | `%` |
+| Home battery SOC | Yes | `%` |
+| Solar production | Yes | `W` |
+| Home consumption | Yes | `W` |
+| Grid import | Yes | `W` |
+| EV charging power (v2.2.0) | No | `W` |
+| Grid available (v2.6.0) | No | `binary_sensor` |
+
+**EV battery SOC (v2.13.0 — [issue #58](https://github.com/antbald/ha-ev-smart-charger/issues/58)):** the two SOC fields accept a `sensor`, a `number` **or an `input_number`**. EV SOC is architecturally required — the Priority Balancer's daily targets, Night Smart Charge's stop conditions and Boost's target all key off it — but many EVs expose no SOC at all over any Home Assistant integration. Those owners can create an `input_number` helper, map it directly here, and keep it up to date manually or from their own automation. Before v2.13.0 the field was a sensor-only selector, forcing a template-sensor wrapper around the helper.
+
+**Home consumption — what to include:** map a sensor that reports the **household load only**. Solar Surplus computes `surplus = solar production − home consumption` and sizes the EV amperage from it, so:
+
+- **Exclude EV charging.** If the wallbox load is part of the reading, every amp the car draws is subtracted from the surplus that sized it, and the charger ramps itself down.
+- **Exclude home-battery charging (and discharging).** If battery charging counts as consumption, all PV flowing into the battery reads as "used", surplus sits near zero while the battery charges, and the EV only ever gets what the battery leaves over — the battery wins by accident, regardless of your settings. Which of the two should come first is decided explicitly by the **Priority Balancer** (daily EV and home SOC targets); battery discharge toward the EV is governed by battery support and `evsc_max_battery_discharge_for_ev` (with the optional battery-power sensor).
+
+Most inverter integrations expose a "load" / "house consumption" sensor that already has this shape. If yours only reports a total, build a template sensor that subtracts the EV and battery-charging terms.
+
+**EV charging power (v2.2.0):** the most reliable signal for whether the car is actually drawing current — when mapped it becomes the single source of truth for charging detection (and the dashboard's green "EV charging" banner), overriding the status string. In three-phase mode map all three per-phase sensors (they are summed) or leave all blank. The sensor must report positive watts while charging; if yours reports negative, wrap it in a template sensor (`{{ states('sensor.your_power') | float(0) | abs }}`) — the diagnostic sensor's `charging_power_w` will read a flat 0 W if the sign is reversed.
+
+**Battery power (v2.1.0):** optional signed power sensor for the home battery, used by Hybrid Inverter Mode and Night Smart Charge grid mode to tell real solar headroom apart from the home battery silently covering the EV. **Sign convention: NEGATIVE = discharging, POSITIVE = charging.** If your sensor reports the opposite sign, invert it with a template sensor that negates the value, e.g. `{{ states('sensor.your_battery_power') | float(0) * -1 }}` — the diagnostic sensor's `battery_discharge_w` will read a flat 0 W if the sign is reversed.
+
+**Grid available (v2.6.0 — [issue #36](https://github.com/antbald/ha-ev-smart-charger/issues/36)):** optional `binary_sensor` (on = grid present, off = grid lost), typically exposed by hybrid inverter integrations (e.g. `binary_sensor.inverter_grid`). On hybrid "Battery First"/UPS inverters a grid outage is invisible to the integration (every power sensor keeps reporting), so Night Smart Charge **grid mode** would keep drawing — now from the home battery — during the outage. When mapped and OFF (sustained for the grid-import delay, default 30 s), the grid-mode charger stops. Since v2.15.0 ([issue #66](https://github.com/antbald/ha-ev-smart-charger/issues/66)) this is a **pause, not the end of the night**: the session stays armed and grid charging resumes once the sensor has read ON for 3 minutes in a row (a flapping grid never restarts the charger); the usual deadline / sunrise / EV-target stops still end the session. With the grid off and no solar surplus, Solar Surplus also stops the charger in one action instead of stepping down one level at a time ([issue #67](https://github.com/antbald/ha-ev-smart-charger/issues/67)). **Fail-safe:** an `unavailable`/`unknown` state (e.g. at HA boot or an inverter-integration restart) is treated as "unknown" and never triggers a stop. Leave empty to keep the previous behaviour.
+
+### Step 4 — PV Forecast
+
+| Field | Required | Unit |
+|---|:---:|---|
+| PV forecast sensor | No | `kWh` |
+
+Used by Night Smart Charge to decide between home battery and grid charging. If omitted, Night Smart Charge will always fall back to grid mode.
+
+### Step 5 — Notifications
+
+| Field | Required | Notes |
+|---|:---:|---|
+| Notify services | No | Multiple `notify.mobile_app_*` services |
+| Car owner | Yes | A `person` entity |
+
+The `person` entity enables presence-based filtering: notifications are only sent when the car owner is home. If the entity is unavailable, notifications are sent anyway as a fail-safe.
+
+The same mobile notify services can be used for EV charging Live Activities / Live Updates on supported Companion App versions. They are ON by default and can be turned off from the generated dashboard.
+
+### Step 6 — External Connectors
+
+| Field | Required | Default | Validation |
+|---|:---:|---|---|
+| Battery capacity | Yes | `50.0 kWh` | `10–200 kWh` |
+| Energy forecast target | No | — | `number` or `input_number` domain |
+
+The energy forecast target is an external helper entity where the integration writes the calculated nightly forecast value. Useful for automations or dashboards that need this figure.
+
+### Step 7 — Auto-generated Dashboard
+
+| Field | Required | Default |
+|---|:---:|---|
+| Create EV Smart Charger dashboard | No | `OFF` |
+
+If you enable this option, open the dashboard-builder link in Home Assistant Notifications, then click **Create dashboard** as an administrator. This creates one panel-mode dashboard at `/ev-smart-charger`, pre-filled with the sensors mapped for this entry. Leave the option off to skip the prompt. You can open it later with **Build Custom Dashboard** on the EV Smart Charger device.
+
+### Reconfigure
+
+The integration supports native reconfiguration for existing entries. Navigate to **Settings → Devices & Services**, click on the integration entry, and select **Reconfigure** to update any mapping without deleting the entry and losing your helper entity states.
+
+---
+
+## Created Entities
+
+After setup, the integration creates **64 entities** grouped under a single `EV Smart Charger` device:
+
+| Platform | Count |
+|---|:---:|
+| `switch` | 21 |
+| `number` | 31 |
+| `select` | 1 |
+| `time` | 4 |
+| `sensor` | 8 |
+| **Total** | **64** (v1.8.0, or **51** in PV-only mode) |
+
+Entity IDs follow the pattern `<platform>.ev_smart_charger_<entry_id_fragment>_<suffix>`. The sections below use the suffix alone for brevity.
+
+All helper entities persist their state across Home Assistant restarts via `RestoreEntity`.
+
+---
+
+### Charging Profile
+
+| Suffix | Options | Default | Description |
+|---|---|:---:|---|
+| `evsc_charging_profile` | `manual`, `solar_surplus` | `manual` | Active charging mode |
+
+---
+
+### Switches — Control
+
+| Suffix | Default | Description |
+|---|:---:|---|
+| `evsc_boost_home_battery_protection` | **ON** | **v2.15.0 ([issue #68](https://github.com/antbald/ha-ev-smart-charger/issues/68)).** Stops Boost Charge when the home battery reaches `evsc_home_battery_min_soc` while the grid is not supplying the charge. Created only when a home battery is configured. |
+| `evsc_boost_stop_on_grid_loss` | OFF | **v2.15.0.** Pauses Boost Charge while `grid_available` reads off and resumes once the grid has been stable for 3 minutes. |
+| `evsc_boost_stale_soc_guard` | OFF | **v2.15.0.** Stops Boost Charge when the EV SOC has not changed for `evsc_boost_stale_soc_minutes` while charging. |
+| `evsc_force_charge_auto_disarm` | OFF | **Auto-disarm Force Charge** — when ON, unplugging the EV turns `evsc_forza_ricarica` OFF automatically, so the next plug-in starts from the normal automation state instead of a forgotten override. Requires the charger status sensor. |
+| `evsc_stop_charging` | OFF | **Stop Charging** — manual stop & hold. When ON the charger is stopped immediately and no automation may start it again until you turn it OFF. Mutually exclusive with `evsc_forza_ricarica`: turning either ON automatically turns the other OFF. |
+| `evsc_forza_ricarica` | OFF | **Force Charge** — global override. When ON, bypasses all automation decisions and keeps the charger running. |
+| `evsc_boost_charge_enabled` | OFF | Enables a manual Boost Charge session immediately. Auto-clears when the SOC target is reached. |
+| `evsc_boost_schedule_enabled` | OFF | Enables the daily Boost Charge schedule. Runs between `evsc_boost_schedule_start_time` and `evsc_boost_schedule_end_time`. |
+| `evsc_smart_charger_blocker_enabled` | OFF | Enables the Smart Charger Blocker to prevent charging outside the allowed window. |
+| `evsc_use_home_battery` | OFF | Allows Solar Surplus to draw from the home battery when solar alone is insufficient (requires Priority = EV). |
+| `evsc_preserve_home_battery` | OFF | Prevents Night Smart Charge from discharging the home battery regardless of forecast. |
+| `evsc_priority_balancer_enabled` | OFF | Enables the Priority Balancer to evaluate daily SOC targets. While OFF with home SOC targets configured, the integration warns that home-battery protection is inactive (v2.5.0). |
+| `evsc_night_smart_charge_enabled` | OFF | Enables overnight automatic charging at the configured time. |
+| `evsc_hybrid_inverter_mode` | OFF | **Hybrid Inverter Mode** — opt-in curtailment-discovery probing for zero-export hybrid inverter systems. See the [dedicated section](#hybrid-inverter-mode-zero-export-systems). |
+| `evsc_enable_file_logging` | OFF | Enables daily file logging to `logs/<year>/<month>/<day>.log`. Toggle on to capture a session, off when done. |
+| `evsc_trace_logging_enabled` | OFF | Enables verbose trace-level logging for deep debugging. |
+
+---
+
+### Switches — Notifications
+
+| Suffix | Default | Description |
+|---|:---:|---|
+| `evsc_notify_smart_blocker_enabled` | ON | Send notification when Smart Charger Blocker stops the charger. |
+| `evsc_notify_priority_balancer_enabled` | ON | Send notification when Priority Balancer state changes. |
+| `evsc_notify_night_charge_enabled` | ON | Send notification when Night Smart Charge starts or stops. |
+
+---
+
+### Switches — Car Ready (daily)
+
+One switch per weekday. Controls whether Night Smart Charge should ensure the car is ready (charged to target) by the `evsc_car_ready_time` deadline, even if this means continuing past sunrise.
+
+| Suffix | Default | Applies to |
+|---|:---:|---|
+| `evsc_car_ready_monday` | ON | Monday |
+| `evsc_car_ready_tuesday` | ON | Tuesday |
+| `evsc_car_ready_wednesday` | ON | Wednesday |
+| `evsc_car_ready_thursday` | ON | Thursday |
+| `evsc_car_ready_friday` | ON | Friday |
+| `evsc_car_ready_saturday` | OFF | Saturday |
+| `evsc_car_ready_sunday` | OFF | Sunday |
+
+When a day's flag is **ON** and the EV target is not yet reached at sunrise, Night Smart Charge continues until target or deadline — whichever comes first. When the flag is **OFF**, charging always stops at sunrise.
+
+---
+
+### Numbers — Solar Surplus
+
+| Suffix | Default | Range | Unit | Description |
+|---|:---:|---|:---:|---|
+| `evsc_check_interval` | `1` | `1–60` | min | How often Solar Surplus recalculates. |
+| `evsc_grid_import_threshold` | `50` | `0–1000` | W | Grid import above this level triggers amperage reduction. |
+| `evsc_grid_import_delay` | `30` | `0–120` | s | How long grid import must persist before acting. |
+| `evsc_surplus_drop_delay` | `30` | `0–120` | s | How long surplus must be insufficient before stopping the charger. |
+| `evsc_spike_response_delay` | `10` | `0–60` | s | Consumption-spike fast response (v2.8.0): with stable PV, after this many seconds of grid import the charger steps down in one operation to the level that zeroes the import. `0` disables (legacy slow ramp). |
+| `evsc_solar_max_amperage` | `32` | `6–32` | A | Hard ceiling on Solar Surplus amperage. Lower this if your wallbox rejects currents above a certain value (e.g. set to `16` for wallboxes limited to 16 A). |
+| `evsc_offgrid_max_amperage` | `32` | `6–32` | A | Stricter ceiling applied **only while the optional `grid_available` sensor reads off** (hybrid inverter islanded). `32` = disabled. Requires `grid_available` to be mapped; see [Off-grid amperage ceiling](#off-grid-amperage-ceiling). |
+| `evsc_home_battery_min_soc` | `20` | `0–100` | % | Home battery must be above this SOC before battery support activates. |
+| `evsc_battery_support_amperage` | `16` | `6–32` | A | Amperage used when the home battery supplements solar charging. |
+| `evsc_battery_support_sunset_buffer` | `60` | `0–240` | min | Block home battery support when sunset is closer than this. Prevents draining the home battery in the last minutes of fading solar (e.g. plug-in at 18:00 with sunset at 19:15). Set to `0` to disable the guard. |
+
+---
+
+### Numbers — Night Smart Charge
+
+| Suffix | Default | Range | Unit | Description |
+|---|:---:|---|:---:|---|
+| `evsc_night_charge_amperage` | `16` | `6–32` | A | Amperage for overnight charging sessions. |
+| `evsc_min_solar_forecast_threshold` | `20` | `0–100` | kWh | If tomorrow's forecast ≥ this value, Night Smart Charge uses home battery mode instead of grid mode. |
+| `evsc_night_pv_handoff_threshold` | `0` | `0–5000` | W | **v2.3.0 (opt-in).** `0` = disabled (stop at astronomical sunrise). When > 0, on `car_ready` OFF days Night Smart Charge continues past sunrise and hands off to Solar Surplus once measured `fv_production` stays ≥ this value for 5 min (hard-capped at `evsc_car_ready_time`). Recommended ~200 W, above your inverter's idle reading. See the high-latitude note in [Night Smart Charge](#night-smart-charge). |
+| `evsc_nighttime_sunset_offset` | `0` | `0–120` | min | **v2.6.0 (opt-in — [issue #42](https://github.com/antbald/ha-ev-smart-charger/issues/42)).** Minutes **before** sunset at which the nighttime window starts. `0` = astronomical sunset. Extends the window where Solar Surplus is skipped ("SKIPPED: Nighttime"). |
+| `evsc_nighttime_sunrise_offset` | `0` | `0–120` | min | **v2.6.0 (opt-in — [issue #42](https://github.com/antbald/ha-ev-smart-charger/issues/42)).** Minutes **after** sunrise at which the nighttime window ends. `0` = astronomical sunrise. Delays when Solar Surplus resumes in the morning. |
+
+---
+
+### Numbers — Boost Charge
+
+| Suffix | Default | Range | Unit | Description |
+|---|:---:|---|:---:|---|
+| `evsc_boost_charge_amperage` | `16` | `6–32` | A | Amperage used during a Boost Charge session. |
+| `evsc_boost_target_soc` | `80` | `0–100` | % | Boost Charge stops automatically when EV SOC reaches this value. |
+| `evsc_boost_stale_soc_minutes` | `60` | `10–240` | min | **v2.15.0.** Minutes without an EV SOC change (while charging) before the stale SOC guard stops Boost. Used only when `evsc_boost_stale_soc_guard` is ON. |
+
+---
+
+### Numbers — Hybrid Inverter Mode
+
+Only relevant when `evsc_hybrid_inverter_mode` is **ON**. See the [Hybrid Inverter Mode](#hybrid-inverter-mode-zero-export-systems) section for full context.
+
+| Suffix | Default | Range | Unit | Description |
+|---|:---:|---|:---:|---|
+| `evsc_hybrid_battery_full_threshold` | `95` | `80–100` | % | Home battery SOC required to consider the battery "full" and probe for curtailment. Raise this if your inverter only curtails at 100 %; lower it if curtailment kicks in earlier. |
+| `evsc_hybrid_probe_duration` | `60` | `30–180` | s | Length of a single probe at 6 A. The first 20 s are a "transient grace" where grid_import is ignored (slow-ramp inverters need time to react). |
+| `evsc_hybrid_max_import_duration` | `60` | `30–120` | s | Maximum sustained grid import (above `evsc_grid_import_threshold`) before backing off. Raise if your inverter has a slow ramp (Solis/Growatt may need 90–120 s). |
+| `evsc_hybrid_max_failed_probes` | `5` | `1–10` | count | Number of failed probes within a 30-minute sliding window before entering a 15-minute long cooldown. After 3 long cooldowns in one day, the module disables itself until sunrise. |
+
+---
+
+### Numbers — Daily EV SOC Targets
+
+Target EV SOC for each day of the week. Used by the Priority Balancer and Night Smart Charge to decide when the car is "done".
+
+| Suffix | Default |
+|---|:---:|
+| `evsc_ev_min_soc_monday` | `50 %` |
+| `evsc_ev_min_soc_tuesday` | `50 %` |
+| `evsc_ev_min_soc_wednesday` | `50 %` |
+| `evsc_ev_min_soc_thursday` | `50 %` |
+| `evsc_ev_min_soc_friday` | `50 %` |
+| `evsc_ev_min_soc_saturday` | `80 %` |
+| `evsc_ev_min_soc_sunday` | `80 %` |
+
+---
+
+### Numbers — Daily Home Battery SOC Targets
+
+Target home battery SOC for each day. Used by the Priority Balancer to determine when the home battery is satisfied.
+
+| Suffix | Default |
+|---|:---:|
+| `evsc_home_min_soc_monday` | `50 %` |
+| `evsc_home_min_soc_tuesday` | `50 %` |
+| `evsc_home_min_soc_wednesday` | `50 %` |
+| `evsc_home_min_soc_thursday` | `50 %` |
+| `evsc_home_min_soc_friday` | `50 %` |
+| `evsc_home_min_soc_saturday` | `50 %` |
+| `evsc_home_min_soc_sunday` | `50 %` |
+
+---
+
+### Time Controls
+
+| Suffix | Default | Description |
+|---|:---:|---|
+| `evsc_night_charge_time` | `01:00` | Time at which Night Smart Charge activates. |
+| `evsc_car_ready_time` | `08:00` | Absolute deadline for car readiness on "Car Ready" days. Charging stops at this time even if the target SOC is not yet reached. |
+| `evsc_boost_schedule_start_time` | `07:00` | Daily Boost Charge session start time. |
+| `evsc_boost_schedule_end_time` | `08:00` | Daily Boost Charge session end time (hard stop). |
+
+---
+
+### Sensors — Diagnostics
+
+All diagnostic sensors are **read-only**. They are updated continuously by the integration and are the first place to look when troubleshooting.
+
+| Suffix | Description |
+|---|---|
+| `evsc_diagnostic` | General decision variables: current profile, active automation, charger state, last action. |
+| `evsc_priority_daily_state` | Priority Balancer state (`EV` / `Home` / `EV_Free`), today's targets, current SOC values. |
+| `evsc_solar_surplus_diagnostic` | Solar Surplus details: surplus watts, target amps, battery support state, delay timers. |
+| `evsc_today_ev_target` | Today's EV SOC target (derived from the current weekday). |
+| `evsc_today_home_target` | Today's home battery SOC target (derived from the current weekday). |
+| `evsc_cached_ev_soc` | Last valid EV SOC value. Preserved when the source sensor becomes `unknown` or `unavailable`. |
+| `evsc_log_file_path` | Full path to the active daily log file. Useful for SSH/Samba access. |
+| `evsc_hybrid_inverter_diagnostic` | Hybrid Inverter Mode state machine: `IDLE`, `PROBING (45/60s)`, `RIDING_EDGE @ 10A`, `COOLDOWN_LONG (8m left)`, `HARD_EXIT (until sunrise)`. Attributes carry failure counts, cooldown timers, and full snapshot. |
+
+---
+
+## Automation Details
+
+### Solar Surplus
+
+Solar Surplus runs every `evsc_check_interval` minutes during **daytime hours only** (sunrise → sunset). It computes the instantaneous surplus (`solar production − home consumption`) and converts it to the nearest supported amperage level from `[6, 8, 10, 13, 16, 20, 24, 32] A` using 230 V as the conversion voltage.
+
+**Hysteresis and stability protection:**
+
+- Charger does not start until surplus is ≥ 6.5 A (`~1495 W`) for at least 60 s (cloud protection)
+- A dead-band timer: if surplus stays ≥ 5.5 A (`~1265 W`) for 120 consecutive seconds while the charger is off, charging starts at 6 A (opportunistic dead-band start)
+- Charger stops only if surplus drops below 5.5 A for `evsc_surplus_drop_delay` seconds
+- Amperage increases require 60 s of stable surplus; decreases require only `evsc_surplus_drop_delay`
+
+**Consumption-spike fast response (v2.8.0):**
+
+The periodic grid-import protection is tuned for clouds (one level down per ~2-minute cycle). A household demand spike — washing machine, dishwasher, induction hob — while the EV charges on surplus would leak 0.5–1 kWh/day into the grid before the slow ramp caught up. The fast response fixes exactly this case:
+
+- An **event-driven listener** on the grid-import sensor(s) sees the spike within seconds (no waiting for the next periodic tick)
+- The spike is classified as **consumption-caused** only when PV production is stable vs the last per-tick baseline (within `max(300 W, 15%)`); a production drop (cloud) always keeps the legacy conservative path
+- After `evsc_spike_response_delay` seconds of sustained import (default **10 s**, range 0–60, **0 = disabled/legacy**), the charger steps down in **one operation** to the amp level that zeroes the measured import (plus a 100 W safety margin). If even the 6 A floor would still import, the charger stops.
+- Ramp-**up** stays on the legacy slow path (60 s stability window, one level per tick) — asymmetric fast-down / slow-up prevents oscillation
+- The fast path only acts on a Solar-Surplus-owned charging session: Night Charge, Boost, Forza Ricarica, manual charging and Hybrid Mode probing are never touched
+- At most one fast action every 30 s (aligned with the charger-controller rate limit)
+
+Result: a 2 kW hob spike at 16 A goes from ~8 minutes of grid import to ~15–20 s.
+
+The diagram below shows how the surplus (in amps) maps to charging decisions. Thresholds are fixed; only the dead-band start delay is configurable via `SURPLUS_DEADBAND_START_DELAY`.
+
+```
+Surplus (A)
+  │
+  32 ┤━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ← max level (capped by evsc_solar_max_amperage)
+  24 ┤
+  20 ┤
+  16 ┤────────────────────────────── ← amperage steps [6,8,10,13,16,20,24,32]
+  13 ┤
+  10 ┤
+   8 ┤
+   6 ┤
+     │
+ 6.5 ┤╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  ← START threshold (needs 60s stable)
+ 5.5 ┤╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌  ← STOP threshold / dead-band floor
+     │    ↕ dead band (no action    ← dead-band start after 120s
+     │      unless timer expires)
+   0 ┤─────────────────────────────→ time
+```
+
+```mermaid
+flowchart TD
+    CHECK([Periodic check every N minutes]) --> NIGHT{Daytime?}
+    NIGHT -->|No| SKIP([Skip — nighttime])
+    NIGHT -->|Yes| CALC[Calculate surplus\nsolar − consumption]
+
+    CALC --> PB{Priority\nBalancer state?}
+    PB -->|Home| STOP_H([Stop charger\nHome battery needs energy])
+    PB -->|EV_Free| STOP_F([Stop charger\nBoth targets met])
+    PB -->|EV or disabled| SURPLUS{Surplus ≥ 6.5 A\n~1495 W?}
+
+    SURPLUS -->|Yes| INC[Start or increase\namperage 60s stability]
+    SURPLUS -->|No| DEAD{Surplus ≥ 5.5 A\nfor 120s?}
+    DEAD -->|Yes| START6[Start at 6 A\ndead-band opportunistic]
+    DEAD -->|No| BATT{Battery support\nactive?}
+    BATT -->|Yes| FIXED[Charge at\nevsc_battery_support_amperage]
+    BATT -->|No| DROP{Below 5.5 A\nfor drop delay?}
+    DROP -->|Yes| STOP([Stop charger])
+    DROP -->|No| HOLD([Hold current amperage])
+
+    GRID{Grid import\n> threshold?} -->|Yes, after delay| REDUCE[Reduce amperage\none step]
+    INC --> GRID
+    START6 --> GRID
+    FIXED --> GRID
+
+    style STOP_H fill:#27ae60,color:#fff
+    style STOP_F fill:#27ae60,color:#fff
+    style STOP fill:#e74c3c,color:#fff
+    style START6 fill:#f39c12,color:#fff
+    style INC fill:#2980b9,color:#fff
+    style FIXED fill:#8e44ad,color:#fff
+```
+
+**Grid import protection:**
+
+If grid import exceeds `evsc_grid_import_threshold` for more than `evsc_grid_import_delay` seconds, amperage is reduced by one step. Recovery requires surplus to drop below 50 % of the threshold and remain there for 60 s before amperage is restored one step at a time.
+
+**Home battery support** (optional):
+
+When `evsc_use_home_battery` is ON, home battery SOC ≥ `evsc_home_battery_min_soc`, and Priority Balancer state = `EV`, the home battery supplements solar. If surplus < 6 A but battery support is active, the charger runs at `evsc_battery_support_amperage` instead of stopping.
+
+Battery support is also blocked when sunset is within `evsc_battery_support_sunset_buffer` minutes (default 60 min). This prevents draining the home battery for the last minutes of fading solar — e.g. when the car is plugged in at 18:00 with sunset at 19:15. Charging continues on solar surplus only; when surplus drops below threshold the charger stops normally. Set the buffer to `0` to disable this guard.
+
+**Solar max amperage cap:**
+
+`evsc_solar_max_amperage` (default `32 A`) sets a hard ceiling so Solar Surplus never exceeds what your wallbox accepts. Set this to `16` if your wallbox rejects `20 A` or higher commands.
+
+#### Off-grid amperage ceiling
+
+On a hybrid inverter running **islanded** (grid lost), the real per-phase AC
+output capacity can be far below what abundant PV plus a full home battery
+would otherwise supply. Solar Surplus sizes amperage from surplus alone, so EV
+charging plus house load could exceed the inverter's AC-output protection and
+trip an over-current fault.
+
+`evsc_offgrid_max_amperage` (default `32 A` = **off**) is a second, stricter
+ceiling that applies **only** while the optional `grid_available` binary sensor
+reads explicitly `off`:
+
+- **Grid present, or the sensor unmapped / `unavailable` / `unknown` → the
+  ceiling never applies.** This is deliberate and fail-safe: a boot-time or
+  inverter-restart flap can never throttle your charging.
+- Both ceilings run in sequence on the same target, so whichever is stricter
+  wins — you keep full amperage every day the grid is up and only give up
+  capacity while genuinely islanded.
+- A session already running above the ceiling is clamped **immediately, in one
+  step**, before any other gate — protecting the inverter now rather than
+  walking down over several minutes.
+
+Set it to the highest current your inverter can sustain per phase while
+islanded (e.g. a 12 kW three-phase unit ÷ 3 ≈ 4 kW/phase ≈ 17 A, de-rated in
+practice). Leave it at `32 A` to keep v2.12.x behaviour exactly.
+
+---
+
+### Priority Balancer
+
+The Priority Balancer reads today's EV and home battery SOC targets (from the daily entities) and compares them against current sensor values. It resolves to one of three states:
+
+| State | Meaning | Effect on Solar Surplus |
+|---|---|---|
+| `EV` | EV SOC below today's target | Solar charges EV; home battery support may activate |
+| `Home` | EV target met, home battery below target | Solar Surplus pauses; home battery charges itself |
+| `EV_Free` | Both targets met | Solar Surplus stops immediately; opportunistic charging only if profile allows |
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> EV : Day starts\nEV SOC below target
+
+    EV --> Home : EV target ✅\nHome SOC below target
+    EV --> EV_Free : Both targets ✅
+
+    Home --> EV_Free : Home target ✅
+    Home --> EV : New day\n(targets reset)
+
+    EV_Free --> EV : New day\n(EV below new target)
+
+    state EV {
+        ev1 : 🚗 Charge EV first
+        ev2 : Home battery support\nmay supplement solar
+        ev1 --> ev2
+    }
+
+    state Home {
+        h1 : 🔋 Protect home battery
+        h2 : Solar Surplus paused\nHome charges itself
+        h1 --> h2
+    }
+
+    state EV_Free {
+        f1 : ✅ Both targets met
+        f2 : Opportunistic solar only\nNo battery support
+        f1 --> f2
+    }
+```
+
+When the balancer is **disabled** (the default), Solar Surplus treats the charger as always having `EV` priority: the daily SOC targets are ignored and `Home` priority is never reached.
+
+> **⚠️ Battery-protection visibility (v2.5.0, [issue #35](https://github.com/antbald/ha-ev-smart-charger/issues/35))**
+> If the balancer is **OFF** while you have configured home-battery SOC targets (`evsc_home_min_soc_<day>` above 0%), the home-battery protection is silently bypassed — Solar Surplus would charge the EV from solar regardless of home SOC. To make this visible, the integration now raises a **WARNING** in the log and a **persistent notification** ("Battery protection inactive") once a day while charging in that state. The notification clears automatically when you re-enable the balancer. Enable it from **Dashboard → Settings → Safety** (the switch is now rendered there) or via the `evsc_priority_balancer_enabled` switch. No notification is sent if you have no home targets configured (nothing to protect).
+
+**Key entities:** `evsc_priority_balancer_enabled`, `evsc_ev_min_soc_<day>`, `evsc_home_min_soc_<day>`, `sensor.evsc_priority_daily_state`
+
+---
+
+### Night Smart Charge
+
+Night Smart Charge activates at `evsc_night_charge_time` (default `01:00`) and runs until the EV reaches its daily SOC target or sunrise, whichever comes first.
+
+**Mode selection** (evaluated at activation):
+
+| Condition | Mode |
+|---|---|
+| PV forecast ≥ `evsc_min_solar_forecast_threshold` AND `evsc_use_home_battery` ON AND `evsc_preserve_home_battery` OFF | **Battery mode** — charges from home battery |
+| Any other condition | **Grid mode** — charges from grid |
+
+```mermaid
+flowchart TD
+    T([evsc_night_charge_time reached]) --> EN{Night Smart Charge\nenabled?}
+    EN -->|No| SKIP([Skip — no action])
+    EN -->|Yes| EV{EV SOC ≥\ndaily target?}
+    EV -->|Yes| SKIP
+    EV -->|No| F1{PV forecast ≥\nthreshold?}
+
+    F1 -->|No| GRID
+    F1 -->|Yes| F2{use_home_battery\nON?}
+    F2 -->|No| GRID
+    F2 -->|Yes| F3{preserve_home_battery\nOFF?}
+    F3 -->|No| GRID
+    F3 -->|Yes| F4{Home battery SOC\n> min threshold?}
+
+    F4 -->|Yes| BAT([🔋 Battery Mode\nCharge from home battery])
+    F4 -->|No| F5{car_ready\ntoday?}
+    F5 -->|Yes| GRID([⚡ Grid Mode\nCharge from grid])
+    F5 -->|No| SKIP
+
+    GRID --> MONITOR{Monitor every 15s\nEV target reached\nor sunrise?}
+    BAT --> MONITOR
+    MONITOR -->|EV target ✅| DONE([Session complete\nHandoff to Solar Surplus])
+    MONITOR -->|Sunrise + car_ready OFF| DONE
+    MONITOR -->|Sunrise + car_ready ON| EXT{car_ready_time\nreached?}
+    EXT -->|No| MONITOR
+    EXT -->|Yes| DONE
+
+    style BAT fill:#2980b9,color:#fff
+    style GRID fill:#e67e22,color:#fff
+    style DONE fill:#27ae60,color:#fff
+    style SKIP fill:#7f8c8d,color:#fff
+```
+
+**Battery mode pre-check:** Before starting, the home battery SOC is validated. If it is already ≤ `evsc_home_battery_min_soc`, the session checks the day's `evsc_car_ready_<day>` flag:
+- Flag **ON** → falls back to grid mode to ensure car is ready
+- Flag **OFF** → skips charging entirely (waits for solar surplus)
+
+**Car Ready extension:** On days where `evsc_car_ready_<day>` is ON, if the EV target is not reached at sunrise, charging continues from the grid until the target is met or `evsc_car_ready_time` is reached.
+
+**PV handoff for high-latitude installations (v2.3.0, opt-in — [issue #32](https://github.com/antbald/ha-ev-smart-charger/issues/32)):** On `car_ready` **OFF** days, Night Smart Charge normally stops at **astronomical sunrise** and hands off to Solar Surplus. At high latitudes in summer, astronomical sunrise can precede usable PV production by 3+ hours (e.g. sunrise 01:51, real PV ~05:00), leaving the EV idle in between. Set `evsc_night_pv_handoff_threshold` above `0 W` (recommended ~200 W) to make the session continue past sunrise and stop only once **measured PV production** (`fv_production`) stays at/above the threshold for 5 minutes — a far more accurate "the sun is actually up" signal. Notes:
+
+- **Scope:** only affects `car_ready` OFF days. `car_ready` ON days are unchanged (still driven by EV target / `evsc_car_ready_time`).
+- **Safety hard-cap:** on overcast days where PV never reaches the threshold, the session still stops no later than the next `evsc_car_ready_time`, so grid/battery draw stays bounded. Battery mode also remains bounded by `evsc_home_battery_min_soc`; grid mode draws from the grid until the cap.
+- **Prerequisite:** the handoff only helps when the charging profile is `solar_surplus` (so Solar Surplus can take over). With `manual` / `charge_target` / `cheapest`, leave the threshold at `0`.
+- **Tuning:** set the threshold *above* your inverter's idle/standby reading (CT offset), not a blind 200 W, to avoid a false handoff at night.
+- **Default `0 W` = disabled** → legacy astronomical-sunrise behavior, byte-for-byte unchanged.
+
+**Late-arrival detection:** If the car is plugged in after `evsc_night_charge_time` but before sunrise, Night Smart Charge detects the late arrival and starts a session immediately.
+
+**Charger start retry:** If the charger fails to start on the first attempt, Night Smart Charge retries with exponential backoff before giving up and logging an error.
+
+**Key entities:** `evsc_night_smart_charge_enabled`, `evsc_night_charge_time`, `evsc_night_charge_amperage`, `evsc_min_solar_forecast_threshold`, `evsc_night_pv_handoff_threshold`, `evsc_car_ready_<day>`, `evsc_car_ready_time`, `evsc_preserve_home_battery`
+
+---
+
+### Boost Charge
+
+Boost Charge is a high-priority override that guarantees the EV reaches `evsc_boost_target_soc` as quickly as possible at `evsc_boost_charge_amperage`.
+
+**Manual mode:** Toggle `evsc_boost_charge_enabled` ON at any time. The session starts immediately, runs at full configured amperage, and stops automatically when the SOC target is reached. The switch reverts to OFF on completion.
+
+**Scheduled mode:** Enable `evsc_boost_schedule_enabled` and configure `evsc_boost_schedule_start_time` / `evsc_boost_schedule_end_time`. Every day at the start time the integration checks:
+- Car plugged in? If not, the session is silently skipped.
+- EV SOC already ≥ target? If so, the session is silently skipped.
+- Otherwise, charging starts at `evsc_boost_charge_amperage`.
+
+If the car is plugged in *after* the start time but while still within the scheduled window, the session starts immediately on plug-in — no manual intervention needed.
+
+The session ends at the configured end time even if the SOC target has not been reached. Disabling the schedule toggle mid-session stops the charger immediately.
+
+**Boosting a session that is already charging (v2.13.1 — [issue #60](https://github.com/antbald/ha-ev-smart-charger/issues/60)):** Boost can be enabled on top of a charge that is already running — for example to push past today's EV target, or to lift a solar-limited amperage. Some charger integrations (Tesla Fleet, for one) reject `switch.turn_on` when the vehicle is already charging (`Command was unsuccessful: is_charging`). Such a rejection is no longer treated as a failure: when the charger switch reports ON, or a mapped charging-power sensor shows real draw, the start counts as successful, the Boost amperage stays applied and the session continues. A rejection while the charger is genuinely off is still reported as a failure.
+
+**Session protections (v2.15.0 — [issue #68](https://github.com/antbald/ha-ev-smart-charger/issues/68)):** Boost used to stop only at the EV target, so during a grid outage, or with an EV SOC sensor that froze, it could empty the home battery. Three protections now apply, each with its own switch:
+
+- **Home battery protection** (`evsc_boost_home_battery_protection`, **ON by default**, home-battery installs only): Boost stops when the home battery SOC is at or below `evsc_home_battery_min_soc` while the grid is not supplying the charge — grid import below `evsc_grid_import_threshold` and, when a battery-power sensor is mapped, the battery discharging above it — sustained for `evsc_grid_import_delay`. Without a battery-power sensor, the SOC floor plus low grid import decide (so with the home battery at its floor and PV covering the car, Boost also stops). A home SOC sensor that stays unavailable for 60 s also stops Boost. Boost does not restart on its own; re-enable it when you want. Turn the switch OFF only if you accept draining the home battery.
+- **Pause on grid loss** (`evsc_boost_stop_on_grid_loss`, OFF by default): while `grid_available` reads off (sustained for `evsc_grid_import_delay`) the charger is stopped but the Boost session stays armed; charging resumes once the grid has read on for 3 minutes in a row.
+- **Stale EV SOC guard** (`evsc_boost_stale_soc_guard`, OFF by default): Boost stops when the EV SOC has not changed for `evsc_boost_stale_soc_minutes` (default 60) while the charger is charging.
+
+**Key entities:** `evsc_boost_charge_enabled`, `evsc_boost_schedule_enabled`, `evsc_boost_charge_amperage`, `evsc_boost_target_soc`, `evsc_boost_schedule_start_time`, `evsc_boost_schedule_end_time`, `evsc_boost_home_battery_protection`, `evsc_boost_stop_on_grid_loss`, `evsc_boost_stale_soc_guard`, `evsc_boost_stale_soc_minutes`
+
+---
+
+### Smart Charger Blocker
+
+Smart Charger Blocker listens for `charger_charging` status events and stops the charger if the activation occurs inside the blocking window.
+
+**Blocking window:**
+
+- When Night Smart Charge is **enabled**: sunset → `evsc_night_charge_time`
+- When Night Smart Charge is **disabled**: sunset → sunrise
+
+**Charging is allowed when any of the following apply:**
+
+- `evsc_forza_ricarica` is ON (Force Charge override)
+- Night Smart Charge owns the active session
+- A Boost Charge session is active
+- `evsc_smart_charger_blocker_enabled` is OFF
+
+When the blocker stops the charger, it sends a push notification (if `evsc_notify_smart_blocker_enabled` is ON and the car owner is home) and enforces a 30-minute re-check window to prevent log spam.
+
+**Key entities:** `evsc_smart_charger_blocker_enabled`, `evsc_forza_ricarica`, `evsc_notify_smart_blocker_enabled`
+
+---
+
+### Manual overrides — Force Charge & Stop Charging
+
+Two switches sit above every automation. They are exact opposites, and they can never be ON at the same time.
+
+| Switch | Effect while ON |
+|---|---|
+| `evsc_forza_ricarica` — **Force Charge** | The charger is kept running. Every automation `turn_off` request is denied by the coordinator. |
+| `evsc_stop_charging` — **Stop Charging** | The charger is stopped immediately and held stopped. Every automation `turn_on` request is denied. |
+
+**Stop Charging outranks Force Charge.** The coordinator evaluates it first, deliberately: an explicit stop must win over a force-charge toggle the user may have forgotten about.
+
+**How the stop is held.** Three layers, so the effect is immediate *and* durable:
+
+1. Flipping the switch ON calls `ChargerController.stop_charger()` within the same second — you don't wait for the next automation tick.
+2. While it stays ON, the coordinator denies every automation `turn_on`.
+3. A 1-minute re-assert catches charging that started **outside** the integration — a wallbox that auto-resumes, or a manual flip of your raw charger switch.
+
+A restart of Home Assistant with the switch already ON re-asserts the hold at setup.
+
+**Turning it OFF** simply resumes normal arbitration. Nothing is force-started, and your charging profile is never touched — there is nothing to restore afterwards.
+
+**Mutual exclusion (v2.10.2).** Turning either switch ON automatically turns the other OFF, so the dashboard can never show two contradictory overrides. If both are found ON at startup (a state restored from before this behaviour existed), Stop Charging wins — matching the coordinator's precedence.
+
+**On the dashboard:** Stop Charging renders as a red hero banner with the highest precedence, plus a red toggle directly above Force Charging. Red rather than the usual green, because on this dashboard green means *charging*.
+
+#### Auto-disarm Force Charge (v2.11.0, opt-in)
+
+Force Charge expresses an intent — *"charge now, whatever the automations think"* — that normally ends with that session. But the switch stays ON, so the classic trap is: you force a charge somewhere, drive home, plug in, and the system silently resumes from the override instead of from Solar Surplus, Night Charge or whatever should have taken over.
+
+Turn **`evsc_force_charge_auto_disarm`** ON (Dashboard → **Settings → 🛡 Safety**) and unplugging the EV switches Force Charge OFF for you.
+
+- It acts on the **unplug edge only** (connected → disconnected). Turning Force Charge ON while the cable is already out — to prepare a later session — is never second-guessed.
+- Disconnection is detected with the centralized status classifier, so OCPP-style vocabularies (`available`) work alongside the Tuya `charger_free`.
+- An `unknown` / `unavailable` status reads as *connected*: a sensor glitch must never silently cancel a Force Charge you are relying on.
+- Requires the charger **status** sensor to be mapped. With a power sensor only, measured watts cannot tell "paused" from "unplugged", so the setting stays inert (and says so in the log at startup) rather than guessing.
+
+**Key entities:** `evsc_stop_charging`, `evsc_forza_ricarica`, `evsc_force_charge_auto_disarm`
+
+---
+
+### Hybrid Inverter Mode (zero-export systems)
+
+**Opt-in feature (default OFF).** Added in v1.8.0 to solve [issue #20](https://github.com/antbald/ha-ev-smart-charger/issues/20).
+
+#### What problem this solves
+
+In **hybrid zero-export inverter systems** (Deye, Sunsynk, Solis, Growatt, Goodwe, EG4 and similar), the inverter actively **curtails** PV production to avoid feeding energy back into the grid when there is nowhere to put it. Typically this happens whenever the home battery is full and grid export is disabled.
+
+When this happens the sensor `fv_production` (which reports *measured* PV power, not *available* PV power) drops to roughly match `home_consumption`. Solar Surplus then computes:
+
+```
+surplus = fv_production − home_consumption ≈ 0
+```
+
+and decides there is no headroom for EV charging — **even though several kilowatts of PV capacity are sitting idle**, ready to ramp up the moment any load is applied. The EV charger never starts on a perfectly sunny day. This is a paradox: the very condition that means PV is being wasted (battery full + zero export) also masks the available surplus.
+
+#### Who needs this
+
+Enable Hybrid Inverter Mode if **all** of these apply to you:
+
+- ✅ Your inverter is a hybrid model with battery + zero-export configured
+- ✅ Your home battery is frequently full during sunny midday hours
+- ✅ Solar Surplus often shows `~0 W surplus` even on clear days
+- ✅ The EV charger does not start automatically when you expect it to
+- ✅ You can verify (in the inverter's own UI) that PV production is being capped
+
+If you have a **traditional** PV-only system, a **grid-tied non-hybrid** inverter, or you never see your home battery reach 100 %, **leave this feature OFF** — it will not improve anything and may briefly draw small amounts of power from the grid.
+
+#### How it works — probing strategy
+
+Since the inverter only ramps up PV in response to a load, the only way to discover hidden headroom is **empirical**: start the EV charger at the minimum 6 A and observe what `grid_import` does. This is exactly what Hybrid Inverter Mode does.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> IDLE
+
+    IDLE --> PROBING: Entry conditions met\n(battery full, grid≈0, daytime, etc.)
+    IDLE --> RIDING_EDGE: charger already ON,\nsurplus pinned to EV draw\n→ session adopted
+    PROBING --> RIDING_EDGE: probe completed\nwithout grid violation
+    PROBING --> COOLDOWN_SHORT: import sustained\n→ probe FAILED
+
+    RIDING_EDGE --> RIDING_EDGE: grid stable → step up\ngrid high → step down
+    RIDING_EDGE --> COOLDOWN_SHORT: at 6A and grid still high
+    RIDING_EDGE --> IDLE: exit condition\n(toggle off, sunset, EV plugged out, ...)
+
+    COOLDOWN_SHORT --> IDLE: 2 min elapsed
+    COOLDOWN_SHORT --> COOLDOWN_LONG: ≥5 failures in 30 min
+    COOLDOWN_LONG --> IDLE: 15 min elapsed
+    COOLDOWN_LONG --> HARD_EXIT: 3rd long cooldown today
+
+    HARD_EXIT --> IDLE: next sunrise
+```
+
+If the charger is **already charging** when those conditions hold (a session started by Solar Surplus or battery support, or still running after a restart) and Solar Surplus cannot justify the next amperage level — under curtailment the surplus equals the EV's own draw — Hybrid Mode **adopts the session** and goes straight to RIDING_EDGE from the current amperage (v2.13.3). No probe is needed: the running charger already proves the load is served with grid import near zero.
+
+Two-phase probing protects against inverter slow-ramp:
+
+1. **Phase A (0–20 s, "transient grace"):** charger at 6 A, `grid_import` is **ignored**. This is the window where the inverter detects the new load and starts ramping PV up.
+2. **Phase B (20–60 s, "steady state"):** if `grid_import > evsc_grid_import_threshold` for more than `evsc_hybrid_max_import_duration` consecutive seconds → probe **FAILED** (no headroom). Otherwise → probe **SUCCEEDED**.
+
+After a successful probe, Hybrid Mode transitions to **RIDING_EDGE** where it "rides the edge" of `grid_import`:
+
+- Grid stays at or below the threshold for 60 s → step amperage **up** one level (6 → 8 → 10 → 13 → 16 → 20 → 24 → 32 A)
+- Grid exceeds threshold for `evsc_hybrid_max_import_duration` → step amperage **down** one level; the level that tripped the step-down is not re-tried for 10 minutes (anti-oscillation), then the edge is probed again
+- At 6 A and grid still high → stop and treat as a failed probe
+
+#### Cost transparency
+
+Every failed probe consumes **~23 Wh from the grid** (6 A × 230 V × 60 s). The module is designed so the **daily worst case is bounded at ≤ 350 Wh** — a fraction of one cent of electricity:
+
+- A sliding window prevents more than 5 failed probes per 30 minutes
+- The 6th failure triggers a 15-minute long cooldown
+- After 3 long cooldowns in the same day, the module disables itself until sunrise (`HARD_EXIT`)
+
+These limits are tuned so that even in the worst case (e.g. inverter that really has no headroom but conditions briefly look right), Hybrid Mode never costs more than a tenth of a kWh per day. In normal use it costs nothing — once `RIDING_EDGE` is sustained for 5 minutes, the failure counter is reset.
+
+#### How to enable
+
+1. Verify you are a candidate (see "Who needs this" above).
+2. Toggle **`switch.evsc_hybrid_inverter_mode` ON**.
+3. *(Recommended)* lower `number.evsc_check_interval` to **15–30 s** for more responsive amperage adjustments while in RIDING_EDGE. The default of 1 minute works but feels sluggish.
+4. Leave the other Hybrid parameters at their defaults initially. They can be tuned later based on observed behaviour (see "Tuning" below).
+5. Wait for a sunny day with the home battery full. Hybrid Mode will activate by itself when conditions are right.
+6. Watch `sensor.evsc_hybrid_inverter_diagnostic` and the integration logs to see what is happening.
+
+You will receive **one push notification per day** (filtered by car-owner presence) the first time probing starts. After that, no further notifications — the module operates silently.
+
+#### Tuning
+
+| Symptom | Try |
+|---|---|
+| Hybrid Mode never enters `PROBING` | Lower `evsc_hybrid_battery_full_threshold` (e.g. from 95 % to 90 %). Some inverters curtail before reaching 100 %. |
+| Every probe fails (`COOLDOWN_SHORT` then `COOLDOWN_LONG`) | Raise `evsc_hybrid_max_import_duration` to 90–120 s. Slow-ramp inverters (Solis, Growatt) need more time to react. |
+| Module enters `HARD_EXIT` too often | Your inverter probably has genuine PV constraints (small system, partial shading). Raise `evsc_hybrid_battery_full_threshold` to 100 % so probing only happens when truly full. |
+| RIDING_EDGE oscillates a lot | Raise `evsc_grid_import_threshold` slightly (from 50 W default to 100 W) for more headroom. |
+| Charging stops climbing at a low amperage (e.g. 10 A) with the battery full | Fixed in v2.13.3 (running sessions are now adopted by Hybrid Mode). Make sure the Hybrid Mode toggle is ON and the charging profile is `solar_surplus`. If it still holds, check the diagnostic: `holding below …A import ceiling` means that level really imported from the grid within the last 10 minutes. |
+
+#### Interaction with other automations
+
+Hybrid Mode is fully integrated with the existing priority hierarchy:
+
+- **Force Charge / Boost Charge / Night Smart Charge / Charger Free / Profile change** → Hybrid is **forced to exit** gracefully. The EV charger is stopped, state returns to IDLE, the other automation takes over.
+- **Priority Balancer = HOME** → Hybrid cannot start (the home battery's needs come first).
+- **Priority Balancer = EV_FREE** → Hybrid is allowed to continue **only if the home battery is at 100 %** (strict). The moment it drops to 99 %, Hybrid exits gracefully to preserve the battery for the evening.
+- **Sunset buffer (90 min)** → Hybrid never starts a probe in the last 90 minutes before sunset, to avoid draining the home battery during fading solar.
+
+#### Diagnostic sensor
+
+`sensor.evsc_hybrid_inverter_diagnostic` exposes the full state machine in real time:
+
+| State string | Meaning |
+|---|---|
+| `IDLE` | Waiting for entry conditions |
+| `PROBING (XX/60s)` | Currently probing at 6 A, XX seconds elapsed of the probe_duration window |
+| `RIDING_EDGE @ 10A` | Actively riding the import edge at 10 A |
+| `COOLDOWN_SHORT (110s left)` | Recovering from a single failed probe |
+| `COOLDOWN_LONG (8m 30s left)` | Recovering from N failures in 30 minutes |
+| `HARD_EXIT (until sunrise)` | Disabled for the day after 3 long cooldowns |
+
+The sensor's **attributes** carry the full diagnostic snapshot: failed probes in window, long cooldowns today, last probe time, current target amps, cooldown timers, and reason for the last state transition.
+
+#### Compatibility
+
+Hybrid Inverter Mode is **inverter-agnostic** by design — it uses no inverter-specific API and only reads the same `grid_import` and `soc_home` sensors you already configured during setup. Any hybrid inverter that exposes those two values via Home Assistant should work.
+
+If you test it with your specific inverter brand/model, please share your results (success or otherwise) on **[issue #20](https://github.com/antbald/ha-ev-smart-charger/issues/20)** so other users can benefit.
+
+**Key entities:** `evsc_hybrid_inverter_mode`, `evsc_hybrid_battery_full_threshold`, `evsc_hybrid_probe_duration`, `evsc_hybrid_max_import_duration`, `evsc_hybrid_max_failed_probes`, `sensor.evsc_hybrid_inverter_diagnostic`
+
+---
+
+### Cached EV SOC
+
+Many cloud-based EV integrations (e.g., manufacturer apps) expose SOC sensors that temporarily go `unknown` or `unavailable` due to API rate limits or connectivity issues. This causes downstream automations to fail or make wrong decisions.
+
+The Cached EV SOC component polls the source EV SOC sensor every **5 seconds** and writes the last valid value to `sensor.evsc_cached_ev_soc`. When the source goes unavailable, the cached value is preserved until a new valid reading arrives. All internal logic uses the cached sensor, not the source directly.
+
+**Key entity:** `sensor.evsc_cached_ev_soc`
+
+---
+
+## Auto-generated Dashboard
+
+The sidebar dashboard is **optional and off by default**. Choose **Create EV Smart Charger dashboard** in the last setup step, or open **Settings → Devices & Services → EV Smart Charger → device → Configuration** and press **Build Custom Dashboard** as an administrator. Both paths open a prompt in Home Assistant Notifications. Follow **Open the dashboard builder**, then select **Create dashboard**. This final click is required so Lovelace can authorize the active Home Assistant administrator session. The button uses the normal `button.press` action and requires an administrator's user context; it is not a system automation or an EV charging command.
+
+Home Assistant's own dashboard API registers the panel and saves the initial view with the bundled card and this entry's sensor mapping. If `/ev-smart-charger` already exists, it stays unchanged, even if it belongs to another EV entry or you have customized it. Updates, restarts, reconfiguration, disabling, and uninstall do not rewrite or delete any dashboard. To remove it, use **Settings → Dashboards**.
+
+If Lovelace resources are in YAML mode, auto-setup is unavailable; use [manual card setup](#manual-usage-on-your-own-dashboards). If the initial view does not save after creation, finish setup from **Settings → Dashboards**. The charging integration still runs without a dashboard.
+
+### Look — Liquid Glass iOS 18
+
+The card uses an Apple-inspired visual language:
+
+- **Activity-style dual SOC ring** in the hero: outer arc tracks EV SOC, inner arc tracks home battery SOC (hidden in PV-only mode). Center reads the EV percentage with the "EV" label inside; a separate **CHARGING** pill below the ring shows live amperage and power when a session is active.
+- **Liquid Glass surfaces** — every card uses `backdrop-filter: saturate(180%) blur(40px)` over a layered aurora background.
+- **Apple System Colors** throughout: system green for EV SOC and ON toggles, system blue for selected profile chip, system purple for home battery and `EV_Free` priority state.
+- **iOS-spec toggles** (51×31 pill, 27px thumb) with 280 ms spring transitions.
+- **SF Pro typography stack** with tabular numerals on metric values.
+- **Native dark/light** — switches automatically via `prefers-color-scheme`, no theme tweaks required.
+- **Accessible motion** — respects `prefers-reduced-motion`.
+
+### Split-view organisation (v1.10.0+)
+
+The card now ships with two tabs at the top:
+
+- **Dashboard** — operational only. Hero with dual SOC ring + charging pill, Override & Boost stack, Weekly Planner (per-day EV/home SOC targets + Car Ready toggle), bento-style Night Smart Charge card with crescent illustration, and Charging Profile chips.
+- **Settings** — every configuration parameter grouped under expandable accordion categories: Solar Surplus, Night Smart Charge, Home Battery Support, Hybrid Inverter Mode, Boost Schedule, Notifications, Logging & Diagnostics. Each parameter shows its title, the underlying entity key, a description of what it does and the default/range — all in the language detected from your Home Assistant profile (`en` / `it` / `nl`, English fallback for everything else).
+
+Click a category to expand its parameters inline; clicking again collapses it. The Dashboard view stays clutter-free while every knob remains one click away.
+
+### Manual usage on your own dashboards
+
+If you skip creation or want the card in an existing dashboard, the bundled module is still served. In storage-mode Lovelace, check **Settings → Dashboards → Resources** first: the integration normally registers it for you. For YAML-mode resources, add it once:
+
+```yaml
+lovelace:
+  resources:
+    - url: /api/ev_smart_charger/frontend/ev-smart-charger-dashboard.js?v=1.11.4
+      type: module
+```
+
+> Replace `1.11.4` with the current `VERSION` from `custom_components/ev_smart_charger/const.py` on every upgrade — otherwise the browser may keep serving the cached previous bundle. The integration updates its registered resource URL in storage mode and appends a content-hash cache buster, regardless of whether you create the sidebar dashboard. See [DEPLOY.md](../custom_components/ev_smart_charger/frontend/DEPLOY.md) for the full strategy.
+
+Then drop the card into any view:
+
+```yaml
+type: custom:ev-smart-charger-dashboard
+title: EV Smart Charger
+entity_prefix: ev_smart_charger_<entry_id_lowercased>
+ev_soc_entity: sensor.tesla_battery
+home_battery_soc_entity: sensor.home_battery_soc
+solar_power_entity: sensor.solar_production
+grid_import_entity: sensor.grid_import_w
+charger_status_entity: sensor.wallbox_status
+current_entity: number.wallbox_current
+charger_switch_entity: switch.wallbox_charging
+charging_power_entity: sensor.current_charging_power
+pv_forecast_entity: sensor.pv_forecast_tomorrow
+```
+
+**Full configuration reference:**
+
+| Parameter | Required | Description |
+|---|:---:|---|
+| `entity_prefix` | **Yes** | Prefix that matches the integration's config entry. Lowercase. Find it in your entity IDs (the part between `ev_smart_charger_` and `_evsc_*`). |
+| `title` | No | Card title shown in the header. |
+| `ev_soc_entity` | No | Sensor for current EV battery level — drives the outer SOC ring. |
+| `home_battery_soc_entity` | No | Sensor for current home battery level — drives the inner SOC ring. |
+| `solar_power_entity` | No | Sensor for solar production. |
+| `grid_import_entity` | No | Sensor for grid import/export. |
+| `home_consumption_entity` | No | Sensor for instantaneous home consumption. |
+| `charger_status_entity` | No | Wallbox status sensor (`charger_charging`, `charger_free`, …). |
+| `current_entity` | No | Number entity for current wallbox amperage. |
+| `charger_switch_entity` | No | Switch entity that starts/stops the charger. |
+| `charging_power_entity` | No | Sensor for live charging power (kW). Used in the ring center when charging. |
+| `pv_forecast_entity` | No | Sensor with tomorrow's PV forecast (kWh). |
+
+The card calls Home Assistant services directly (`switch.toggle`, `number.set_value`, `select.select_option`, `time.set_value`) using `entity_prefix` to resolve helper entities.
+
+---
+
+## Logging & Diagnostics
+
+### Diagnostic Sensors
+
+The quickest way to understand what the integration is doing is to inspect the diagnostic sensors in **Developer Tools → States**:
+
+- `evsc_diagnostic` — overall decision state
+- `evsc_solar_surplus_diagnostic` — solar surplus calculation details
+- `evsc_priority_daily_state` — today's priority state and SOC comparisons
+
+### File Logging
+
+Enable `evsc_enable_file_logging` to write all integration activity to a dedicated daily file. Logs are stored at:
+
+```
+/config/custom_components/ev_smart_charger/logs/<year>/<month>/<day>.log
+```
+
+A new file is created automatically at midnight. Previous days are kept indefinitely. Access log files via SSH, the File Editor add-on, or Samba share.
+
+When troubleshooting is complete, disable the toggle to stop writing. Existing log files are preserved.
+
+Turning the toggle ON also lowers the integration's own log level to `INFO` for
+as long as file logging is active, and restores your previous level when you
+turn it off. Before v2.13.0 an install whose `logger:` block set
+`default: warning` (or stricter) dropped every EVSC record *before* it reached
+the file handler, so the daily file was created and then stayed empty. If you
+need `DEBUG` in the file, set it in the `logger:` block (see below) — the file
+handler records whatever the logger passes.
+
+The `evsc_log_file_path` sensor exposes `file_logging_active` and
+`effective_log_level` as attributes, so an empty log file is diagnosable at a
+glance.
+
+### Trace Logging
+
+Enable `evsc_trace_logging_enabled` for verbose output including every sensor read, every calculation step, and every state transition. Intended for short diagnostic sessions — disable immediately after use to avoid performance impact.
+
+### HA Debug Logging
+
+For lower-level Home Assistant framework logging, add to `configuration.yaml`:
+
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.ev_smart_charger: debug
+```
+
+Restart Home Assistant for the change to take effect. Logs appear in **Settings → System → Logs** (search for `evsc`).
+
+---
+
+## Notifications & Presence
+
+Push notifications are sent via the `notify.mobile_app_*` services configured during setup. The car owner `person` entity enables **presence-aware filtering**: a notification is only dispatched when the person's state is `home`.
+
+If the `person` entity is unavailable, notifications are always sent (fail-safe default). If no notify services are configured, no notifications are sent.
+
+### EV Charging Live Activities / Live Updates
+
+EV Smart Charger keeps a single live notification tagged `evsc_ev_charging` on
+your phone for the whole charging session — on the **iOS Lock Screen and
+Dynamic Island**, and in the **Android notification shade / status bar chip**.
+
+#### Compatibility
+
+**Fully supported on iOS as of v2.12.0.** The feature was built in v2.7.3 while
+iOS could not yet render the activity, so it shipped disabled and its update
+policy was never validated against a real device. Now that the Companion App
+delivers Live Activities on iOS, v2.12.0 turns it on by default and rewrites the
+update policy around Apple's actual constraints (see *Update policy* below).
+
+| Requirement | Version |
+|---|---|
+| Home Assistant Core | **2026.7.0 or later** |
+| iOS / iPadOS | **17.2 or later** (iPhone and iPad) |
+| Android | **16 or later** for the full Live Update experience |
+| Companion App | a build that supports `live_update` (ship with the versions above) |
+
+**One-time setup on iOS — without this you will see nothing:**
+
+1. Open **iOS Settings → Home Assistant** and allow **Live Activities**.
+2. Accept the **one-time privacy disclosure** that iOS shows the first time an
+   activity starts.
+
+On Android, some Samsung devices additionally need *"Live notifications for all
+apps"* enabled in developer options before the status-bar chip appears.
+
+The feature needs at least one `notify.mobile_app_*` service mapped in the
+integration's Notifications step; without one nothing is dispatched.
+
+#### Enabling / disabling
+
+It is controlled by `switch.evsc_live_activities_enabled` or from **Dashboard →
+Settings → Notifications → EV Live Activities**. Since v2.12.0 the default is
+**ON**, and the new default is applied once to installs upgrading from v2.11.0
+or earlier. If you then turn the switch off, it stays off across every later
+upgrade.
+
+It starts or updates automatically when the EV is drawing current, including:
+
+- Boost Charge
+- Night Smart Charge battery/grid sessions
+- Solar Surplus
+- Force Charge
+- manual/normal charging detected by the shared charging-state SSOT
+
+The activity shows SOC progress, charging speed (`kW` when a charging-power sensor is mapped, otherwise amperage), today's EV target, and the wallbox status when it is not plainly charging. All copy is localized (EN / IT / NL). Tapping it opens `/ev-smart-charger`.
+
+#### Update policy (v2.12.0)
+
+The Companion App documentation is explicit that iOS throttles — and silently
+drops — frequent Live Activity updates, and that repeated start/end cycles
+exhaust a *separate* push-to-start budget whose exhaustion is invisible (the
+automation succeeds, Home Assistant logs nothing, the phone stays quiet). So a
+push is scheduled by **discrete state changes only**:
+
+| Value | Triggers a push? | Notes |
+|---|:---:|---|
+| Charging mode (Boost / Night / Solar Surplus / Force / Charging) | ✅ | Floored at 30 s |
+| Today's EV target SOC | ✅ | Floored at 30 s |
+| EV SOC | ✅ | Only after moving **5 points** from the last pushed value, and at most every **5 minutes** |
+| Charging power (kW) | ❌ | Display-only — refreshed on the next scheduled push |
+| Amperage | ❌ | Display-only |
+| Wallbox status | ❌ | Display-only |
+
+Charging power, amperage and status are deliberately excluded: solar surplus
+moves the wattage continuously, and the Tuya safe-decrease sequence
+(stop → set → start) flaps the status on every amperage step, so letting either
+drive the tag produced roughly one push per minute for the whole session.
+
+The SOC threshold is **hysteresis against the last pushed value**, not a fixed
+bucket, so a reading oscillating around 50% cannot flap across a boundary.
+
+#### Ending the activity (v2.12.1)
+
+Closing the card is driven by *how unambiguous the evidence is*, not by a single
+timer. The discrete signals are also **subscribed** (charger switch, wallbox
+status, Stop Charging, Force Charge), so the end of a session is seen within
+seconds instead of at the next 60-second poll:
+
+| Evidence | Card closes |
+|---|---|
+| Cable unplugged, charge complete, Stop Charging engaged | **Immediately** |
+| Charger switched off (commanded stop) | After **60 s** — outlasts the ~6 s Tuya stop→set→start window |
+| Measured power fell away, charger still on | After **5 minutes** (the ambiguous case) |
+
+A classified stop signal **outranks the measured reading**: a wallbox power
+sensor that freezes at its last value once the charger is off can no longer keep
+the card pinned on "charging". The same applies to a Boost / Night session whose
+state lingers `active` after the cable came out.
+
+Lifecycle is otherwise conservative:
+
+- after closing, a new activity is not started for **2 minutes**, to protect the
+  push-to-start budget;
+- the first push starts the activity normally; every later refresh is sent with
+  `silent: true` (push priority 5) and `alert_once: true`, so a card already on
+  screen never re-alerts;
+- Boost Charge, Night Smart Charge and the normal-charging monitor share one
+  lifecycle and one throttle clock on the config entry, so they cannot push the
+  same tag independently;
+- unloading the integration closes the activity instead of leaving it frozen on
+  the lock screen until Apple expires it (up to 8 hours).
+
+#### Troubleshooting
+
+**Nothing appears on the Lock Screen.** Check, in this order: Live Activities
+allowed in **iOS Settings → Home Assistant**; the one-time privacy disclosure
+accepted; HA Core ≥ 2026.7.0 and iOS ≥ 17.2; `switch.evsc_live_activities_enabled`
+ON; at least one `notify.mobile_app_*` service mapped; and the car owner `person`
+entity at `home` if you configured one (presence gates *starting* a new
+activity).
+
+**It stopped appearing after a lot of testing.** iOS keeps a *push-to-start*
+budget separate from the update budget, and repeated start/end cycles exhaust
+it. When it is exhausted, new activities fail **silently** — the service call
+succeeds, Home Assistant logs nothing, the phone stays quiet. It replenishes on
+its own in minutes to hours and cannot be forced. v2.12.0's 2-minute restart
+cooldown and 5-minute close grace exist specifically to stop the integration
+from burning it.
+
+**The card still says "charging" after I stopped the charge.** Fixed in v2.12.1
+— see *Ending the activity* above. Before that release the end of a session was
+detected only from measured power / wallbox status, so a power sensor that keeps
+its last value once the charger is off left the card pinned indefinitely, and
+even in the good case it took up to 6 minutes. If you still see it, check that
+`ev_charger_switch` (or, in button mode, the charging-power sensor) and
+(ideally) `ev_charger_status` are mapped in the integration options — they are the signals the fast paths key off.
+
+**The card looks stale.** That is usually correct behaviour: charging power,
+amperage and wallbox status are display-only and refresh on the next scheduled
+push (a mode change, an EV target change, or 5 points of EV SOC). The SOC ring
+and progress bar are the values that track your session.
+
+**The card shows 0 W / no speed.** Map your wallbox's charging-power sensor in
+the integration's Sensors step. Without it the activity falls back to the
+configured amperage. A flat `0 W` while charging usually means a reversed-sign
+sensor — see the `charging_power_w` diagnostic attribute.
+
+**Per-feature notification toggles:**
+
+| Switch | Default | Controls |
+|---|:---:|---|
+| `evsc_notify_smart_blocker_enabled` | ON | Notifications when Smart Charger Blocker stops the charger |
+| `evsc_notify_priority_balancer_enabled` | ON | Notifications when Priority Balancer state changes |
+| `evsc_notify_night_charge_enabled` | ON | Notifications when Night Smart Charge starts or completes |
+| `evsc_live_activities_enabled` | ON | EV charging Live Activities / Live Updates (v2.12.0: was OFF) |
+
+---
+
+## Analytics & Privacy
+
+EV Smart Charger can send one anonymous ping per day to help the maintainer track active installations, version adoption, and approximate geographic distribution. **This is strictly opt-in and disabled by default (v2.16.0+): nothing is ever sent unless you enable it.**
+
+**What is sent:**
+
+| Field | Example | Purpose |
+|---|---|---|
+| `installation_id` | `a3f2…` (random UUID) | Count unique installs — never reused across uninstalls |
+| `version` | `1.6.18` | Version adoption tracking |
+| `ha_version` | `2026.4.0` | HA compatibility insight |
+| `timezone` | `Europe/Rome` | Approximate region |
+| `country` | `IT` | Derived from timezone — no geolocation |
+| `continent` | `EU` | Aggregate geographic distribution |
+
+**What is NOT sent:** IP address, hostname, entity IDs, sensor values, configuration data, credentials, or any personally identifiable information.
+
+Data is stored in a private sheet accessible only to the maintainer. Aggregated statistics may be published publicly.
+
+**Opt-in:** enable **Share anonymous usage statistics** in the last step of the setup wizard or later via *Configure* / *Reconfigure*. Disable it the same way at any time. As an extra kill switch, the environment variable `EVSC_DISABLE_TELEMETRY=true` on the Home Assistant host disables it regardless of the setting.
+
+---
+
+## Troubleshooting
+
+**Start with these checks:**
+
+1. Confirm the mapped charger switch can be toggled manually in **Developer Tools → Services** (in button mode: that pressing the start and stop buttons really starts and stops the charger).
+   - Button mode only: if the integration thinks the charger is on when it is not (or vice versa), map the charging-power or charger-status sensor — after 60 s from each press the state is read from those sensors.
+2. Confirm the charger status sensor returns one of the four accepted values (`charger_charging`, `charger_free`, `charger_end`, `charger_wait`). Custom or localised values will not be recognised.
+3. Confirm solar production, home consumption, and grid import sensors report values in Watts (`W`). kW-scale sensors will result in wrong surplus calculations.
+4. If EV SOC comes from a cloud integration, check `sensor.evsc_cached_ev_soc` — the source may be intermittently unavailable.
+5. Check the diagnostic sensors and, if needed, enable file logging for a full session trace.
+
+**Common mistakes:**
+
+| Symptom | Likely Cause |
+|---|---|
+| Night Smart Charge never activates | `evsc_night_smart_charge_enabled` is OFF, or EV target already met at `01:00` |
+| Solar Surplus starts late or not at all | Surplus below 1495 W (6.5 A threshold), or profile not set to `solar_surplus` |
+| Charger keeps getting blocked | Smart Charger Blocker is ON and charger started during the blocking window |
+| Notifications not arriving | `person` entity is not `home`, or notify service name is wrong |
+| Amperage stuck at low value | `evsc_solar_max_amperage` is set lower than expected, or grid import protection is active |
+
+**Useful entities for investigation:**
+
+- `sensor.*_evsc_diagnostic`
+- `sensor.*_evsc_solar_surplus_diagnostic`
+- `sensor.*_evsc_priority_daily_state`
+- `sensor.*_evsc_log_file_path`
+- `sensor.*_evsc_cached_ev_soc`
+
+---
+
+## Supported Languages
+
+The integration ships translated UI strings and runtime messages for:
+
+| Language | Code | Status |
+|---|:---:|:---:|
+| English | `en` | ✅ Full |
+| Italian | `it` | ✅ Full |
+| Dutch | `nl` | ✅ Full |
+
+Available documentation:
+
+- English: this README
+- Dutch: [docs/README.nl.md](README.nl.md)
+
+---
+
+## Documentation
+
+**User-facing:**
+
+- Main guide: this README
+- [Dutch guide](README.nl.md)
+
+**Technical and maintenance:**
+
+- [Documentation index](README.md)
+- [Architecture SSOT](SSOT.md)
+- [Codebase map](CODEBASE_MAP.md)
+- [Refactor plan / hardening record](REFACTOR_PLAN.md)
+
+---
+
+## License
+
+MIT. See [LICENSE](../LICENSE).
