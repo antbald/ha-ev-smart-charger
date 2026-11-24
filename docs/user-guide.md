@@ -326,9 +326,11 @@ flowchart TD
 
 **Mandatory — Charger:**
 
-- A `switch` entity to turn the charger on/off
+- An on/off `switch` **or both** Start and Stop `button` entities
 - A current control entity in one of: `number`, `input_number`, `select`, `input_select` (range `6–32 A`)
-- A status sensor that reports one of the four accepted values:
+**Optional but recommended — Charger:**
+
+- A status sensor for plug and charge state, strongly recommended with Start/Stop buttons. Common states include:
 
   | Status Value | Meaning |
   |---|---|
@@ -441,7 +443,7 @@ The charger switch entity (or the start button, in button mode) is used as the u
 | Field | Required | Unit |
 |---|:---:|---|
 | EV battery SOC | Yes | `%` |
-| Home battery SOC | Yes | `%` |
+| Home battery SOC | No on initial setup; required if already configured | `%` |
 | Solar production | Yes | `W` |
 | Home consumption | Yes | `W` |
 | Grid import | Yes | `W` |
