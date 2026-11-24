@@ -17,6 +17,7 @@ from .const import (
     CONF_CHARGING_POWER_L2,
     CONF_CHARGING_POWER_L3,
     CONF_CREATE_DASHBOARD,
+    CONF_DASHBOARD_BUILD_REQUESTED,
     CONF_TELEMETRY_ENABLED,
     DEFAULT_TELEMETRY_ENABLED,
     CONF_ENERGY_FORECAST_TARGET,
@@ -434,12 +435,11 @@ def _external_connectors_schema(current_data: dict[str, Any] | None = None) -> v
 def _dashboard_schema(current_data: dict[str, Any] | None = None) -> vol.Schema:
     """Build the auto-generated dashboard schema (v1.9.0+)."""
     current_data = current_data or {}
-    current_value = current_data.get(CONF_CREATE_DASHBOARD, DEFAULT_CREATE_DASHBOARD)
     return vol.Schema(
         {
             vol.Optional(
                 CONF_CREATE_DASHBOARD,
-                default=current_value,
+                default=DEFAULT_CREATE_DASHBOARD,
             ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_TELEMETRY_ENABLED,
@@ -449,6 +449,14 @@ def _dashboard_schema(current_data: dict[str, Any] | None = None) -> vol.Schema:
             ): selector.BooleanSelector(),
         }
     )
+
+
+def _dashboard_request(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Record a new opt-in, never infer it from an older default."""
+    return {
+        **user_input,
+        CONF_DASHBOARD_BUILD_REQUESTED: user_input.get(CONF_CREATE_DASHBOARD) is True,
+    }
 
 
 class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -608,7 +616,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.pv_forecast_info,
                 self.notifications_info,
                 self.external_info,
-                user_input,
+                _dashboard_request(user_input),
             )
             title = self.init_info.get(CONF_NAME, DEFAULT_NAME)
             return self.async_create_entry(title=title, data=data)
@@ -769,7 +777,7 @@ class EVSCConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.pv_forecast_info,
                 self.notifications_info,
                 self.external_info,
-                user_input,
+                _dashboard_request(user_input),
             )
             self.hass.config_entries.async_update_entry(
                 self._reconfigure_entry,
@@ -939,7 +947,7 @@ class EVSCOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
                 self.pv_forecast_info,
                 self.notifications_info,
                 self.external_info,
-                user_input,
+                _dashboard_request(user_input),
             )
             self.hass.config_entries.async_update_entry(
                 self.config_entry,

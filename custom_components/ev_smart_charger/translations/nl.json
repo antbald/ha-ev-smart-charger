@@ -117,13 +117,13 @@
       },
       "dashboard": {
         "title": "Kant-en-klaar dashboard - Stap {step}/{total_steps}",
-        "description": "Genereer automatisch een Lovelace-dashboard met alle helper-entiteiten van deze integratie. Het dashboard verschijnt in de zijbalk als 'EV Smart Charger' met een glass-stijl UI geïnspireerd op iOS 18. Geen YAML, geen configuratie nodig.",
+        "description": "Kies of je de optionele dashboardinstallatie wilt starten en of je anonieme telemetrie wilt toestaan.",
         "data": {
-          "create_dashboard": "Automatisch zijbalkdashboard genereren",
+          "create_dashboard": "EV Smart Charger-dashboard aanmaken",
           "telemetry_enabled": "Anonieme gebruiksstatistieken delen"
         },
         "data_description": {
-          "create_dashboard": "Indien ingeschakeld wordt een toegewijd Lovelace panel-mode dashboard aangemaakt op /ev-smart-charger en als zijbalkvermelding geregistreerd.",
+          "create_dashboard": "Opent de dashboardmaker voor beheerders. Bevestig de aanmaak daar. Bestaande dashboards blijven ongewijzigd.",
           "telemetry_enabled": "Indien ingeschakeld wordt elke 24 uur een anonieme ping (willekeurig installatie-ID, versie, tijdzone, land) verzonden om de ontwikkeling te helpen prioriteren. Standaard uitgeschakeld; er worden geen persoonlijke gegevens verzameld."
         }
       },
@@ -223,13 +223,13 @@
       },
       "reconfigure_dashboard": {
         "title": "Dashboard opnieuw configureren - Stap {step}/{total_steps}",
-        "description": "Schakel het automatisch gegenereerde Lovelace-dashboard in of uit. Uitschakelen verwijdert het uit de zijbalk; opnieuw inschakelen maakt het opnieuw aan.",
+        "description": "Kies of je de optionele dashboardinstallatie wilt starten en of je anonieme telemetrie wilt toestaan.",
         "data": {
-          "create_dashboard": "Automatisch zijbalkdashboard genereren",
+          "create_dashboard": "EV Smart Charger-dashboard aanmaken",
           "telemetry_enabled": "Anonieme gebruiksstatistieken delen"
         },
         "data_description": {
-          "create_dashboard": "Schakelen om het toegewijde EV Smart Charger Lovelace-dashboard aan te maken of te verwijderen.",
+          "create_dashboard": "Opent de dashboardmaker voor beheerders. Bevestig de aanmaak daar. Bestaande dashboards blijven ongewijzigd.",
           "telemetry_enabled": "Indien ingeschakeld wordt elke 24 uur een anonieme ping (willekeurig installatie-ID, versie, tijdzone, land) verzonden om de ontwikkeling te helpen prioriteren. Standaard uitgeschakeld; er worden geen persoonlijke gegevens verzameld."
         }
       },
@@ -393,13 +393,13 @@
       },
       "dashboard": {
         "title": "Dashboard bijwerken - Stap {step}/{total_steps}",
-        "description": "Schakel het automatisch gegenereerde Lovelace-dashboard in of uit. Uitschakelen verwijdert het uit de zijbalk.",
+        "description": "Kies of je de optionele dashboardinstallatie wilt starten en of je anonieme telemetrie wilt toestaan.",
         "data": {
-          "create_dashboard": "Automatisch zijbalkdashboard genereren",
+          "create_dashboard": "EV Smart Charger-dashboard aanmaken",
           "telemetry_enabled": "Anonieme gebruiksstatistieken delen"
         },
         "data_description": {
-          "create_dashboard": "Indien ingeschakeld wordt een Lovelace-dashboard met alle integratie-entiteiten toegevoegd aan de zijbalk op /ev-smart-charger.",
+          "create_dashboard": "Opent de dashboardmaker voor beheerders. Bevestig de aanmaak daar. Bestaande dashboards blijven ongewijzigd.",
           "telemetry_enabled": "Indien ingeschakeld wordt elke 24 uur een anonieme ping (willekeurig installatie-ID, versie, tijdzone, land) verzonden om de ontwikkeling te helpen prioriteren. Standaard uitgeschakeld; er worden geen persoonlijke gegevens verzameld."
         }
       },
@@ -651,6 +651,11 @@
       },
       "evsc_car_ready_time": {
         "name": "Tijd auto klaar"
+      }
+    },
+    "button": {
+      "build_custom_dashboard": {
+        "name": "Aangepast dashboard maken"
       }
     }
   },

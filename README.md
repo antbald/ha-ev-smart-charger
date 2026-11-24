@@ -86,7 +86,7 @@ Most projects target one charger brand or assume a single-phase home. EV Smart C
 
 ## 📸 Preview
 
-The integration auto-generates a Liquid Glass Lovelace dashboard on first setup. No resource registration, no YAML, no entity mapping. Two tabs at the top split operational controls from configuration knobs — and the whole UI is **fully responsive**, reflowing into a single column on phones with no functional loss.
+The integration can create a Liquid Glass Lovelace dashboard after you opt in during setup or press **Build Custom Dashboard** later. Both lead to a one-time creation screen in your signed-in Home Assistant session. Two tabs at the top split operational controls from configuration knobs — and the whole UI is **fully responsive**, reflowing into a single column on phones with no functional loss.
 
 ### 🖥 Desktop
 
@@ -169,10 +169,10 @@ Type: Integration
 → Install · Restart Home Assistant
 → Settings · Devices & Services · Add Integration · "EV Smart Charger"
 → Walk through the 7-step config wizard
-→ Done — the EV Smart Charger dashboard appears in your sidebar
+→ Optional: select dashboard setup now, or use Build Custom Dashboard later
 ```
 
-The wizard asks for your wallbox switch, current entity, status entity, SOC sensors (EV + optional home battery), solar production, grid import, home consumption, and a PV-forecast sensor. Everything else (~60 helper entities, the dashboard, the priority engine) is generated automatically.
+The wizard asks for your wallbox switch, current entity, status entity, SOC sensors (EV + optional home battery), solar production, grid import, home consumption, and a PV-forecast sensor. The helper entities and priority engine are created automatically; the sidebar dashboard requires an explicit opt-in.
 
 [📖 Full installation guide →](#installation) · [⚙️ Configuration wizard →](#configuration) · [🧠 How it works →](#how-it-works)
 
@@ -391,12 +391,9 @@ No data migration: existing config entries keep working unchanged. To enable thr
 
 ### HACS (Recommended)
 
-1. Open **HACS** in Home Assistant.
-2. Go to **Integrations**.
-3. Open the **Custom Repositories** dialog (three-dot menu).
-4. Add `https://github.com/antbald/ha-ev-smart-charger` as category **Integration**.
-5. Search for `EV Smart Charger` and install it.
-6. Restart Home Assistant.
+1. Open **HACS → Integrations** and search for **EV Smart Charger**.
+2. If it is not listed, use **⋮ → Custom repositories** and add `https://github.com/antbald/ha-ev-smart-charger` as category **Integration**.
+3. Install it and restart Home Assistant.
 
 ### Manual
 
@@ -498,9 +495,9 @@ The energy forecast target is an external helper entity where the integration wr
 
 | Field | Required | Default |
 |---|:---:|---|
-| Auto-generate sidebar dashboard | No | `ON` |
+| Create EV Smart Charger dashboard | No | `OFF` |
 
-When enabled (default), the integration registers the bundled Lovelace card as a resource, creates a panel-mode dashboard at `/ev-smart-charger`, and adds it to the sidebar with the `mdi:ev-station` icon. The card is preloaded with the lowercased `entity_prefix` for this config entry and every sensor you mapped in the previous steps — zero YAML, ready to use the moment the wizard ends. Disable this toggle only if you prefer to add the card to your existing dashboards manually (see [Manual usage](#manual-usage-on-your-own-dashboards) below).
+If you enable this option, open the dashboard-builder link in Home Assistant Notifications, then click **Create dashboard** as an administrator. This creates one panel-mode dashboard at `/ev-smart-charger`, pre-filled with the sensors mapped for this entry. Leave the option off to skip the prompt. You can open it later with **Build Custom Dashboard** on the EV Smart Charger device.
 
 ### Reconfigure
 
@@ -1171,19 +1168,11 @@ The Cached EV SOC component polls the source EV SOC sensor every **5 seconds** a
 
 ## Auto-generated Dashboard
 
-Since **v1.9.0** the integration provisions a Lovelace dashboard for you on first setup — no resource registration, no YAML, no entity mapping. Leave the toggle in [Step 7](#step-7--auto-generated-dashboard) at its default value and a panel-mode dashboard named **EV Smart Charger** appears in your sidebar at `/ev-smart-charger`, fully populated with the entities of the just-configured entry.
+The sidebar dashboard is **optional and off by default**. Choose **Create EV Smart Charger dashboard** in the last setup step, or open **Settings → Devices & Services → EV Smart Charger → device → Configuration** and press **Build Custom Dashboard** as an administrator. Both paths open a prompt in Home Assistant Notifications. Follow **Open the dashboard builder**, then select **Create dashboard**. This final click is required so Lovelace can authorize the active Home Assistant administrator session. The button uses the normal `button.press` action and requires an administrator's user context; it is not a system automation or an EV charging command.
 
-What the integration does for you under the hood:
+Home Assistant's own dashboard API registers the panel and saves the initial view with the bundled card and this entry's sensor mapping. If `/ev-smart-charger` already exists, it stays unchanged, even if it belongs to another EV entry or you have customized it. Updates, restarts, reconfiguration, disabling, and uninstall do not rewrite or delete any dashboard. To remove it, use **Settings → Dashboards**.
 
-1. Registers `/api/ev_smart_charger/frontend/ev-smart-charger-dashboard.js` as a Lovelace `module` resource.
-2. Creates a storage-mode dashboard with `url_path: ev-smart-charger`, `mdi:ev-station` icon, and shows it in the sidebar.
-3. Writes a single panel-mode view containing the EV Smart Charger custom card pre-filled with:
-   - `entity_prefix` derived from this entry's `entry_id` (lowercased, as required since v1.6.23)
-   - every user-mapped sensor from Steps 2–4 (`ev_soc_entity`, `home_battery_soc_entity`, `solar_power_entity`, `grid_import_entity`, `home_consumption_entity`, `charger_status_entity`, `current_entity`, `charger_switch_entity`, `pv_forecast_entity`)
-
-Toggling Step 7 off (initial wizard or via **Reconfigure**) removes the dashboard from the sidebar; toggling it back on recreates it with the current mapping. Multi-entry installs are handled safely: the dashboard is preserved as long as at least one active entry still has the toggle enabled.
-
-> If your Home Assistant runs Lovelace in YAML mode the integration cannot create dashboards programmatically. It will log a warning and you can fall back to [Manual usage](#manual-usage-on-your-own-dashboards) below — the bundled card is still served and works the same way.
+If Lovelace resources are in YAML mode, auto-setup is unavailable; use [manual card setup](#manual-usage-on-your-own-dashboards). If the initial view does not save after creation, finish setup from **Settings → Dashboards**. The charging integration still runs without a dashboard.
 
 ### Look — Liquid Glass iOS 18
 
@@ -1208,7 +1197,7 @@ Click a category to expand its parameters inline; clicking again collapses it. T
 
 ### Manual usage on your own dashboards
 
-If you disabled Step 7 or want the card in an existing dashboard, the bundled module is still served by the integration. Add the resource once:
+If you skip creation or want the card in an existing dashboard, the bundled module is still served. In storage-mode Lovelace, check **Settings → Dashboards → Resources** first: the integration normally registers it for you. For YAML-mode resources, add it once:
 
 ```yaml
 lovelace:
@@ -1217,7 +1206,7 @@ lovelace:
       type: module
 ```
 
-> Replace `1.11.4` with the current `VERSION` from `custom_components/ev_smart_charger/const.py` on every upgrade — otherwise the browser may keep serving the cached previous bundle. The auto-dashboard (enabled by default in Step 7) does this automatically and additionally appends a content-hash buster. See [DEPLOY.md](custom_components/ev_smart_charger/frontend/DEPLOY.md) for the full strategy.
+> Replace `1.11.4` with the current `VERSION` from `custom_components/ev_smart_charger/const.py` on every upgrade — otherwise the browser may keep serving the cached previous bundle. The integration updates its registered resource URL in storage mode and appends a content-hash cache buster, regardless of whether you create the sidebar dashboard. See [DEPLOY.md](custom_components/ev_smart_charger/frontend/DEPLOY.md) for the full strategy.
 
 Then drop the card into any view:
 

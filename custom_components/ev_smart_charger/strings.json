@@ -117,13 +117,13 @@
       },
       "dashboard": {
         "title": "Ready-to-go Dashboard - Step {step}/{total_steps}",
-        "description": "Auto-generate a Lovelace dashboard preloaded with every helper entity from this integration. The dashboard will appear in the sidebar as 'EV Smart Charger' with a glass-style UI inspired by iOS 18. Zero YAML, zero configuration — disable this only if you prefer to wire the card into your own dashboards manually.",
+        "description": "Choose whether to open the optional dashboard setup and whether to allow anonymous telemetry.",
         "data": {
-          "create_dashboard": "Auto-generate sidebar dashboard",
+          "create_dashboard": "Create EV Smart Charger dashboard",
           "telemetry_enabled": "Share anonymous usage statistics"
         },
         "data_description": {
-          "create_dashboard": "When enabled, a dedicated Lovelace panel-mode dashboard is created at /ev-smart-charger and registered as a sidebar entry. Disable to skip dashboard creation (or to remove an existing one).",
+          "create_dashboard": "Opens an administrator-only dashboard builder. You confirm creation there. Existing dashboards are never changed.",
           "telemetry_enabled": "When enabled, an anonymous ping (random installation ID, integration version, timezone, country) is sent once every 24 hours to help prioritise development. Disabled by default; no personal data is collected."
         }
       },
@@ -223,13 +223,13 @@
       },
       "reconfigure_dashboard": {
         "title": "Reconfigure Dashboard - Step {step}/{total_steps}",
-        "description": "Enable or disable the auto-generated Lovelace dashboard for this integration. Disabling removes the dashboard from the sidebar; re-enabling recreates it with the current configuration.",
+        "description": "Choose whether to open the optional dashboard setup and whether to allow anonymous telemetry.",
         "data": {
-          "create_dashboard": "Auto-generate sidebar dashboard",
+          "create_dashboard": "Create EV Smart Charger dashboard",
           "telemetry_enabled": "Share anonymous usage statistics"
         },
         "data_description": {
-          "create_dashboard": "Toggle to create or remove the dedicated EV Smart Charger Lovelace dashboard.",
+          "create_dashboard": "Opens an administrator-only dashboard builder. You confirm creation there. Existing dashboards are never changed.",
           "telemetry_enabled": "When enabled, an anonymous ping (random installation ID, integration version, timezone, country) is sent once every 24 hours to help prioritise development. Disabled by default; no personal data is collected."
         }
       },
@@ -393,13 +393,13 @@
       },
       "dashboard": {
         "title": "Update Dashboard - Step {step}/{total_steps}",
-        "description": "Toggle the auto-generated Lovelace dashboard. Disabling removes it from the sidebar; re-enabling recreates it.",
+        "description": "Choose whether to open the optional dashboard setup and whether to allow anonymous telemetry.",
         "data": {
-          "create_dashboard": "Auto-generate sidebar dashboard",
+          "create_dashboard": "Create EV Smart Charger dashboard",
           "telemetry_enabled": "Share anonymous usage statistics"
         },
         "data_description": {
-          "create_dashboard": "When enabled, a Lovelace dashboard preloaded with all integration entities is added to the sidebar at /ev-smart-charger.",
+          "create_dashboard": "Opens an administrator-only dashboard builder. You confirm creation there. Existing dashboards are never changed.",
           "telemetry_enabled": "When enabled, an anonymous ping (random installation ID, integration version, timezone, country) is sent once every 24 hours to help prioritise development. Disabled by default; no personal data is collected."
         }
       },
@@ -651,6 +651,11 @@
       },
       "evsc_car_ready_time": {
         "name": "Car ready time"
+      }
+    },
+    "button": {
+      "build_custom_dashboard": {
+        "name": "Build Custom Dashboard"
       }
     }
   },

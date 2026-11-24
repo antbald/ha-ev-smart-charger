@@ -21,10 +21,9 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_CREATE_DASHBOARD,
+    CONF_DASHBOARD_BUILD_REQUESTED,
     CONF_TELEMETRY_ENABLED,
     DEFAULT_TELEMETRY_ENABLED,
-    DEFAULT_CREATE_DASHBOARD,
     DEFAULT_NAME,
     DOMAIN,
     FRONTEND_CARD_FILENAME,
@@ -37,8 +36,10 @@ from .const import (
     has_home_battery,
 )
 from .dashboard_manager import (
-    async_ensure_dashboard,
-    async_remove_dashboard,
+    async_ensure_resource,
+    async_offer_dashboard_builder,
+    async_prepare_dashboard_builder,
+    async_remove_dashboard_builder,
 )
 from .automation_coordinator import AutomationCoordinator
 from .charger_controller import ChargerController
@@ -569,43 +570,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime_data.log_manager = log_manager
     runtime_data.diagnostic_manager = diagnostic_manager
 
-    # Register update listener
-    entry.async_on_unload(entry.add_update_listener(_reload_on_update))
+    # The resource allows manual card installation even without a dashboard.
+    # Prepare a hidden builder for the button, without creating a dashboard.
+    try:
+        await async_ensure_resource(hass)
+        if await async_prepare_dashboard_builder(hass, entry):
+            if entry.data.get(CONF_DASHBOARD_BUILD_REQUESTED) is True:
+                async_offer_dashboard_builder(hass, entry)
+    except Exception:
+        _LOGGER.exception("Could not prepare the optional dashboard builder")
 
-    # ========== PHASE 8.5: AUTO-GENERATED LOVELACE DASHBOARD (v1.9.0+) ==========
-    # Ready-to-go sidebar dashboard with all entities preconfigured. Defaults
-    # to True for new entries; existing entries upgraded from <1.9.0 inherit
-    # the default at first reload. The user can opt-out via config/options flow.
-    create_dashboard = entry.data.get(CONF_CREATE_DASHBOARD, DEFAULT_CREATE_DASHBOARD)
-    if create_dashboard:
-        _LOGGER.info("📊 Phase 8.5: Auto-generating Lovelace dashboard")
-        try:
-            await async_ensure_dashboard(hass, entry)
-        except Exception as err:
-            # Never block setup on dashboard creation — log and continue.
-            _LOGGER.warning("Auto-dashboard bootstrap failed: %s", err)
-    else:
-        # Multi-entry guard: only remove the dashboard if NO other active
-        # EV Smart Charger entry still has create_dashboard=True. Otherwise
-        # disabling one entry would destroy a dashboard the other relies on.
-        keep_dashboard = any(
-            e.data.get(CONF_CREATE_DASHBOARD, DEFAULT_CREATE_DASHBOARD)
-            for e in hass.config_entries.async_entries(DOMAIN)
-            if e.entry_id != entry.entry_id and not e.disabled_by
-        )
-        if keep_dashboard:
-            _LOGGER.info(
-                "📊 Phase 8.5: Auto-dashboard disabled for this entry, but "
-                "another active entry still uses it — keeping in place"
-            )
-        else:
-            _LOGGER.info(
-                "📊 Phase 8.5: Auto-dashboard disabled — removing if present"
-            )
-            try:
-                await async_remove_dashboard(hass)
-            except Exception as err:
-                _LOGGER.warning("Auto-dashboard cleanup failed: %s", err)
+    # An explicit setup request is only an invitation to open the builder, not
+    # authorization to impersonate an administrator or recreate on restart.
+    if CONF_DASHBOARD_BUILD_REQUESTED in entry.data:
+        data = dict(entry.data)
+        data.pop(CONF_DASHBOARD_BUILD_REQUESTED)
+        hass.config_entries.async_update_entry(entry, data=data)
+
+    entry.async_on_unload(entry.add_update_listener(_reload_on_update))
 
     # ========== PHASE 9: ANONYMOUS TELEMETRY ==========
     # Previous attempts (v1.6.10/v1.6.11) tried to defer the first ping until HA
@@ -759,20 +741,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("🗑️  Unloading platforms")
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    # Auto-generated dashboard cleanup — only remove when this is the last
-    # active entry. The resource stays registered if other entries remain.
-    remaining_entries = [
-        e
-        for e in hass.config_entries.async_entries(DOMAIN)
-        if e.entry_id != entry.entry_id and not e.disabled_by
-    ]
-    if not remaining_entries:
-        try:
-            await async_remove_dashboard(hass, remove_resource=True)
-        except Exception as err:
-            _LOGGER.warning("Auto-dashboard removal during unload failed: %s", err)
-
+    # Leave all real dashboards and their resource alone. Only release our
+    # temporary, separately named builder panel and its notification.
     if unload_ok:
+        async_remove_dashboard_builder(hass, entry)
         entry.runtime_data = None
         _LOGGER.info("=" * 64)
         _LOGGER.info("✅ EV Smart Charger - Unloaded successfully")

@@ -1,25 +1,7 @@
-"""Auto-bootstrap a ready-to-go Lovelace dashboard for EV Smart Charger.
+"""Build an optional dashboard using Home Assistant's live Lovelace collection.
 
-This module wires the bundled `ev-smart-charger-dashboard.js` custom card into
-Home Assistant with zero user action:
-
-1. Registers the JS module as a Lovelace `resource` (so the custom element is
-   loaded by the frontend).
-2. Creates a dedicated storage-mode Lovelace dashboard that shows up in the
-   sidebar as "EV Smart Charger".
-3. Pre-populates the card config with the lowercased `entity_prefix` and every
-   user-mapped sensor pulled directly from the config entry data.
-
-Lovelace internals (`hass.data[LOVELACE_DATA]`) are technically not a public
-API. Modern HA cores expose only `LovelaceData(resource_mode, dashboards,
-resources, yaml_dashboards)` — the storage-mode `DashboardsCollection` is a
-local variable in HA's lovelace.__init__ and cannot be reused from outside.
-
-v1.9.1 strategy: bypass the collection entirely. We persist the dashboard
-ourselves by writing two `Store` files (the same backend the collection uses)
-and then live-register the sidebar panel via `frontend.async_register_built_in_panel`.
-Persistence is performed **before** any live-wiring so even if the in-memory
-hooks fail, a simple HA restart picks up the dashboard correctly.
+Never open dashboard storage or remove, replace, or repair an existing panel.
+The shared resource can be installed separately for users who only want the card.
 """
 from __future__ import annotations
 
@@ -28,29 +10,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from homeassistant.components import frontend
+from homeassistant.components import frontend, panel_custom, persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.storage import Store
-
-try:  # pragma: no cover - import guarded across HA versions
-    from homeassistant.components.lovelace.const import (
-        CONFIG_STORAGE_VERSION_MAJOR,
-        CONFIG_STORAGE_VERSION_MINOR,
-    )
-except ImportError:  # pragma: no cover
-    CONFIG_STORAGE_VERSION_MAJOR = 1
-    CONFIG_STORAGE_VERSION_MINOR = 1
-
 try:  # pragma: no cover - HassKey added in mid-2024 HA cores
     from homeassistant.components.lovelace.const import LOVELACE_DATA
 except ImportError:  # pragma: no cover
     LOVELACE_DATA = "lovelace"
-
-try:  # pragma: no cover - direct module access for in-memory renderer seed
-    from homeassistant.components.lovelace.dashboard import LovelaceStorage
-except ImportError:  # pragma: no cover
-    LovelaceStorage = None  # type: ignore[assignment,misc]
 
 from .const import (
     CONF_BATTERY_POWER,
@@ -89,15 +55,11 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-LOVELACE_REGISTRY_KEY = "lovelace_dashboards"
-LOVELACE_REGISTRY_VERSION = 1
-LOVELACE_PANEL_COMPONENT = "lovelace"
-
 _FRONTEND_DIR = Path(__file__).parent / "frontend"
 _BUNDLE_PATH = _FRONTEND_DIR / FRONTEND_CARD_FILENAME
-
-# Tracks whether the diagnostic probe has been logged for an entry already.
-_PROBE_LOGGED: set[str] = set()
+_BUILDER_COMPONENT = "evsc-dashboard-builder"
+_BUILDER_FILENAME = "evsc-dashboard-builder.js"
+_BUILDER_OWNER = "_dashboard_builders"
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +152,8 @@ def _lovelace_resource_mode(hass: HomeAssistant) -> str | None:
     lovelace = _lovelace_data(hass)
     if lovelace is None:
         return None
+    if isinstance(lovelace, dict):
+        return lovelace.get("resource_mode") or lovelace.get("mode")
     return getattr(lovelace, "resource_mode", None) or getattr(lovelace, "mode", None)
 
 
@@ -344,42 +308,6 @@ async def async_ensure_resource(hass: HomeAssistant) -> bool:
         return False
 
 
-async def async_remove_resource_if_unused(hass: HomeAssistant) -> None:
-    """Remove the resource only when no EV Smart Charger entry remains."""
-    other_entries = [
-        e for e in hass.config_entries.async_entries(DOMAIN) if not e.disabled_by
-    ]
-    if other_entries:
-        _LOGGER.debug(
-            "Keeping Lovelace resource — %d other %s entries still active",
-            len(other_entries),
-            DOMAIN,
-        )
-        return
-
-    resources = _get_resources(hass)
-    if resources is None:
-        return
-
-    # Use bare path for dedup (ignores ?v=&h= so we find the resource regardless
-    # of which version/hash registered it). We log the would-be-current URL for
-    # readability — see _build_resource_url for the format.
-    base_url = f"{FRONTEND_URL_BASE}/{FRONTEND_CARD_FILENAME}"
-    items = _resource_items(resources)
-    existing = next(
-        (item for item in items if str(item.get("url", "")).split("?")[0] == base_url),
-        None,
-    )
-    if existing is None:
-        return
-
-    try:
-        await resources.async_delete_item(existing["id"])
-        _LOGGER.info("🗑️  Removed Lovelace resource: %s", existing.get("url"))
-    except Exception as err:  # pragma: no cover - defensive
-        _LOGGER.warning("Failed to remove Lovelace resource: %s", err)
-
-
 def _resource_items(resources: Any) -> list[dict[str, Any]]:
     """Return the resource items list across collection implementations."""
     if hasattr(resources, "async_items"):
@@ -397,360 +325,56 @@ def _resource_items(resources: Any) -> list[dict[str, Any]]:
     return []
 
 
-# ---------------------------------------------------------------------------
-# Dashboard registry (bypasses DashboardsCollection — see module docstring)
-# ---------------------------------------------------------------------------
+
+def _builder_path(entry: ConfigEntry) -> str:
+    """Stable private-builder route, independent of the actual dashboard."""
+    return f"evsc-dashboard-builder-{entry.entry_id.lower()}"
 
 
-async def _load_registry(hass: HomeAssistant) -> tuple[Store, dict[str, Any]]:
-    """Open the `lovelace_dashboards` Store and return (store, data).
-
-    Data structure is HA StorageCollection's standard `{"items": [...]}` shape.
-    Fresh stores load as None — we normalise to an empty items list.
-    """
-    store = Store(hass, LOVELACE_REGISTRY_VERSION, LOVELACE_REGISTRY_KEY)
-    data = await store.async_load() or {}
-    if not isinstance(data, dict):
-        data = {}
-    if "items" not in data or not isinstance(data["items"], list):
-        data["items"] = []
-    return store, data
-
-
-def _upsert_registry_item(
-    items: list[dict[str, Any]], url_path: str
-) -> tuple[dict[str, Any], bool]:
-    """Insert or refresh the dashboard registry entry.
-
-    Returns ``(item_dict, created_new)``. For storage-mode dashboards HA uses
-    ``id == url_path`` (see ``_get_suggested_id`` upstream). Existing items
-    have their managed fields refreshed but any extra keys (added by HA in
-    future versions, or by user edits) are preserved.
-    """
-    managed_fields = {
-        "id": url_path,
-        "url_path": url_path,
-        "title": DASHBOARD_TITLE,
-        "icon": DASHBOARD_ICON,
-        "show_in_sidebar": True,
-        "require_admin": False,
-        "mode": "storage",
-    }
-    for item in items:
-        if item.get("url_path") == url_path:
-            # Refresh managed fields; preserve user-added keys.
-            for key, value in managed_fields.items():
-                if key == "id":
-                    continue  # never touch the existing id
-                item[key] = value
-            return item, False
-    items.append(managed_fields)
-    return managed_fields, True
-
-
-def _we_own_this_dashboard(item: dict[str, Any]) -> bool:
-    """Safety gate: refuse to clobber a foreign dashboard at the same url_path.
-
-    We "own" a dashboard only when its mode is storage AND its icon+title
-    match our defaults. Users who rename the dashboard from the UI forfeit
-    automatic updates — that is an acceptable tradeoff vs accidentally
-    destroying their content.
-    """
-    if item.get("mode") != "storage":
+async def async_prepare_dashboard_builder(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Register a hidden, administrator-only panel; never write Lovelace data."""
+    if _get_dashboards_map(hass) is None or _lovelace_resource_mode(hass) == "yaml":
         return False
-    if item.get("icon") != DASHBOARD_ICON:
-        return False
-    if item.get("title") != DASHBOARD_TITLE:
-        return False
-    return True
-
-
-# ---------------------------------------------------------------------------
-# Lovelace dashboard creation
-# ---------------------------------------------------------------------------
-
-
-def _log_probe(
-    entry_id: str,
-    ll_data: Any,
-    dashboards_map: Any,
-    has_existing_item: bool,
-) -> None:
-    """Single-shot diagnostic line per entry. Helps remote triage of v1.9.x."""
-    if entry_id in _PROBE_LOGGED:
-        return
-    _PROBE_LOGGED.add(entry_id)
-    _LOGGER.info(
-        "EVSC dashboard probe: ll_data=%s resource_mode=%s lovelace_storage_import=%s "
-        "dashboards_map=%s registry_has_item=%s",
-        type(ll_data).__name__ if ll_data is not None else "None",
-        getattr(ll_data, "resource_mode", None) or getattr(ll_data, "mode", None),
-        LovelaceStorage is not None,
-        "present" if dashboards_map is not None else "missing",
-        has_existing_item,
+    path = _builder_path(entry)
+    owned = hass.data.setdefault(DOMAIN, {}).setdefault(_BUILDER_OWNER, {})
+    panels = hass.data.get(frontend.DATA_PANELS, {})
+    if path in panels:
+        return owned.get(path) is panels[path]
+    await panel_custom.async_register_panel(
+        hass,
+        frontend_url_path=path,
+        webcomponent_name=_BUILDER_COMPONENT,
+        module_url=f"{FRONTEND_URL_BASE}/{_BUILDER_FILENAME}?v={VERSION}",
+        require_admin=True,
+        config={
+            "dashboardPath": DASHBOARD_URL_PATH,
+            "title": DASHBOARD_TITLE,
+            "icon": DASHBOARD_ICON,
+            "layout": _build_dashboard_view(entry),
+        },
     )
-
-
-async def async_ensure_dashboard(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Create or refresh the auto-generated EV Smart Charger dashboard.
-
-    Persistence first (Store writes survive any live-wiring failure), live
-    sidebar registration second. The dashboard is always available after at
-    most one HA restart, even when the live calls fail.
-    """
-    ll_data = _lovelace_data(hass)
-
-    # Step 1: hard prerequisite — Lovelace must have set up its data container.
-    if ll_data is None:
-        _LOGGER.info(
-            "Lovelace data unavailable at setup time — auto-dashboard will "
-            "appear at next HA restart if the resource is registered."
-        )
-        return False
-
-    # Step 2: YAML mode rejects all mutations to dashboards/resources.
-    resource_mode = _lovelace_resource_mode(hass)
-    if resource_mode == "yaml":
-        resource_url = await _build_resource_url(hass)
-        _LOGGER.info(
-            "Lovelace runs in YAML mode — auto-dashboard skipped. Add the "
-            "resource %s and the card manually in your YAML config.",
-            resource_url,
-        )
-        return False
-
-    # Step 3: best-effort resource registration. Never blocks on this.
-    await async_ensure_resource(hass)
-
-    # Step 4–5: load the registry and prepare the upsert.
-    try:
-        store_reg, data = await _load_registry(hass)
-    except Exception as err:  # pragma: no cover - defensive
-        _LOGGER.warning("Failed to load dashboard registry: %s", err)
-        return False
-
-    items = data["items"]
-    item, created_new = _upsert_registry_item(items, DASHBOARD_URL_PATH)
-
-    # Diagnostic single-shot probe (helps remote debugging).
-    dashboards_map = _get_dashboards_map(hass)
-    _log_probe(entry.entry_id, ll_data, dashboards_map, not created_new)
-
-    # Step 6: safety — refuse to touch a foreign dashboard at the same path.
-    if not created_new and not _we_own_this_dashboard(item):
-        _LOGGER.warning(
-            "A dashboard at url_path '%s' already exists with title='%s' "
-            "icon='%s' mode='%s' — refusing to overwrite. Disable the "
-            "auto-dashboard option or rename the existing dashboard.",
-            DASHBOARD_URL_PATH,
-            item.get("title"),
-            item.get("icon"),
-            item.get("mode"),
-        )
-        return False
-
-    # Step 7: persistence — registry. From here on the next HA restart
-    # produces a working dashboard regardless of subsequent failures.
-    try:
-        await store_reg.async_save(data)
-    except Exception as err:  # pragma: no cover - defensive
-        _LOGGER.warning("Failed to save dashboard registry: %s", err)
-        return False
-
-    # Step 8: persistence — content.
-    if not await _save_dashboard_config(hass, entry):
-        # We still consider the dashboard "ensured" because the registry
-        # entry is saved; HA will create an empty dashboard on first open.
-        _LOGGER.info(
-            "Dashboard registry saved but content write failed — "
-            "dashboard may appear empty until next reload."
-        )
-
-    # Step 9: live in-memory seed of the LovelaceStorage renderer so the
-    # websocket lovelace_config handler can serve it without a restart.
-    if (
-        dashboards_map is not None
-        and LovelaceStorage is not None
-        and DASHBOARD_URL_PATH not in dashboards_map
-    ):
-        try:
-            dashboards_map[DASHBOARD_URL_PATH] = LovelaceStorage(hass, item)
-        except Exception as err:  # pragma: no cover - defensive
-            _LOGGER.info(
-                "LovelaceStorage live seed failed (%s) — dashboard will "
-                "appear at next HA restart.",
-                err,
-            )
-
-    # Step 10: register the sidebar panel for live update.
-    panel_kwargs = {
-        "frontend_url_path": DASHBOARD_URL_PATH,
-        "require_admin": False,
-        "show_in_sidebar": True,
-        "sidebar_title": DASHBOARD_TITLE,
-        "sidebar_icon": DASHBOARD_ICON,
-        "config": {"mode": "storage"},
-    }
-    try:
-        frontend.async_register_built_in_panel(
-            hass, LOVELACE_PANEL_COMPONENT, update=not created_new, **panel_kwargs
-        )
-        _LOGGER.info(
-            "🆕 Dashboard '%s' ready in sidebar (created=%s)",
-            DASHBOARD_TITLE,
-            created_new,
-        )
-    except ValueError:
-        # Stale panel registration from a previous failed run: remove + retry.
-        try:
-            frontend.async_remove_panel(
-                hass, DASHBOARD_URL_PATH, warn_if_unknown=False
-            )
-            frontend.async_register_built_in_panel(
-                hass, LOVELACE_PANEL_COMPONENT, update=False, **panel_kwargs
-            )
-            _LOGGER.info(
-                "🆕 Dashboard '%s' re-registered in sidebar after stale state",
-                DASHBOARD_TITLE,
-            )
-        except Exception as err:  # pragma: no cover - defensive
-            _LOGGER.info(
-                "Sidebar panel registration retry failed (%s) — dashboard "
-                "will appear at next HA restart.",
-                err,
-            )
-    except Exception as err:  # pragma: no cover - defensive
-        _LOGGER.info(
-            "Sidebar panel registration failed (%s) — dashboard will "
-            "appear at next HA restart.",
-            err,
-        )
-
+    owned[path] = hass.data[frontend.DATA_PANELS][path]
     return True
 
 
-async def _save_dashboard_config(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> bool:
-    """Persist the panel-mode view + card config into the dashboard store.
-
-    Strategy:
-    1. If the live `LovelaceStorage` renderer is already loaded, call its
-       `async_save()` so in-memory state matches the persisted file.
-    2. Otherwise write directly through `Store(hass, 1, "lovelace.<url>")`
-       wrapping as `{"config": ...}` — the same shape `LovelaceStorage` uses.
-    """
-    config = _build_dashboard_view(entry)
-
-    dashboards_map = _get_dashboards_map(hass)
-    dashboard = None
-    if dashboards_map is not None:
-        try:
-            dashboard = dashboards_map.get(DASHBOARD_URL_PATH)
-        except Exception:  # pragma: no cover - defensive
-            dashboard = None
-
-    if dashboard is not None and hasattr(dashboard, "async_save"):
-        try:
-            await dashboard.async_save(config)
-            _LOGGER.info(
-                "✏️  Dashboard '%s' content populated via live renderer",
-                DASHBOARD_TITLE,
-            )
-            return True
-        except Exception as err:  # pragma: no cover - defensive
-            _LOGGER.debug(
-                "Live dashboard save failed (%s), falling back to Store", err
-            )
-
-    storage_key = f"lovelace.{DASHBOARD_URL_PATH}"
-    try:
-        store = Store(
-            hass,
-            CONFIG_STORAGE_VERSION_MAJOR,
-            storage_key,
-            minor_version=CONFIG_STORAGE_VERSION_MINOR,
-        )
-    except TypeError:
-        store = Store(hass, CONFIG_STORAGE_VERSION_MAJOR, storage_key)
-
-    try:
-        await store.async_save({"config": config})
-        _LOGGER.info(
-            "✏️  Dashboard '%s' content written to .storage/%s",
-            DASHBOARD_TITLE,
-            storage_key,
-        )
-        return True
-    except Exception as err:  # pragma: no cover - defensive
-        _LOGGER.warning("Failed to persist dashboard config to store: %s", err)
-        return False
+def async_remove_dashboard_builder(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Release only the integration's transient setup panel, never a dashboard."""
+    path = _builder_path(entry)
+    owned = hass.data.get(DOMAIN, {}).get(_BUILDER_OWNER, {})
+    panel = owned.pop(path, None)
+    if panel is not None and hass.data.get(frontend.DATA_PANELS, {}).get(path) is panel:
+        frontend.async_remove_panel(hass, path)
+    persistent_notification.async_dismiss(hass, path)
 
 
-# ---------------------------------------------------------------------------
-# Lovelace dashboard removal
-# ---------------------------------------------------------------------------
-
-
-async def async_remove_dashboard(
-    hass: HomeAssistant, *, remove_resource: bool = False
-) -> None:
-    """Remove the auto-generated dashboard (and optionally the resource).
-
-    Each step is wrapped independently — a partial failure in one block does
-    not strand the next. Order reverses ``async_ensure_dashboard``.
-    """
-    # Step 1: unregister sidebar panel (live update).
-    try:
-        frontend.async_remove_panel(
-            hass, DASHBOARD_URL_PATH, warn_if_unknown=False
-        )
-    except Exception as err:  # pragma: no cover - defensive
-        _LOGGER.debug("async_remove_panel raised (ignored): %s", err)
-
-    # Step 2: pop in-memory LovelaceStorage renderer + delete content file
-    # via its own async_delete (cleanest path).
-    dashboards_map = _get_dashboards_map(hass)
-    content_handled = False
-    if dashboards_map is not None:
-        try:
-            dashboard_obj = dashboards_map.pop(DASHBOARD_URL_PATH, None)
-            if dashboard_obj is not None and hasattr(dashboard_obj, "async_delete"):
-                await dashboard_obj.async_delete()
-                content_handled = True
-        except Exception as err:  # pragma: no cover - defensive
-            _LOGGER.debug("Live dashboard async_delete failed: %s", err)
-
-    # Step 3: fallback content-file removal if step 2 didn't run async_delete.
-    if not content_handled:
-        try:
-            content_store = Store(
-                hass,
-                CONFIG_STORAGE_VERSION_MAJOR,
-                f"lovelace.{DASHBOARD_URL_PATH}",
-            )
-            await content_store.async_remove()
-        except Exception as err:  # pragma: no cover - defensive
-            _LOGGER.debug("Content store async_remove failed: %s", err)
-
-    # Step 4: registry — drop our item and save back the surviving list.
-    try:
-        store_reg, data = await _load_registry(hass)
-        items = data["items"]
-        new_items = [i for i in items if i.get("url_path") != DASHBOARD_URL_PATH]
-        if len(new_items) != len(items):
-            data["items"] = new_items
-            await store_reg.async_save(data)
-            _LOGGER.info(
-                "🗑️  Removed Lovelace dashboard '%s' from registry",
-                DASHBOARD_TITLE,
-            )
-    except Exception as err:  # pragma: no cover - defensive
-        _LOGGER.warning("Failed to update dashboard registry on remove: %s", err)
-
-    # Step 5: optional resource cleanup (only when this was the last entry).
-    if remove_resource:
-        try:
-            await async_remove_resource_if_unused(hass)
-        except Exception as err:  # pragma: no cover - defensive
-            _LOGGER.warning("Resource cleanup failed: %s", err)
+def async_offer_dashboard_builder(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Link the administrator to the native, authenticated creation step."""
+    path = _builder_path(entry)
+    persistent_notification.async_create(
+        hass,
+        f"[Open the dashboard builder](/{path}), then select **Create dashboard**. "
+        "This uses your Home Assistant administrator session. If the dashboard "
+        "already exists, the builder leaves it unchanged.",
+        title="EV Smart Charger: finish dashboard setup",
+        notification_id=path,
+    )

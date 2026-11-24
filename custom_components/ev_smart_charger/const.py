@@ -2,7 +2,7 @@
 
 # ========== INTEGRATION METADATA ==========
 DOMAIN = "ev_smart_charger"
-VERSION = "2.16.3"
+VERSION = "2.16.4"
 DEFAULT_NAME = "EV Smart Charger"
 FRONTEND_URL_BASE = "/api/ev_smart_charger/frontend"
 FRONTEND_CARD_FILENAME = "ev-smart-charger-dashboard.js"
@@ -17,7 +17,7 @@ DASHBOARD_ICON = "mdi:ev-station"
 DASHBOARD_RESOURCE_KEY = f"{DOMAIN}_auto_dashboard"
 
 # ========== PLATFORMS ==========
-PLATFORMS = ["switch", "number", "select", "sensor", "time"]
+PLATFORMS = ["switch", "number", "select", "sensor", "time", "button"]
 
 # ========== AUTOMATION PRIORITIES ==========
 PRIORITY_OVERRIDE = 1  # Forza Ricarica (kill switch)
@@ -191,7 +191,10 @@ CONF_ENERGY_FORECAST_TARGET = "energy_forecast_target"
 
 # Auto-generated Dashboard (v1.9.0+)
 CONF_CREATE_DASHBOARD = "create_dashboard"
-DEFAULT_CREATE_DASHBOARD = True
+DEFAULT_CREATE_DASHBOARD = False
+# v2.16.4: old entries used an implicit true default. Only treat the new
+# one-shot flag as fresh, explicit consent to create a dashboard.
+CONF_DASHBOARD_BUILD_REQUESTED = "dashboard_build_requested"
 
 # Anonymous telemetry — strictly opt-in (v2.16.0+), default OFF
 CONF_TELEMETRY_ENABLED = "telemetry_enabled"
@@ -579,7 +582,8 @@ HYBRID_STATE_HARD_EXIT = "HARD_EXIT"
 # startup path back into a hard ConfigEntryNotReady. Keep this in sync.
 # v2.13.0 adds 1 always-created number (evsc_offgrid_max_amperage) → 74.
 # v2.15.0 (issue #68) adds 3 Boost protection switches + 1 number → 78.
-TOTAL_INTEGRATION_ENTITIES = 78
+# v2.16.4 adds one configuration button → 79 / 64.
+TOTAL_INTEGRATION_ENTITIES = 79
 # Verified count (v2.3.0): 53 entities when running in PV-only mode.
 # Unchanged in v2.1.0: the discharge number is battery-only (skipped in PV-only mode).
 # v2.3.0 (issue #32): evsc_night_pv_handoff_threshold is NOT battery-only → +1 → 53.
@@ -595,7 +599,7 @@ TOTAL_INTEGRATION_ENTITIES = 78
 # v2.13.0 (issue #57): the off-grid amperage cap is NOT battery-only → +1 → 60.
 # v2.15.0 (issue #68): grid-loss + stale-SOC switches and the stale-SOC minutes
 # number are NOT battery-only (+3); the home-battery protection switch is → 63.
-TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 63
+TOTAL_INTEGRATION_ENTITIES_NO_BATTERY = 64
 
 
 def uses_charger_buttons(config: dict) -> bool:

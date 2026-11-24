@@ -3,6 +3,8 @@ pytest
 # verified green against. An unpinned range lets CI pull a newer HA whose
 # entity/selector behaviour differs and silently reintroduces failures.
 pytest-homeassistant-custom-component==0.12.49
+# HA 2023.1 imports pkg_resources, removed from newer setuptools.
+setuptools<81
 pytest-asyncio
 pytest-cov
 # Required to set up the `http` dependency declared in manifest.json during

@@ -87,13 +87,13 @@ If the version logged differs from `manifest.json:version`, the user is loading 
 
 2. **The URL is correct but the browser loads old JS.** Hard refresh (Ctrl+Shift+R / Cmd+Shift+R) once. If it then works, the previous fetch was held in the browser's memory cache (not the disk cache the version query bypasses). This is a one-time symptom across HA restarts; subsequent reloads work normally.
 
-3. **The console log shows an old version even after hard refresh.** The card config wasn't regenerated. Reload the integration (Settings → Devices & Services → ⋮ next to "EV Smart Charger" → Reload). The auto-dashboard rewrites the storage file with the new `_build_version`.
+3. **The console log shows an old card configuration version after a hard refresh.** Existing dashboard content is deliberately not rewritten on upgrade. Confirm the actual module URL and response in DevTools Network. If you choose to update the optional `_build_version` annotation in a saved card, edit it in the Home Assistant dashboard UI.
 
-### "I disabled the auto-dashboard and the manual snippet shows the old UI"
+## "I disabled the auto-dashboard and the manual snippet shows the old UI"
 
 The manual YAML snippet must be updated by the user on every release — it's a static string in their config. Either:
 
-- Re-enable Step 7 (auto-dashboard) so the integration manages the resource URL for you, or
+- In storage-mode Lovelace, check the resource URL registered by the integration, or
 - Update your `lovelace.resources` entry to bump the `?v=` query string yourself on every upgrade.
 
 The bundled card's `console.info` log will still show `[EVSC Dashboard] build version: unknown` for manual setups that omit `_build_version` from the card YAML — that's expected and harmless (the version is informational only at the JS layer).

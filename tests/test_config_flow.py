@@ -443,5 +443,6 @@ def test_entity_counts_v230():
     # v2.11.0 adds 1 always-created switch (force charge auto-disarm) → 73 / 59.
     # v2.13.0 (issue #57) adds 1 always-created number (off-grid max amperage) → 74 / 60.
     # v2.15.0 (issue #68) adds 3 Boost protection switches + 1 number → 78 / 63.
-    assert TOTAL_INTEGRATION_ENTITIES == 78
-    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 63
+    # v2.16.4 adds the optional dashboard builder button → 79 / 64.
+    assert TOTAL_INTEGRATION_ENTITIES == 79
+    assert TOTAL_INTEGRATION_ENTITIES_NO_BATTERY == 64
