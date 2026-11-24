@@ -7,9 +7,13 @@ from datetime import datetime
 import re
 from typing import Optional
 
-import async_timeout
 from homeassistant.util import dt as dt_util
 from homeassistant.core import HomeAssistant
+
+try:
+    from asyncio import timeout as _service_timeout
+except ImportError:  # Python 3.10, used by the pinned legacy test suite
+    from async_timeout import timeout as _service_timeout
 
 from .const import (
     CHARGER_AMPERAGE_STABILIZATION_DELAY,
@@ -737,7 +741,7 @@ class ChargerController:
     ):
         """Call a Home Assistant service with timeout and error handling."""
         try:
-            async with async_timeout.timeout(SERVICE_CALL_TIMEOUT):
+            async with _service_timeout(SERVICE_CALL_TIMEOUT):
                 await self.hass.services.async_call(
                     domain,
                     service,

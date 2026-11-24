@@ -27,3 +27,7 @@ The Python test exercises registered Lovelace WebSocket commands through
 Home Assistant Core with administrator and read-only accounts. The
 JavaScript test asserts that duplicates, permission errors and failed
 creation never fall through to the save.
+
+On current HA/Python, charger service timeouts use the Python standard library.
+The inherited `async_timeout` dependency is only used by the pinned Python
+3.10 test environment and is not required on a stock modern HA install.
