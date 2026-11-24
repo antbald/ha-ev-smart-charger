@@ -7,8 +7,8 @@ Make EV charging work with your home's energy in Home Assistant. Use excess sola
 ## Compatibility
 
 - **Home Assistant Core 2024.4+**. The optional iPhone Live Activities feature requires **Core 2026.7+**, **iOS 17.2+**, and a compatible Home Assistant Companion App.
-- A Home Assistant integration for your wallbox, local or cloud. The wallbox must expose a start/stop switch, a status sensor, and an adjustable current entity: `number`, `input_number`, `select`, or `input_select`.
-- Map your EV battery percentage and solar production, household consumption, and grid power sensors. Home battery SOC and solar forecast are optional. See [full prerequisites and setup](https://github.com/antbald/ha-ev-smart-charger/blob/master/docs/user-guide.md#configuration).
+- A Home Assistant integration for your wallbox, local or cloud. The wallbox needs an on/off switch **or both Start and Stop buttons**, plus an adjustable current entity: `number`, `input_number`, `select`, or `input_select`. A charger status sensor is optional but strongly recommended with buttons.
+- Map your EV battery percentage and solar production, household consumption, and grid power sensors. Home battery SOC and solar forecast are optional. See [full prerequisites and setup](https://github.com/antbald/ha-ev-smart-charger/blob/master/docs/user-guide.md#requirements).
 
 ## Install
 
