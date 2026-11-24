@@ -20,8 +20,18 @@ export async function buildDashboard(hass, settings) {
     title: settings.title, icon: settings.icon,
     show_in_sidebar: true, require_admin: false,
   });
-  if (created?.url_path !== path || created?.id !== path) {
+  if (created?.url_path !== path || typeof created?.id !== "string" || !created.id) {
     throw new Error("Could not verify the newly created dashboard. Check Settings > Dashboards.");
+  }
+
+  // The native registry ID can differ from the URL slug (for example,
+  // ev_smart_charger on current HA). Re-list to confirm the live renderer
+  // belongs to the exact entry returned by create, never a racing entry.
+  const liveDashboards = await hass.callWS({ type: "lovelace/dashboards/list" });
+  const matches = Array.isArray(liveDashboards)
+    ? liveDashboards.filter(({ url_path }) => url_path === path) : [];
+  if (matches.length !== 1 || matches[0].id !== created.id) {
+    throw new Error("The new dashboard could not be verified. Check Settings > Dashboards.");
   }
 
   // Guard against attaching initial content to a dashboard that another admin
